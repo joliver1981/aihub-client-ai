@@ -1,0 +1,220 @@
+{
+ "stamp": "20260826_213446",
+ "tier": "A",
+ "results": [
+  {
+   "id": "a1_global_auth_middleware_wired",
+   "status": "XFAIL",
+   "evidence": "middleware-module-present=True, init_auth_middleware called by=['app.py'], anon GET /api/scheduler/jobs -> 200 49211b (reachable=True)",
+   "duration_s": 2.5
+  },
+  {
+   "id": "a2_allowlist_contract",
+   "status": "PASS",
+   "evidence": "allowlist=11 (pinned 11); ADDED=none; removed=none",
+   "duration_s": 0.0
+  },
+  {
+   "id": "a3_dry_run_disabled",
+   "status": "XFAIL",
+   "evidence": "env='true', .env=AUTH_MIDDLEWARE_DRY_RUN=true (must not be true)",
+   "duration_s": 0.0
+  },
+  {
+   "id": "a4_login_rejects_bad_password",
+   "status": "PASS",
+   "evidence": "authenticated-with-wrong-password=False (must be False)",
+   "duration_s": 2.4
+  },
+  {
+   "id": "a5_anonymous_browser_redirects",
+   "status": "PASS",
+   "evidence": "landed=http://localhost:5001/login?next=%2Fusers, http=200",
+   "duration_s": 2.1
+  },
+  {
+   "id": "a6_anonymous_api_401",
+   "status": "PASS",
+   "evidence": "http=401 (want 401/403)",
+   "duration_s": 2.0
+  },
+  {
+   "id": "a7_session_cookie_flags",
+   "status": "PASS",
+   "evidence": "HttpOnly=True, SameSite=False, hdr='session=.eJwljzFuQzEMQ-_iOYNk2ZKVy3xIlowWAVrg_2QKcvca6EZyIB_f5VhnXl_l_jxfeSvHd5R7qaQSAcMiR'",
+   "duration_s": 4.5
+  },
+  {
+   "id": "a8_logout_invalidates_session",
+   "status": "PASS",
+   "evidence": "pre-logout http=200, post-logout http=401, still-readable=False",
+   "duration_s": 4.5
+  },
+  {
+   "id": "a9_role1_blocked_from_admin",
+   "status": "PASS",
+   "evidence": "blocked={'users_page': True, 'save_workflow': True, 'automations_create': True}",
+   "duration_s": 5.0
+  },
+  {
+   "id": "a10_bad_api_key_rejected",
+   "status": "PASS",
+   "evidence": "http=401 (want 401/403)",
+   "duration_s": 2.1
+  },
+  {
+   "id": "a11_anonymous_get_sweep_ratchet",
+   "status": "PASS",
+   "evidence": "probed=236, ANONYMOUSLY REACHABLE=29 vs pinned 29 (ratchet: must not grow - PASS is NOT 'no problem'), errors=0, cleaned-up-minted-rows=0; first: /, /admin/caution-settings, /api/available-icons, /api/caution/level, /api/caution/levels, /api/caution/user",
+   "duration_s": 61.9
+  },
+  {
+   "id": "b1_role1_cannot_escalate_own_role",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "b2_no_horizontal_agent_access",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "b3_anonymous_write_actually_persists",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "b4_unauth_sensitive_reads",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "b5_role1_write_sweep",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "b6_sweep_reachable_are_harmless",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  }
+ ],
+ "sweep": [
+  [
+   "/",
+   "200 20459b"
+  ],
+  [
+   "/admin/caution-settings",
+   "200 24974b"
+  ],
+  [
+   "/api/available-icons",
+   "200 587b"
+  ],
+  [
+   "/api/caution/level",
+   "200 72b"
+  ],
+  [
+   "/api/caution/levels",
+   "200 73b"
+  ],
+  [
+   "/api/caution/user",
+   "200 94b"
+  ],
+  [
+   "/api/connection-types",
+   "200 3438b"
+  ],
+  [
+   "/api/setup/status",
+   "200 133b"
+  ],
+  [
+   "/api/workflow/analytics",
+   "200 25562b"
+  ],
+  [
+   "/api/workflow/approvals",
+   "200 368087b"
+  ],
+  [
+   "/api/workflow/assistant/history",
+   "200 142b"
+  ],
+  [
+   "/api/workflow/builder/training-stats",
+   "200 129b"
+  ],
+  [
+   "/api/workflow/logs",
+   "200 16116b"
+  ],
+  [
+   "/api/workflow/stats/counts",
+   "200 166b"
+  ],
+  [
+   "/api_check",
+   "200 555b"
+  ],
+  [
+   "/chat/data",
+   "200 199b"
+  ],
+  [
+   "/chat/data/explain",
+   "200 19b"
+  ],
+  [
+   "/chat/email",
+   "200 93b"
+  ],
+  [
+   "/document/config",
+   "200 83b"
+  ],
+  [
+   "/export_results",
+   "200 3b"
+  ],
+  [
+   "/get/odbc_drivers",
+   "200 467b"
+  ],
+  [
+   "/get_results",
+   "200 44b"
+  ],
+  [
+   "/index",
+   "200 55629b"
+  ],
+  [
+   "/landing",
+   "200 20459b"
+  ],
+  [
+   "/login",
+   "200 56585b"
+  ],
+  [
+   "/test",
+   "200 32b"
+  ],
+  [
+   "/test-bare",
+   "200 44b"
+  ],
+  [
+   "/test-crash",
+   "200 21b"
+  ],
+  [
+   "/test-template",
+   "200 53245b"
+  ]
+ ]
+}

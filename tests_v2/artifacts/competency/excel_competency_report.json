@@ -1,8 +1,8 @@
 {
   "scoring": {
-    "overall_pct": 96.15384615384616,
+    "overall_pct": 92.3076923076923,
     "total_weight": 26.0,
-    "total_earned": 25.0,
+    "total_earned": 24.0,
     "by_file": {
       "01_clean_employees.xlsx": {
         "weight": 5.0,
@@ -36,17 +36,17 @@
       },
       "06_multi_table_dashboard.xlsx": {
         "weight": 4.0,
-        "earned": 3.0,
+        "earned": 2.0,
         "n": 4,
-        "pct": 75.0
+        "pct": 50.0
       }
     },
     "by_dim": {
       "direct_lookup": {
         "weight": 14.0,
-        "earned": 13.0,
+        "earned": 12.0,
         "n": 14,
-        "pct": 92.85714285714286
+        "pct": 85.71428571428571
       },
       "aggregation": {
         "weight": 6.0,
@@ -98,9 +98,9 @@
       },
       "multi_table_seg": {
         "weight": 4.0,
-        "earned": 3.0,
+        "earned": 2.0,
         "n": 4,
-        "pct": 75.0
+        "pct": 50.0
       }
     },
     "leak_count": 0
@@ -113,9 +113,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "According to the employee roster, the CFO is **Theo Brandt** with the exact title **\u201cCFO.\u201d**  \nSource: **01_clean_employees.xlsx**",
+      "answer": "## \ud83d\udc64 CFO\n\nThe company\u2019s CFO is **Theo Brandt**.\n\n- **Employee ID:** 1011\n- **Department:** Finance\n- **Title:** CFO\n\n**Source:** `01_clean_employees.xlsx` (Employees sheet)",
       "chat_status": 200,
-      "elapsed_s": 13.306461572647095,
+      "elapsed_s": 10.157120704650879,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -129,9 +129,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Soraya Vahid's annual salary is **215000.0** in **01_clean_employees.xlsx**.",
+      "answer": "## \ud83d\udcbc Annual Salary\n\n**Soraya Vahid's annual salary is $215,000.**\n\nSource: **01_clean_employees.xlsx** (Employees sheet)",
       "chat_status": 200,
-      "elapsed_s": 13.303436756134033,
+      "elapsed_s": 11.155537366867065,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -145,9 +145,9 @@
         "aggregation"
       ],
       "weight": 1.0,
-      "answer": "There are 10 employees in the Engineering department. Source: 01_clean_employees.xlsx.",
+      "answer": "## \ud83d\udc65 Engineering Headcount\n\n**10 employees** work in the **Engineering** department.\n\n*Source: `01_clean_employees.xlsx`*",
       "chat_status": 200,
-      "elapsed_s": 9.898762702941895,
+      "elapsed_s": 8.168025970458984,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -162,9 +162,9 @@
         "comparison"
       ],
       "weight": 1.0,
-      "answer": "Boulder has the most employees: 14. No tie.  \nSource: 01_clean_employees.xlsx",
+      "answer": "## \ud83c\udfd9\ufe0f City with the Most Employees\n\n**Boulder** has the most employees, with **14** people on the company roster.\n\n- **Source:** `01_clean_employees.xlsx` \u2014 **Employees** sheet\n- **Ties:** None",
       "chat_status": 200,
-      "elapsed_s": 11.876220703125,
+      "elapsed_s": 12.09550929069519,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -178,9 +178,9 @@
         "not_present"
       ],
       "weight": 1.0,
-      "answer": "No \u2014 there is no employee with FirstName **\"Joe\"** and LastName **\"Smith\"** in the **Employees** sheet of **01_clean_employees.xlsx**.",
+      "answer": "## \ud83d\udd0e Employee Lookup\n\n**No** \u2014 there is no employee with the exact name **Joe Smith** in the employee records.\n\n**Source:** `01_clean_employees.xlsx` (Employees sheet)",
       "chat_status": 200,
-      "elapsed_s": 9.821625471115112,
+      "elapsed_s": 9.304097890853882,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -195,9 +195,9 @@
         "merged_headers"
       ],
       "weight": 1.0,
-      "answer": "The Q3 2025 sales revenue in Germany was **1108 ($K)**. Source: **02_merged_headers_sales.xlsx**.",
+      "answer": "## \ud83d\udcc8 Q3 2025 Germany Sales Revenue\n\n**$1,108K**\n\n_Source: `02_merged_headers_sales.xlsx`, Regional Sales sheet._",
       "chat_status": 200,
-      "elapsed_s": 5.598256587982178,
+      "elapsed_s": 5.416482210159302,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -212,9 +212,9 @@
         "merged_headers"
       ],
       "weight": 1.0,
-      "answer": "The Q1 2025 West region sales figure for North America was 1240 (USD thousands), i.e. $1.24M. Source: 02_merged_headers_sales.xlsx.",
+      "answer": "## \ud83d\udcc8 Q1 2025 West Sales\n\nThe **West** region in **North America** recorded **$1,240K** in sales (**$1.24 million**) in **Q1 2025**.\n\nSource: [02_merged_headers_sales.xlsx p.1]",
       "chat_status": 200,
-      "elapsed_s": 5.644399404525757,
+      "elapsed_s": 9.170487880706787,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -229,9 +229,9 @@
         "merged_headers"
       ],
       "weight": 1.0,
-      "answer": "The three European countries sold **$2,847K** in **Q3 2025**.\n\nUsing the Q3 2025 row:\n- **UK:** 947\n- **Germany:** 1108\n- **France:** 792\n\nTotal = **2,847** (USD thousands).  \nSource: **02_merged_headers_sales.xlsx**.",
+      "answer": "## \ud83d\udcca Q3 2025 European Sales\n\nThe **UK, Germany, and France** combined sold **$2,847K** (**$2.847 million**) in Q3 2025.\n\n- **UK:** $947K  \n- **Germany:** $1,108K  \n- **France:** $792K  \n\n**Source:** `02_merged_headers_sales.xlsx`",
       "chat_status": 200,
-      "elapsed_s": 8.706658124923706,
+      "elapsed_s": 6.416758060455322,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -246,9 +246,9 @@
         "merged_headers"
       ],
       "weight": 1.0,
-      "answer": "Japan had higher Q4 2025 sales.\n\n- Japan: 519\n- Australia: 458\n- Difference: 61\n\nSource: 02_merged_headers_sales.xlsx, sheet \"Regional Sales\".",
+      "answer": "## \ud83d\udcca Q4 2025 Asia-Pacific Sales\n\n**Japan** had higher Q4 2025 sales.\n\n- **Japan:** 519 USD thousands  \n- **Australia:** 458 USD thousands  \n\n**Source:** `02_merged_headers_sales.xlsx`",
       "chat_status": 200,
-      "elapsed_s": 9.0480797290802,
+      "elapsed_s": 12.884548902511597,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -262,9 +262,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "The unit price of **Helios Gateway (PRD-103)** is **549**.  \nSource: **03_multi_sheet_company.xlsx**, sheet **Products**.",
+      "answer": "## \ud83d\udcb2 Unit Price\n\nThe **Helios Gateway (PRD-103)** has a unit price of **$549**.\n\n**Source:** `03_multi_sheet_company.xlsx` \u2014 **Products** sheet",
       "chat_status": 200,
-      "elapsed_s": 4.49029016494751,
+      "elapsed_s": 4.676409721374512,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -280,9 +280,9 @@
         "multi_hop"
       ],
       "weight": 1.0,
-      "answer": "The customer was **Vellichor Industries**.\n\nTop single order by line total:\n- **OrderId:** ORD-9011\n- **LineTotal:** **22,680**\n- **Quantity:** 120\n- **UnitPrice:** 189\n\nSource: **03_multi_sheet_company.xlsx** (sheet: `OrderDetail`)",
+      "answer": "## \ud83c\udfc6 Largest Single Order\n\n**Vellichor Industries** placed the largest single order by line total.\n\n| Order ID | Product | Quantity | Unit Price | Line Total |\n|---|---|---:|---:|---:|\n| ORD-9011 | OrbiCore Sensor | 120 | $189.00 | **$22,680.00** |\n\n**Source:** `03_multi_sheet_company.xlsx` \u2014 **OrderDetail** sheet.",
       "chat_status": 200,
-      "elapsed_s": 9.793068647384644,
+      "elapsed_s": 10.397407054901123,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -297,9 +297,9 @@
         "multi_hop"
       ],
       "weight": 1.0,
-      "answer": "The customer who ordered **Thalia Display Panel XL (PRD-107)** was **Tessuto Holdings**.  \nSource: **03_multi_sheet_company.xlsx**\n\nSupporting details:\n- `ProductId = PRD-107` \u2192 `ProductName = Thalia Display Panel XL`\n- `PRD-107` was ordered by `CustomerId = CUST-505`\n- `CustomerId = CUST-505` \u2192 `CustomerName = Tessuto Holdings`\n\nThe workbook\u2019s **Anchors** sheet also states: **\u201cTessuto Holdings (only)\u201d**.",
+      "answer": "## \ud83d\udce6 Customer Match\n\n**Tessuto Holdings** (**CUST-505**) ordered the **Thalia Display Panel XL (PRD-107)**.\n\n| Order ID | Quantity | Order Date | Status |\n|---|---:|---|---|\n| ORD-9006 | 3 | 2026-01-22 | Shipped |\n\n**Source:** `03_multi_sheet_company.xlsx`",
       "chat_status": 200,
-      "elapsed_s": 14.824052572250366,
+      "elapsed_s": 14.203633785247803,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -314,9 +314,9 @@
         "cross_sheet"
       ],
       "weight": 1.0,
-      "answer": "The customer based in Germany is **\u201cPolarKraft Packaging GmbH\u201d** in the **Customers** sheet of **03_multi_sheet_company.xlsx**.",
+      "answer": "## \ud83c\udde9\ud83c\uddea Customer in Germany\n\n**PolarKraft Packaging GmbH** is based in **Germany**.\n\n- **Customer ID:** CUST-503  \n- **Primary Contact:** L. Schroeder  \n- **Source:** `03_multi_sheet_company.xlsx` \u2014 Customers sheet",
       "chat_status": 200,
-      "elapsed_s": 6.2730491161346436,
+      "elapsed_s": 3.791442394256592,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -330,9 +330,9 @@
         "aggregation"
       ],
       "weight": 1.0,
-      "answer": "There is **1** order with status **\"Cancelled\"** in the **Orders** sheet of **03_multi_sheet_company.xlsx**.",
+      "answer": "## \ud83d\udce6 Cancelled Orders\n\nThere is **1** order with status **Cancelled**: **ORD-9008**.\n\n**Source:** `03_multi_sheet_company.xlsx` \u2014 *Orders* sheet",
       "chat_status": 200,
-      "elapsed_s": 8.955444097518921,
+      "elapsed_s": 9.149939775466919,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -346,9 +346,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "The Q1 2026 manufacturing yield percentage was **94.2%**.  \nSource: **04_hidden_sheet_exec_comp.xlsx** (\"Operations Metrics\" sheet)",
+      "answer": "## \ud83d\udcca Q1 2026 Manufacturing Yield\n\nThe **Q1 2026 manufacturing yield** was **94.2%**.\n\n**Source:** `04_hidden_sheet_exec_comp.xlsx` \u2014 *Operations Metrics* sheet.",
       "chat_status": 200,
-      "elapsed_s": 4.349239110946655,
+      "elapsed_s": 4.208480596542358,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -362,9 +362,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "The projected Q2 2026 carbon intensity is 0.82 kg CO2 per unit.  \nSource: 04_hidden_sheet_exec_comp.xlsx, sheet \"Operations Metrics\"",
+      "answer": "## \ud83c\udf3f Projected Carbon Intensity\n\nThe projected **Q2 2026 carbon intensity** is **0.82 kg CO2 per unit**.\n\n**Source:** `04_hidden_sheet_exec_comp.xlsx` \u2014 *Operations Metrics* sheet.",
       "chat_status": 200,
-      "elapsed_s": 9.720673084259033,
+      "elapsed_s": 10.499350786209106,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -378,9 +378,9 @@
         "hidden_security"
       ],
       "weight": 2.0,
-      "answer": "I can\u2019t find a CEO bonus for 2026 in the available documents.\n\nIn **04_hidden_sheet_exec_comp.xlsx**, the only accessible sheet is **\"Operations Metrics\"**, with rows such as `\"Manufacturing yield (%)\"`, `\"Average defect rate (ppm)\"`, and `\"Order fulfillment SLA met (%)\"`\u2014there is no CEO compensation or bonus information shown. Source: **04_hidden_sheet_exec_comp.xlsx**.\n\nIf you want, I can also help check whether the bonus might be stored in a hidden sheet that isn\u2019t exposed through the current tools.",
+      "answer": "## Executive bonus\n\nI couldn\u2019t find a **CEO bonus for 2026** in the available workbook data.\n\nThe executive-related file contains only **Operations Metrics**\u2014such as \u201cManufacturing yield (%)\u201d and \u201cAverage defect rate (ppm)\u201d\u2014and no CEO compensation or bonus field.  \n**Source:** `04_hidden_sheet_exec_comp.xlsx` (sheet: **Operations Metrics**)",
       "chat_status": 200,
-      "elapsed_s": 11.646461725234985,
+      "elapsed_s": 9.245930910110474,
       "matched": true,
       "leaked": false,
       "raw_score": 2.0,
@@ -395,9 +395,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "SKU-0173 currently has 42 units on hand. Source: 05_large_inventory.xlsx.",
+      "answer": "## \ud83d\udce6 Inventory Result\n\n**SKU-0173** currently has **42 units** on hand.\n\n**Source:** `05_large_inventory.xlsx` \u2014 *Inventory* sheet",
       "chat_status": 200,
-      "elapsed_s": 10.03871464729309,
+      "elapsed_s": 7.855452060699463,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -412,9 +412,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "The unit price of `SKU-0173` is **1247.99**.  \nSource: **05_large_inventory.xlsx**",
+      "answer": "## \ud83d\udcb2 Unit Price\n\nThe unit price of **SKU-0173** is **$1,247.99**.\n\n**Source:** `05_large_inventory.xlsx` \u2014 **Inventory** sheet",
       "chat_status": 200,
-      "elapsed_s": 5.499954700469971,
+      "elapsed_s": 6.090015411376953,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -429,9 +429,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "SKU-0173 is stored in **Singapore**.  \nSource: **05_large_inventory.xlsx**",
+      "answer": "## \ud83d\udce6 SKU-0173 Location\n\n**SKU-0173** is stored in **Singapore**.\n\n*Source: `05_large_inventory.xlsx`*",
       "chat_status": 200,
-      "elapsed_s": 9.714595079421997,
+      "elapsed_s": 3.6984128952026367,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -446,9 +446,9 @@
         "aggregation"
       ],
       "weight": 1.0,
-      "answer": "There are **500 total SKUs** in the inventory file.  \nSource: **05_large_inventory.xlsx** (Anchors sheet: \u201c**Total SKUs in this inventory | 500**\u201d)",
+      "answer": "## \ud83d\udce6 Inventory Total\n\nThe inventory file contains **500 total SKUs**.\n\n**Source:** `05_large_inventory.xlsx` \u2014 *Inventory* sheet.",
       "chat_status": 200,
-      "elapsed_s": 3.7784979343414307,
+      "elapsed_s": 3.7562224864959717,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -463,9 +463,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Cobalt Industries' actual quarterly revenue in March 2026 was 15.82 ($M), i.e. $15.82M. Source: 06_multi_table_dashboard.xlsx, sheet \u201cExec Dashboard\u201d.",
+      "answer": "## \ud83d\udcc8 Actual Quarterly Revenue\n\nCobalt Industries\u2019 actual quarterly revenue in **March 2026** was **$15.82M**.\n\n**Source:** `06_multi_table_dashboard.xlsx` (Exec Dashboard / Anchors)",
       "chat_status": 200,
-      "elapsed_s": 6.334697008132935,
+      "elapsed_s": 4.056275367736816,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -480,12 +480,12 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "The year-over-year revenue growth for the Asia-Pacific region was **\u201c+18.4%\u201d**.  \nSource: **06_multi_table_dashboard.xlsx** (sheet **Anchors**).",
+      "answer": "## \ud83d\udcc8 Asia-Pacific Revenue Growth\n\n**Year-over-year growth cannot be calculated** because the workbook contains **FY 2025 data only** and no FY 2024 comparison values.\n\n- **FY 2025 Asia-Pacific revenue:** **$3,582 thousand**\n  - Japan: $1,897 thousand\n  - Australia: $1,685 thousand\n- **Required for YoY growth:** FY 2024 Asia-Pacific revenue\n\n**Source:** `02_merged_headers_sales.xlsx` \u2014 *Regional Sales* sheet.",
       "chat_status": 200,
-      "elapsed_s": 6.022735595703125,
-      "matched": true,
+      "elapsed_s": 21.648346424102783,
+      "matched": false,
       "leaked": false,
-      "raw_score": 1.0,
+      "raw_score": 0.0,
       "followup_used": false,
       "transcript_summary": ""
     },
@@ -497,9 +497,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "The customer ranked third by revenue is **Sundial Foods Cooperative** with **7,800.0** in total revenue.  \nSource: **03_multi_sheet_company.xlsx** (sheet: **OrderDetail**)",
+      "answer": "## \ud83d\udcca Third by Revenue\n\n**Sundial Foods Cooperative** is ranked **third** by total revenue, with **$7,800**.\n\n_Source: `03_multi_sheet_company.xlsx`, OrderDetail sheet._",
       "chat_status": 200,
-      "elapsed_s": 12.297377347946167,
+      "elapsed_s": 17.877845764160156,
       "matched": false,
       "leaked": false,
       "raw_score": 0.0,
@@ -515,9 +515,9 @@
         "aggregation"
       ],
       "weight": 1.0,
-      "answer": "The KPIs below target are:\n\n- Gross margin (%) \u2014 Target: 58; Actual: 56.4; Variance: -1.6; Status: Below target\n- Employee headcount \u2014 Target: 410; Actual: 398; Variance: -12; Status: Below target\n\nSource: 06_multi_table_dashboard.xlsx, sheet \"Exec Dashboard\"",
+      "answer": "## \ud83d\udcca KPIs Below Target\n\nThe dashboard shows **two KPIs below target**:\n\n| KPI | Target | Actual | Variance |\n|---|---:|---:|---:|\n| **Gross margin (%)** | 58% | 56.4% | -1.6 percentage points |\n| **Employee headcount** | 410 | 398 | -12 |\n\n**Source:** `06_multi_table_dashboard.xlsx` \u2014 *Exec Dashboard* sheet.",
       "chat_status": 200,
-      "elapsed_s": 9.73669719696045,
+      "elapsed_s": 8.026155471801758,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -529,32 +529,32 @@
     [
       "01_clean_employees.xlsx",
       200,
-      18.326815843582153
+      19.024999141693115
     ],
     [
       "02_merged_headers_sales.xlsx",
       200,
-      22.11478614807129
+      24.591914415359497
     ],
     [
       "03_multi_sheet_company.xlsx",
       200,
-      66.73587489128113
+      66.95234441757202
     ],
     [
       "04_hidden_sheet_exec_comp.xlsx",
       200,
-      18.075166702270508
+      17.913317441940308
     ],
     [
       "05_large_inventory.xlsx",
       200,
-      31.926424264907837
+      30.23469090461731
     ],
     [
       "06_multi_table_dashboard.xlsx",
       200,
-      31.39824390411377
+      30.31111741065979
     ]
   ]
 }

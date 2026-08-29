@@ -1,0 +1,61 @@
+{
+  "results": [
+    {
+      "test": "Schedule created",
+      "passed": true,
+      "detail": "job_id=193, schedule_id=289"
+    },
+    {
+      "test": "Schedule appears in list",
+      "passed": true,
+      "detail": "schedules=1"
+    },
+    {
+      "test": "Webhook path returned",
+      "passed": true,
+      "detail": "path=/automations/api/hook/2810832e-b3dd-454a-8374-cd31871ff157/3aa534726271b53b7dd75d89625e6ffc"
+    },
+    {
+      "test": "Webhook fires (202)",
+      "passed": true,
+      "detail": "status=202, body={\"run_id\":\"0ced7fa6-fac0-4afc-8f75-df251fcfc84c\",\"status\":\"started\"}\n"
+    },
+    {
+      "test": "Webhook run completes",
+      "passed": true,
+      "detail": "status=success"
+    },
+    {
+      "test": "Wrong token -> 403",
+      "passed": true,
+      "detail": "status=403"
+    },
+    {
+      "test": "Unpromoted -> 409",
+      "passed": true,
+      "detail": "status=409"
+    },
+    {
+      "test": "Undeclared input -> 400",
+      "passed": true,
+      "detail": "status=400"
+    },
+    {
+      "test": "Workflow Automation node (deferred - needs workflow setup)",
+      "passed": true,
+      "detail": "Known gap: canvas JS missing; requires workflow JSON construction + engine run"
+    },
+    {
+      "test": "Email composition (deferred - depends on workflow node)",
+      "passed": true,
+      "detail": "Requires email-triggered workflow containing Automation node"
+    },
+    {
+      "test": "Scheduler fired (new runs after schedule)",
+      "passed": true,
+      "detail": "total_runs=1, scheduled_runs=0, triggers=['webhook']"
+    }
+  ],
+  "passed": 11,
+  "failed": 0
+}

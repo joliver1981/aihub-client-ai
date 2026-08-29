@@ -1,0 +1,43 @@
+document_type: maintenance_inspection_report
+fields:
+  additional_notes:
+    description: Miscellaneous document-level notes
+  document_type:
+    description: Type/classification of the document
+  governance_policy.escalation_policy.escalated_to:
+    description: Role/party to whom issues are escalated
+  governance_policy.escalation_policy.trigger:
+    description: Condition that triggers escalation
+  governance_policy.inspector_certification.renewal_frequency:
+    description: How often inspector certification must be renewed
+  governance_policy.review_process.review_timeframe:
+    description: Timeframe within which reviews must occur
+  governance_policy.review_process.reviewer_role:
+    description: Role responsible for conducting reviews
+  program_description.deliverables:
+    description: Outputs/deliverables produced by the program
+  program_description.inspector_qualification:
+    description: Required qualifications for inspectors
+  program_description.process_details:
+    description: Description of how the inspection process is carried out
+  program_description.summary:
+    description: High-level narrative summary of the inspection program
+  program_details.effective_date:
+    description: Date the program/policy became effective
+  program_details.escalation_contact:
+    description: Contact person/role for escalations
+  program_details.inspection_frequency:
+    description: How often inspections are conducted under the program
+  program_details.program_name:
+    description: Name of the maintenance inspection program
+  program_details.program_owner:
+    description: Person or role responsible for owning the program
+  facility_name:
+    description: Facility identified in the inspection report
+    evolved: '2026-08-16'
+  inspection_date:
+    description: Date the inspection was conducted
+    evolved: '2026-08-16'
+  inspector_name:
+    description: Name of the inspector who performed the inspection
+    evolved: '2026-08-16'

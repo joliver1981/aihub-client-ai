@@ -1,0 +1,26 @@
+document_type: vendor_scorecard
+fields:
+  additional_information.communication_channel:
+    description: Channel used to communicate scorecard results or program updates
+  additional_information.memo_purpose:
+    description: Stated purpose of the accompanying memo or communication
+  document_type:
+    description: Type of document, e.g. vendor scorecard
+  performance_thresholds.consequence:
+    description: Consequence or action triggered by underperformance
+  performance_thresholds.underperformance_criteria:
+    description: Criteria defining vendor underperformance
+  program_description.details_note:
+    description: Additional descriptive note about the program
+  program_description.frequency:
+    description: Frequency of scorecard evaluation or reporting
+  program_description.scope:
+    description: Scope of vendors or categories covered by the program
+  program_details.contact_email:
+    description: Contact email for program inquiries
+  program_details.effective_date:
+    description: Date the program or scorecard becomes effective
+  program_details.program_name:
+    description: Name of the vendor performance program
+  program_details.program_owner:
+    description: Person or department responsible for the program

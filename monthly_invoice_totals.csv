@@ -1,0 +1,1 @@
+'invoice_year,invoice_month,total_invoiced_amount\n' + '\n'.join([f"{row['invoice_year']},{row['invoice_month']},{row['total_invoiced_amount']}" for row in {"columns": ["invoice_year", "invoice_month", "total_invoiced_amount"], "rows": [["2025", "2", "1155800.25"], ["2025", "3", "1199411.89"]]}])

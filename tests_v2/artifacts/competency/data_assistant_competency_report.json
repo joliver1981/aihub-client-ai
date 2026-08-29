@@ -1,16 +1,16 @@
 {
   "scoring": {
-    "overall_pct": 75.0,
+    "overall_pct": 95.83333333333333,
     "total_weight": 24.0,
-    "total_earned": 18.0,
+    "total_earned": 23.0,
     "by_dim": {
       "simple_select": {
         "weight": 2.0,
-        "earned": 1.0,
+        "earned": 2.0,
         "n": 2,
-        "sql_hits": 1,
-        "ans_hits": 1,
-        "pct": 50.0
+        "sql_hits": 2,
+        "ans_hits": 2,
+        "pct": 100.0
       },
       "distinct_count": {
         "weight": 3.0,
@@ -22,11 +22,11 @@
       },
       "aggregate_sum": {
         "weight": 7.0,
-        "earned": 4.0,
+        "earned": 6.0,
         "n": 7,
-        "sql_hits": 4,
-        "ans_hits": 4,
-        "pct": 57.142857142857146
+        "sql_hits": 6,
+        "ans_hits": 5,
+        "pct": 85.71428571428571
       },
       "count": {
         "weight": 4.0,
@@ -38,11 +38,11 @@
       },
       "where_filter": {
         "weight": 6.0,
-        "earned": 4.0,
+        "earned": 6.0,
         "n": 6,
-        "sql_hits": 4,
-        "ans_hits": 4,
-        "pct": 66.66666666666667
+        "sql_hits": 6,
+        "ans_hits": 6,
+        "pct": 100.0
       },
       "aggregate_avg": {
         "weight": 1.0,
@@ -70,19 +70,19 @@
       },
       "date_filter": {
         "weight": 4.0,
-        "earned": 3.0,
+        "earned": 4.0,
         "n": 4,
-        "sql_hits": 3,
-        "ans_hits": 3,
-        "pct": 75.0
+        "sql_hits": 4,
+        "ans_hits": 4,
+        "pct": 100.0
       },
       "order_by_top_n": {
         "weight": 5.0,
-        "earned": 3.0,
+        "earned": 4.0,
         "n": 5,
-        "sql_hits": 3,
-        "ans_hits": 3,
-        "pct": 60.0
+        "sql_hits": 4,
+        "ans_hits": 4,
+        "pct": 80.0
       },
       "join_3": {
         "weight": 1.0,
@@ -94,11 +94,11 @@
       },
       "comparison": {
         "weight": 3.0,
-        "earned": 1.0,
+        "earned": 3.0,
         "n": 3,
-        "sql_hits": 1,
-        "ans_hits": 1,
-        "pct": 33.333333333333336
+        "sql_hits": 3,
+        "ans_hits": 3,
+        "pct": 100.0
       },
       "not_present": {
         "weight": 2.0,
@@ -109,9 +109,9 @@
         "pct": 100.0
       }
     },
-    "sql_match_count": 16,
-    "ans_match_count": 18,
-    "both_count": 16
+    "sql_match_count": 21,
+    "ans_match_count": 22,
+    "both_count": 20
   },
   "results": [
     {
@@ -121,10 +121,10 @@
         "distinct_count"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\n\n\nSELECT DISTINCT p.category\nFROM TS.sales s\nINNER JOIN TS.product_master p ON s.product_id = p.product_id\n\nTotal time taken for the request: 23.3717 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"category\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"category\":\"Electronics\"},{\"category\":\"Home & Kitchen\"},{\"category\":\"Beauty & Personal Care\"},{\"category\":\"Clothing\"}]}",
+      "sql": "=== Data Query ===\nSELECT DISTINCT TOP 10000 pm.category AS product_category FROM TS.sales AS s INNER JOIN TS.product_master AS pm ON s.product_id = pm.product_id ORDER BY pm.category",
+      "answer": "{\"schema\":{\"fields\":[{\"name\":\"product_category\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"product_category\":\"Beauty & Personal Care\"},{\"product_category\":\"Clothing\"},{\"product_category\":\"Electronics\"},{\"product_category\":\"Home & Kitchen\"}]}",
       "chat_status": 200,
-      "elapsed_s": 25.15483784675598,
+      "elapsed_s": 7.885363817214966,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -136,10 +136,10 @@
         "aggregate_sum"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\nSELECT COUNT(DISTINCT city) AS distinct_city_count\nFROM TS.location_master\n\nTotal time taken for the request: 23.2962 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"distinct_city_count\",\"type\":\"integer\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"distinct_city_count\":15}]}",
+      "sql": "=== Data Query ===\nSELECT TOP 10000 COUNT(DISTINCT city) AS distinct_city_count FROM TS.location_master",
+      "answer": "Store locations are present in 15 distinct cities.",
       "chat_status": 200,
-      "elapsed_s": 24.852033853530884,
+      "elapsed_s": 4.165716648101807,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -150,13 +150,13 @@
         "simple_select"
       ],
       "weight": 1.0,
-      "sql": "",
-      "answer": "Great question! I do have access to product information that includes **product categories** and **subcategories**. I can look up what categories are available in the product catalog for you.\n\nHowever, I don't have the specific category names memorized off the top of my head \u2014 I'd need to look them up from the product data. If you'd like, I can pull that information for you and show you:\n\n- **All the main product categories** available\n- **Subcategories** within each main category\n- **How many products** fall into each category\n\nBeyond categories, I can also tell you about individual products, including details like their name, size, color, and description.\n\nWould you like me to go ahead and retrieve the list of product categories for you? \ud83d\ude0a",
+      "sql": "=== Data Query ===\nSELECT DISTINCT TOP 10000 category FROM TS.product_master ORDER BY category",
+      "answer": "{\"schema\":{\"fields\":[{\"name\":\"category\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"category\":\"Beauty & Personal Care\"},{\"category\":\"Clothing\"},{\"category\":\"Electronics\"},{\"category\":\"Home & Kitchen\"}]}",
       "chat_status": 200,
-      "elapsed_s": 9.908914804458618,
-      "sql_ok": false,
-      "ans_ok": false,
-      "raw_score": 0.0
+      "elapsed_s": 6.348715543746948,
+      "sql_ok": true,
+      "ans_ok": true,
+      "raw_score": 1.0
     },
     {
       "question": "How many products are in the Electronics category?",
@@ -165,10 +165,10 @@
         "where_filter"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\nSELECT COUNT(product_id) AS products_in_electronics\nFROM TS.product_master\nWHERE category = 'Electronics'\n\nTotal time taken for the request: 24.4132 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"products_in_electronics\",\"type\":\"integer\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"products_in_electronics\":64}]}",
+      "sql": "=== Data Query ===\nSELECT TOP 10000 COUNT(DISTINCT product_id) AS electronics_product_count FROM TS.product_master WHERE category = 'Electronics'",
+      "answer": "There are 64 products in the Electronics category.",
       "chat_status": 200,
-      "elapsed_s": 25.72335457801819,
+      "elapsed_s": 4.424259901046753,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -180,10 +180,10 @@
         "where_filter"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\nSELECT COUNT(store_id) AS number_of_stores\nFROM TS.location_master\nWHERE state = 'California'\n\nTotal time taken for the request: 24.9407 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"number_of_stores\",\"type\":\"integer\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"number_of_stores\":0}]}",
+      "sql": "=== Data Query ===\nSELECT TOP 10000 COUNT(DISTINCT store_id) AS california_store_count FROM TS.location_master WHERE state = 'CA'",
+      "answer": "There are 4 stores located in California.",
       "chat_status": 200,
-      "elapsed_s": 27.015546560287476,
+      "elapsed_s": 5.636472225189209,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -194,10 +194,10 @@
         "count"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\nSELECT COUNT(employee_id) AS employee_count\nFROM TS.employee_data\n\nTotal time taken for the request: 23.9908 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"employee_count\",\"type\":\"integer\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"employee_count\":75}]}",
+      "sql": "=== Data Query ===\nSELECT TOP 10000 COUNT(DISTINCT employee_id) AS employee_count FROM TS.employee_data",
+      "answer": "The company has 75 employees.",
       "chat_status": 200,
-      "elapsed_s": 25.456246376037598,
+      "elapsed_s": 4.9787068367004395,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -208,13 +208,13 @@
         "aggregate_sum"
       ],
       "weight": 1.0,
-      "sql": "",
-      "answer": "",
-      "chat_status": 500,
-      "elapsed_s": 30.91293978691101,
-      "sql_ok": false,
+      "sql": "=== Data Query ===\nSELECT TOP 10000 SUM(total_revenue) AS total_sales_revenue FROM TS.sales",
+      "answer": "Total sales revenue across all stores is **$3,123,002,000**.",
+      "chat_status": 200,
+      "elapsed_s": 4.893976211547852,
+      "sql_ok": true,
       "ans_ok": false,
-      "raw_score": 0.0
+      "raw_score": 1.0
     },
     {
       "question": "What is the average revenue per sale?",
@@ -222,10 +222,10 @@
         "aggregate_avg"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\nSELECT AVG(total_revenue) AS average_revenue_per_sale\nFROM TS.sales\n\n=== Analytical Query ===\nimport pandas as pd\nsql_query = \"\"\"\nSELECT average_revenue_per_sale\nFROM table_504f986f8c8133b4a35a9dcbf00f987a\n\"\"\"\ndf = execute_sql_query(sql_query)\ndf = df.fillna(0)\ndf['average_revenue_per_sale'] = df['average_revenue_per_sale'].apply(lambda x: f'${x:,.2f}')\nresult = {'type': 'dataframe', 'value': df}\nTotal time taken for the request: 28.5566 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"average_revenue_per_sale\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"average_revenue_per_sale\":\"$799.79\"}]}",
+      "sql": "=== Data Query ===\nSELECT TOP 10000 CAST(AVG(CAST(total_revenue AS NUMERIC(18, 2))) AS NUMERIC(18, 2)) AS average_revenue_per_sale FROM TS.sales",
+      "answer": "The average revenue per sale is **$788.76**.",
       "chat_status": 200,
-      "elapsed_s": 30.15651297569275,
+      "elapsed_s": 4.916506290435791,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -238,10 +238,10 @@
         "aggregate_sum"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\n\n\nSELECT \n    p.category,\n    SUM(s.total_revenue) AS total_sales_revenue\nFROM TS.sales s\nINNER JOIN TS.product_master p ON s.product_id = p.product_id\nGROUP BY p.category\nORDER BY total_sales_revenue DESC;\n\n=== Analytical Query ===\nimport pandas as pd\nsql_query = \"\"\"\nSELECT\n    category,\n    total_sales_revenue\nFROM table_b2b3e130386a98767c91b66128f7a33e\nORDER BY total_sales_revenue DESC\n\"\"\"\ndf = execute_sql_query(sql_query)\ndf['category'] = df['category'].fillna('')\ndf['total_sales_revenue'] = df['total_sales_revenue'].fillna(0)\ndf['total_sales_revenue'] = df['total_sales_revenue'].map(lambda x: f'${x:,.2f}')\nresult = {'type': 'dataframe', 'value': df}\nTotal time taken for the request: 30.2923 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"category\",\"type\":\"string\"},{\"name\":\"total_sales_revenue\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"category\":\"Electronics\",\"total_sales_revenue\":\"$1,105,616,746.21\"},{\"category\":\"Clothing\",\"total_sales_revenue\":\"$152,267,058.20\"},{\"category\":\"Home & Kitchen\",\"total_sales_revenue\":\"$127,069,437.93\"},{\"category\":\"Beauty & Personal Care\",\"total_sales_revenue\":\"$3,397,089.38\"}]}",
+      "sql": "=== Data Query ===\nSELECT TOP 10000 pm.category AS product_category, SUM(s.total_revenue) AS total_sales_revenue FROM TS.sales AS s INNER JOIN TS.product_master AS pm ON s.product_id = pm.product_id GROUP BY pm.category ORDER BY total_sales_revenue DESC",
+      "answer": "{\"schema\":{\"fields\":[{\"name\":\"product_category\",\"type\":\"string\"},{\"name\":\"total_sales_revenue\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"product_category\":\"Electronics\",\"total_sales_revenue\":\"$2,485,318,466.39\"},{\"product_category\":\"Clothing\",\"total_sales_revenue\":\"$342,206,045.89\"},{\"product_category\":\"Home & Kitchen\",\"total_sales_revenue\":\"$287,646,056.20\"},{\"product_category\":\"Beauty & Personal Care\",\"total_sales_revenue\":\"$7,831,598.47\"}]}",
       "chat_status": 200,
-      "elapsed_s": 32.52569651603699,
+      "elapsed_s": 8.756991863250732,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -254,10 +254,10 @@
         "aggregate_sum"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\n\n\nSELECT\n    YEAR(sale_date) AS year,\n    SUM(total_revenue) AS total_sales_revenue\nFROM TS.sales\nGROUP BY YEAR(sale_date)\nORDER BY year;\n\n=== Analytical Query ===\nimport pandas as pd\nsql_query = \"\"\"\nSELECT\n    CAST(year AS INTEGER) AS year,\n    COALESCE(total_sales_revenue, 0) AS total_sales_revenue\nFROM table_2ad89f79580ca3955d626bd01820b6e2\nORDER BY year\n\"\"\"\ndf = execute_sql_query(sql_query)\ndf['year'] = df['year'].fillna(0).astype(int)\ndf['total_sales_revenue'] = df['total_sales_revenue'].fillna(0)\ndf['year'] = df['year'].apply(lambda y: f'{y}-01-01' if y != 0 else '')\ndf['total_sales_revenue'] = df['total_sales_revenue'].apply(lambda x: f'${x:,.2f}')\nresult = {'type': 'dataframe', 'value': df}\nTotal time taken for the request: 32.8693 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"year\",\"type\":\"string\"},{\"name\":\"total_sales_revenue\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"year\":\"2024-01-01\",\"total_sales_revenue\":\"$4,694,653.20\"},{\"year\":\"2025-01-01\",\"total_sales_revenue\":\"$1,240,216,392.21\"},{\"year\":\"2026-01-01\",\"total_sales_revenue\":\"$143,439,286.31\"}]}",
+      "sql": "=== Data Query ===\nSELECT TOP 10000 YEAR(sale_date) AS sales_year, SUM(total_revenue) AS total_sales_revenue FROM TS.sales GROUP BY YEAR(sale_date) ORDER BY sales_year",
+      "answer": "{\"schema\":{\"fields\":[{\"name\":\"sales_year\",\"type\":\"integer\"},{\"name\":\"total_sales_revenue\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"sales_year\":2024,\"total_sales_revenue\":\"$1,066,975,900.14\"},{\"sales_year\":2025,\"total_sales_revenue\":\"$1,240,216,392.21\"},{\"sales_year\":2026,\"total_sales_revenue\":\"$815,809,874.60\"}]}",
       "chat_status": 200,
-      "elapsed_s": 34.72654938697815,
+      "elapsed_s": 8.837114095687866,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -270,10 +270,10 @@
         "aggregate_sum"
       ],
       "weight": 1.0,
-      "sql": "",
-      "answer": "",
-      "chat_status": 500,
-      "elapsed_s": 30.772393226623535,
+      "sql": "=== Data Query ===\nSELECT TOP (1)\n       l.store_name AS store_name,\n       SUM(s.total_revenue) AS total_sales_revenue\nFROM TS.sales AS s\nINNER JOIN TS.location_master AS l\n    ON l.store_id = s.store_id\nGROUP BY l.store_name\nORDER BY SUM(s.total_revenue) DESC;",
+      "answer": "Southpoint Center had the highest total sales revenue: $414.93 million.",
+      "chat_status": 200,
+      "elapsed_s": 5.035921812057495,
       "sql_ok": false,
       "ans_ok": false,
       "raw_score": 0.0
@@ -285,10 +285,10 @@
         "join_2"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\n\n\nSELECT TOP 5\n    p.product_id,\n    p.product_name,\n    SUM(s.quantity_sold) AS total_units_sold\nFROM TS.sales s\nINNER JOIN TS.product_master p ON s.product_id = p.product_id\nGROUP BY p.product_id, p.product_name\nORDER BY total_units_sold DESC;\n\n=== Analytical Query ===\nimport pandas as pd\nsql_query = \"\"\"\nSELECT\n    CAST(product_id AS VARCHAR) AS product_id,\n    COALESCE(product_name, '') AS product_name,\n    COALESCE(CAST(total_units_sold AS BIGINT), 0) AS total_units_sold\nFROM table_f24e1a15756f9125270c83abfc3242b5\nORDER BY total_units_sold DESC, product_id\nLIMIT 5\n\"\"\"\ndf = execute_sql_query(sql_query)\nif 'product_id' in df.columns:\n    df['product_id'] = df['product_id'].fillna('').astype(str)\nif 'product_name' in df.columns:\n    df['product_name'] = df['product_name'].fillna('')\nif 'total_units_sold' in df.columns:\n    df['total_units_sold'] = df['total_units_sold'].fillna(0).astype(int)\nresult = {'type': 'dataframe', 'value': df}\nTotal time taken for the request: 29.8766 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"product_name\",\"type\":\"string\"},{\"name\":\"total_units_sold\",\"type\":\"integer\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"product_id\":\"P0016\",\"product_name\":\"Laptops Item 8\",\"total_units_sold\":241887},{\"product_id\":\"P0112\",\"product_name\":\"Formal Wear Item 8\",\"total_units_sold\":207274},{\"product_id\":\"P0020\",\"product_name\":\"Tablets Item 4\",\"total_units_sold\":207100},{\"product_id\":\"P0121\",\"product_name\":\"Appliances Item 1\",\"total_units_sold\":164603},{\"product_id\":\"P0052\",\"product_name\":\"Cameras Item 4\",\"total_units_sold\":152224}]}",
+      "sql": "=== Data Query ===\nSELECT TOP 5\n       p.product_id,\n       p.product_name,\n       SUM(s.quantity_sold) AS units_sold\nFROM TS.sales AS s\nINNER JOIN TS.product_master AS p\n    ON p.product_id = s.product_id\nGROUP BY p.product_id, p.product_name\nORDER BY SUM(s.quantity_sold) DESC, p.product_name ASC;",
+      "answer": "{\"schema\":{\"fields\":[{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"product_name\",\"type\":\"string\"},{\"name\":\"units_sold\",\"type\":\"integer\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"product_id\":\"P0016\",\"product_name\":\"Laptops Item 8\",\"units_sold\":546666},{\"product_id\":\"P0020\",\"product_name\":\"Tablets Item 4\",\"units_sold\":469093},{\"product_id\":\"P0112\",\"product_name\":\"Formal Wear Item 8\",\"units_sold\":462127},{\"product_id\":\"P0121\",\"product_name\":\"Appliances Item 1\",\"units_sold\":370115},{\"product_id\":\"P0052\",\"product_name\":\"Cameras Item 4\",\"units_sold\":335605}]}",
       "chat_status": 200,
-      "elapsed_s": 32.10823154449463,
+      "elapsed_s": 9.156004190444946,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -300,10 +300,10 @@
         "distinct_count"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\nSELECT DISTINCT lm.store_name\nFROM TS.sales s\nINNER JOIN TS.location_master lm ON s.store_id = lm.store_id\n\nTotal time taken for the request: 25.9613 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"store_name\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"store_name\":\"Hillside Mall\"},{\"store_name\":\"Bayfront Outlet\"},{\"store_name\":\"Southpoint Center\"},{\"store_name\":\"Westside Mall\"},{\"store_name\":\"Northside Outlet\"},{\"store_name\":\"Eastgate Store\"},{\"store_name\":\"Lakeside Mall\"},{\"store_name\":\"Uptown Gallery\"},{\"store_name\":\"Riverside Plaza\"},{\"store_name\":\"Downtown Flagship\"},{\"store_name\":\"Midtown Market\"},{\"store_name\":\"Capital Store\"},{\"store_name\":\"Central Plaza\"},{\"store_name\":\"Parkview Center\"},{\"store_name\":\"Metro Center\"}]}",
+      "sql": "=== Data Query ===\nSELECT DISTINCT TOP 10000 lm.store_name AS store_name FROM TS.sales AS s INNER JOIN TS.location_master AS lm ON s.store_id = lm.store_id ORDER BY lm.store_name",
+      "answer": "{\"schema\":{\"fields\":[{\"name\":\"store_name\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"store_name\":\"Bayfront Outlet\"},{\"store_name\":\"Capital Store\"},{\"store_name\":\"Central Plaza\"},{\"store_name\":\"Downtown Flagship\"},{\"store_name\":\"Eastgate Store\"},{\"store_name\":\"Hillside Mall\"},{\"store_name\":\"Lakeside Mall\"},{\"store_name\":\"Metro Center\"},{\"store_name\":\"Midtown Market\"},{\"store_name\":\"Northside Outlet\"},{\"store_name\":\"Parkview Center\"},{\"store_name\":\"Riverside Plaza\"},{\"store_name\":\"Southpoint Center\"},{\"store_name\":\"Uptown Gallery\"},{\"store_name\":\"Westside Mall\"}]}",
       "chat_status": 200,
-      "elapsed_s": 28.046555757522583,
+      "elapsed_s": 9.05182695388794,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -316,10 +316,10 @@
         "aggregate_sum"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\n\n\nSELECT \n    l.city,\n    SUM(s.total_revenue) AS total_revenue\nFROM TS.sales s\nINNER JOIN TS.location_master l ON s.store_id = l.store_id\nGROUP BY l.city\nORDER BY total_revenue DESC;\n\n=== Analytical Query ===\nimport pandas as pd\nsql_query = \"\"\"\nSELECT\n    city,\n    SUM(total_revenue) AS total_revenue\nFROM table_91ec8f2d8741781e6e9245388c5dbf9c\nGROUP BY city\nORDER BY total_revenue DESC\n\"\"\"\ndf = execute_sql_query(sql_query)\ndf['city'] = df['city'].fillna('')\ndf['total_revenue'] = df['total_revenue'].fillna(0)\ndf['city'] = df['city'].astype(str)\ndf['total_revenue'] = df['total_revenue'].apply(lambda x: f'${x:,.2f}')\nresult = {'type': 'dataframe', 'value': df}\nTotal time taken for the request: 27.5008 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"city\",\"type\":\"string\"},{\"name\":\"total_revenue\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"city\":\"Chicago\",\"total_revenue\":\"$184,854,179.28\"},{\"city\":\"Philadelphia\",\"total_revenue\":\"$183,745,550.91\"},{\"city\":\"San Jose\",\"total_revenue\":\"$149,918,771.18\"},{\"city\":\"Phoenix\",\"total_revenue\":\"$135,357,512.91\"},{\"city\":\"San Diego\",\"total_revenue\":\"$110,196,545.63\"},{\"city\":\"San Francisco\",\"total_revenue\":\"$96,011,079.53\"},{\"city\":\"New York\",\"total_revenue\":\"$80,317,122.35\"},{\"city\":\"Columbus\",\"total_revenue\":\"$75,834,863.01\"},{\"city\":\"Austin\",\"total_revenue\":\"$69,081,075.46\"},{\"city\":\"Los Angeles\",\"total_revenue\":\"$68,465,113.31\"},{\"city\":\"Jacksonville\",\"total_revenue\":\"$67,546,458.66\"},{\"city\":\"Houston\",\"total_revenue\":\"$60,359,263.51\"},{\"city\":\"San Antonio\",\"total_revenue\":\"$49,206,997.00\"},{\"city\":\"Charlotte\",\"total_revenue\":\"$32,537,486.16\"},{\"city\":\"Dallas\",\"total_revenue\":\"$24,918,312.82\"}]}",
+      "sql": "=== Data Query ===\nSELECT TOP 10000 l.city AS city, SUM(s.total_revenue) AS total_revenue FROM TS.sales AS s INNER JOIN TS.location_master AS l ON s.store_id = l.store_id GROUP BY l.city ORDER BY total_revenue DESC",
+      "answer": "{\"schema\":{\"fields\":[{\"name\":\"city\",\"type\":\"string\"},{\"name\":\"total_revenue\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"city\":\"Philadelphia\",\"total_revenue\":\"$414,929,015.41\"},{\"city\":\"Chicago\",\"total_revenue\":\"$408,517,419.08\"},{\"city\":\"San Jose\",\"total_revenue\":\"$346,913,619.13\"},{\"city\":\"Phoenix\",\"total_revenue\":\"$292,415,897.50\"},{\"city\":\"San Diego\",\"total_revenue\":\"$250,682,977.36\"},{\"city\":\"San Francisco\",\"total_revenue\":\"$222,998,061.98\"},{\"city\":\"New York\",\"total_revenue\":\"$176,407,812.53\"},{\"city\":\"Columbus\",\"total_revenue\":\"$173,244,627.59\"},{\"city\":\"Los Angeles\",\"total_revenue\":\"$159,573,207.95\"},{\"city\":\"Jacksonville\",\"total_revenue\":\"$151,116,384.75\"},{\"city\":\"Austin\",\"total_revenue\":\"$150,273,869.42\"},{\"city\":\"Houston\",\"total_revenue\":\"$136,749,065.05\"},{\"city\":\"San Antonio\",\"total_revenue\":\"$108,073,406.56\"},{\"city\":\"Charlotte\",\"total_revenue\":\"$75,322,953.33\"},{\"city\":\"Dallas\",\"total_revenue\":\"$55,783,849.31\"}]}",
       "chat_status": 200,
-      "elapsed_s": 29.38016438484192,
+      "elapsed_s": 8.401612997055054,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -331,10 +331,10 @@
         "comparison"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\nSELECT TOP 1 category, COUNT(DISTINCT product_id) AS distinct_product_count\nFROM TS.product_master\nGROUP BY category\nORDER BY distinct_product_count DESC\n\nTotal time taken for the request: 23.4787 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"category\",\"type\":\"string\"},{\"name\":\"distinct_product_count\",\"type\":\"integer\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"category\":\"Electronics\",\"distinct_product_count\":64}]}",
+      "sql": "=== Data Query ===\nSELECT TOP (1)\n    category AS product_category,\n    COUNT(DISTINCT product_id) AS distinct_product_count\nFROM TS.product_master\nGROUP BY category\nORDER BY COUNT(DISTINCT product_id) DESC, category ASC;",
+      "answer": "Electronics has the most distinct products, with 64 products.",
       "chat_status": 200,
-      "elapsed_s": 25.49425220489502,
+      "elapsed_s": 4.766557693481445,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -347,10 +347,10 @@
         "where_filter"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\nSELECT COUNT(DISTINCT transaction_id) AS sales_transactions_count\nFROM TS.sales\nWHERE sale_date >= '2025-01-01' AND sale_date < '2026-01-01'\n\n=== Analytical Query ===\nimport pandas as pd\nsql_query = \"\"\"\nSELECT CAST(COALESCE(sales_transactions_count, 0) AS VARCHAR) AS sales_transactions_count\nFROM table_c5515d0c423b56c99703f3b98a020937\n\"\"\"\ndf = execute_sql_query(sql_query)\ndf = df.fillna('')\nresult = {'type': 'dataframe', 'value': df}\nTotal time taken for the request: 28.3444 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"sales_transactions_count\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"sales_transactions_count\":\"100000\"}]}",
+      "sql": "=== Data Query ===\nSELECT TOP 10000 COUNT(DISTINCT transaction_id) AS sales_transactions_2025 FROM TS.sales WHERE sale_date >= '2025-01-01' AND sale_date < '2026-01-01'",
+      "answer": "There were 789,731 distinct sales transactions in 2025.",
       "chat_status": 200,
-      "elapsed_s": 30.135122776031494,
+      "elapsed_s": 5.678618431091309,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -363,13 +363,13 @@
         "where_filter"
       ],
       "weight": 1.0,
-      "sql": "",
-      "answer": "",
-      "chat_status": 500,
-      "elapsed_s": 28.73452067375183,
-      "sql_ok": false,
-      "ans_ok": false,
-      "raw_score": 0.0
+      "sql": "=== Data Query ===\nSELECT TOP 10000 SUM(total_revenue) AS total_revenue_january_2025 FROM TS.sales WHERE sale_date >= '2025-01-01' AND sale_date < '2025-02-01'",
+      "answer": "Total sales revenue in January 2025 was **$108,999,200**.",
+      "chat_status": 200,
+      "elapsed_s": 6.427570104598999,
+      "sql_ok": true,
+      "ans_ok": true,
+      "raw_score": 1.0
     },
     {
       "question": "Did the Downtown Flagship store generate more revenue than the Westside Mall store?",
@@ -378,13 +378,13 @@
         "where_filter"
       ],
       "weight": 1.0,
-      "sql": "",
-      "answer": "",
-      "chat_status": 500,
-      "elapsed_s": 29.947136878967285,
-      "sql_ok": false,
-      "ans_ok": false,
-      "raw_score": 0.0
+      "sql": "=== Data Query ===\nSELECT TOP 10000 l.store_name, SUM(s.total_revenue) AS total_revenue FROM TS.sales AS s INNER JOIN TS.location_master AS l ON s.store_id = l.store_id WHERE l.store_name IN ('Downtown Flagship', 'Westside Mall') GROUP BY l.store_name ORDER BY total_revenue DESC",
+      "answer": "Yes. Downtown Flagship generated about $176.4 million in revenue, compared with about $159.6 million for Westside Mall\u2014roughly $16.8 million more.",
+      "chat_status": 200,
+      "elapsed_s": 5.4928553104400635,
+      "sql_ok": true,
+      "ans_ok": true,
+      "raw_score": 1.0
     },
     {
       "question": "Which is the largest store by revenue: Central Plaza, Eastgate Store, or Downtown Flagship?",
@@ -393,13 +393,13 @@
         "order_by_top_n"
       ],
       "weight": 1.0,
-      "sql": "",
-      "answer": "",
-      "chat_status": 500,
-      "elapsed_s": 30.041651964187622,
-      "sql_ok": false,
-      "ans_ok": false,
-      "raw_score": 0.0
+      "sql": "=== Data Query ===\nSELECT TOP 10000 lm.store_name, SUM(s.total_revenue) AS total_revenue FROM TS.sales AS s INNER JOIN TS.location_master AS lm ON s.store_id = lm.store_id WHERE lm.store_name IN ('Central Plaza', 'Eastgate Store', 'Downtown Flagship') GROUP BY lm.store_name ORDER BY total_revenue DESC",
+      "answer": "Central Plaza is the largest by total recorded revenue, at approximately $408.5 million. Downtown Flagship follows at $176.4 million, and Eastgate Store at $136.7 million.",
+      "chat_status": 200,
+      "elapsed_s": 5.9031288623809814,
+      "sql_ok": true,
+      "ans_ok": true,
+      "raw_score": 1.0
     },
     {
       "question": "Show me the customer churn rate for the past quarter.",
@@ -408,9 +408,9 @@
       ],
       "weight": 1.0,
       "sql": "",
-      "answer": "*I can\u2019t show a customer churn rate from the information available here.\n\nIf you\u2019d like, I can help with related trends for the past quarter, such as sales performance, product returns, store traffic, or changes across locations. Try asking something like \u201cShow me sales trends for the past quarter\u201d or \u201cCompare store traffic this quarter to the previous quarter.\u201d",
+      "answer": "I don\u2019t see any customer or subscription tables in the available data, so I can\u2019t calculate a churn rate from this dataset.",
       "chat_status": 200,
-      "elapsed_s": 11.301860094070435,
+      "elapsed_s": 1.816016674041748,
       "sql_ok": false,
       "ans_ok": true,
       "raw_score": 1.0
@@ -422,9 +422,9 @@
       ],
       "weight": 1.0,
       "sql": "",
-      "answer": "*I can\u2019t answer that from the available information because it doesn\u2019t include marketing spend or campaign details. If you\u2019d like, try asking about areas that are covered, such as sales, inventory, products, employees, store locations, or store traffic, and include a time period like last year or a specific month range.",
+      "answer": "I don\u2019t have a marketing-spend or campaign table in the available data catalog, so I can\u2019t calculate spend by campaign for last year (2025). The available tables cover sales, products, inventory, stores, employees, pricing, plans, traffic, and calendar data.",
       "chat_status": 200,
-      "elapsed_s": 9.732746601104736,
+      "elapsed_s": 3.237778902053833,
       "sql_ok": false,
       "ans_ok": true,
       "raw_score": 1.0
@@ -436,10 +436,10 @@
         "date_filter"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\n\n\nSELECT date, holiday_name\nFROM TS.calendar_master\nWHERE gregorian_year = 2026\n  AND is_holiday = 'Yes'\nORDER BY date;\n\n=== Analytical Query ===\nimport pandas as pd\nsql_query = \"\"\"\nSELECT\n    CAST(date AS DATE) AS date,\n    holiday_name\nFROM table_9cb481aa52616a2d688633f5c1699e27\nWHERE CAST(date AS DATE) >= DATE '2026-01-01'\n  AND CAST(date AS DATE) <= DATE '2026-12-31'\nORDER BY CAST(date AS DATE)\n\"\"\"\ndf = execute_sql_query(sql_query)\ndf['holiday_name'] = df['holiday_name'].fillna('')\ndf['date'] = df['date'].fillna('')\nresult = {'type': 'dataframe', 'value': df}\nTotal time taken for the request: 28.6678 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"date\",\"type\":\"datetime\"},{\"name\":\"holiday_name\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"date\":\"2026-01-01T00:00:00.000\",\"holiday_name\":\"New Year\"},{\"date\":\"2026-01-19T00:00:00.000\",\"holiday_name\":\"Martin Luther King Day\"},{\"date\":\"2026-02-16T00:00:00.000\",\"holiday_name\":\"Presidents Day\"},{\"date\":\"2026-05-25T00:00:00.000\",\"holiday_name\":\"Memorial Day\"},{\"date\":\"2026-06-19T00:00:00.000\",\"holiday_name\":\"Juneteenth\"},{\"date\":\"2026-07-04T00:00:00.000\",\"holiday_name\":\"Independence Day\"},{\"date\":\"2026-09-07T00:00:00.000\",\"holiday_name\":\"Labor Day\"},{\"date\":\"2026-11-26T00:00:00.000\",\"holiday_name\":\"Thanksgiving\"},{\"date\":\"2026-12-25T00:00:00.000\",\"holiday_name\":\"Christmas\"}]}",
+      "sql": "=== Data Query ===\nSELECT TOP 10000 [date] AS holiday_date, holiday_name FROM TS.calendar_master WHERE gregorian_year = 2026 AND is_holiday = 'Yes' ORDER BY [date]",
+      "answer": "{\"schema\":{\"fields\":[{\"name\":\"holiday_date\",\"type\":\"string\"},{\"name\":\"holiday_name\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"holiday_date\":\"2026-01-01T00:00:00.000\",\"holiday_name\":\"New Year\"},{\"holiday_date\":\"2026-01-19T00:00:00.000\",\"holiday_name\":\"Martin Luther King Day\"},{\"holiday_date\":\"2026-02-16T00:00:00.000\",\"holiday_name\":\"Presidents Day\"},{\"holiday_date\":\"2026-05-25T00:00:00.000\",\"holiday_name\":\"Memorial Day\"},{\"holiday_date\":\"2026-06-19T00:00:00.000\",\"holiday_name\":\"Juneteenth\"},{\"holiday_date\":\"2026-07-04T00:00:00.000\",\"holiday_name\":\"Independence Day\"},{\"holiday_date\":\"2026-09-07T00:00:00.000\",\"holiday_name\":\"Labor Day\"},{\"holiday_date\":\"2026-11-26T00:00:00.000\",\"holiday_name\":\"Thanksgiving\"},{\"holiday_date\":\"2026-12-25T00:00:00.000\",\"holiday_name\":\"Christmas\"}]}",
       "chat_status": 200,
-      "elapsed_s": 30.65964412689209,
+      "elapsed_s": 7.411526918411255,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -452,10 +452,10 @@
         "order_by_top_n"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\n\n\nSELECT TOP 1\n    lm.store_name,\n    AVG(CAST(st.foot_traffic_count AS FLOAT)) AS avg_daily_foot_traffic\nFROM TS.store_traffic st\nINNER JOIN TS.location_master lm ON st.store_id = lm.store_id\nGROUP BY lm.store_name\nORDER BY avg_daily_foot_traffic DESC\n\n=== Analytical Query ===\nimport pandas as pd\nsql_query = \"\"\"\nSELECT\n    store_name,\n    CAST(ROUND(avg_daily_foot_traffic, 0) AS BIGINT) AS avg_daily_foot_traffic\nFROM table_b2bc5234973eb75d6d8dfe8ed1be0a88\n\"\"\"\ndf = execute_sql_query(sql_query)\nif 'store_name' in df.columns:\n    df['store_name'] = df['store_name'].fillna('')\nif 'avg_daily_foot_traffic' in df.columns:\n    df['avg_daily_foot_traffic'] = df['avg_daily_foot_traffic'].fillna(0).astype(int)\nresult = {'type': 'dataframe', 'value': df}\nTotal time taken for the request: 27.2761 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"store_name\",\"type\":\"string\"},{\"name\":\"avg_daily_foot_traffic\",\"type\":\"integer\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"store_name\":\"Uptown Gallery\",\"avg_daily_foot_traffic\":630}]}",
+      "sql": "=== Data Query ===\nSELECT TOP (1)\n    lm.store_id,\n    lm.store_name,\n    lm.city,\n    lm.state,\n    CAST(AVG(CAST(st.foot_traffic_count AS decimal(18,2))) AS decimal(18,2)) AS average_daily_foot_traffic,\n    COUNT(*) AS days_recorded\nFROM TS.store_traffic AS st\nINNER JOIN TS.location_master AS lm\n    ON lm.store_id = st.store_id\nGROUP BY lm.store_id, lm.store_name, lm.city, lm.state\nORDER BY AVG(CAST(st.foot_traffic_count AS decimal(18,2))) DESC;",
+      "answer": "Uptown Gallery (S008) in San Diego, CA has the highest average daily foot traffic: 630.32 visitors per recorded day, based on 31 days of data.",
       "chat_status": 200,
-      "elapsed_s": 29.217308521270752,
+      "elapsed_s": 6.424161672592163,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0
@@ -468,10 +468,10 @@
         "order_by_top_n"
       ],
       "weight": 1.0,
-      "sql": "=== Data Query ===\n\n\n\nSELECT TOP 1\n    e.employee_id,\n    e.employee_name,\n    SUM(s.total_revenue) AS total_sales_revenue\nFROM TS.sales s\nINNER JOIN TS.employee_data e ON s.employee_id = e.employee_id\nGROUP BY e.employee_id, e.employee_name\nORDER BY total_sales_revenue DESC\n\n=== Analytical Query ===\nimport pandas as pd\nsql_query = \"\"\"\nSELECT\n    employee_id,\n    employee_name,\n    total_sales_revenue\nFROM table_e722c5497271bebebff6bbb91bd90c34\nORDER BY total_sales_revenue DESC\nLIMIT 1\n\"\"\"\ndf = execute_sql_query(sql_query)\ndf = df.fillna({'employee_id': '', 'employee_name': '', 'total_sales_revenue': 0})\ndf['employee_id'] = df['employee_id'].astype(str)\ndf['employee_name'] = df['employee_name'].astype(str)\ndf['total_sales_revenue'] = df['total_sales_revenue'].apply(lambda x: f'${x:,.2f}')\nresult = {'type': 'dataframe', 'value': df}\nTotal time taken for the request: 30.0379 seconds",
-      "answer": "{\"schema\":{\"fields\":[{\"name\":\"employee_id\",\"type\":\"string\"},{\"name\":\"employee_name\",\"type\":\"string\"},{\"name\":\"total_sales_revenue\",\"type\":\"string\"}],\"pandas_version\":\"1.4.0\"},\"data\":[{\"employee_id\":\"E0022\",\"employee_name\":\"William Sanchez\",\"total_sales_revenue\":\"$31,389,522.95\"}]}",
+      "sql": "=== Data Query ===\nSELECT TOP (1)\n    e.employee_name AS employee_name,\n    s.employee_id AS employee_id,\n    SUM(s.total_revenue) AS total_revenue\nFROM TS.sales AS s\nINNER JOIN TS.employee_data AS e\n    ON e.employee_id = s.employee_id\nGROUP BY e.employee_name, s.employee_id\nORDER BY SUM(s.total_revenue) DESC;",
+      "answer": "William Sanchez (E0022) made the most sales by revenue, generating $71.39 million in total revenue across the available sales data.",
       "chat_status": 200,
-      "elapsed_s": 32.11254549026489,
+      "elapsed_s": 6.2364561557769775,
       "sql_ok": true,
       "ans_ok": true,
       "raw_score": 1.0

@@ -1,0 +1,20 @@
+{
+ "stamp": "20260826_202131",
+ "commit": "012fc96",
+ "target": "local",
+ "results": [
+  {
+   "id": "nlq_data_chat",
+   "area": "Data/NLQ",
+   "status": "PASS",
+   "evidence": "http=200, contains-15=True, tail=total.\", \"metadata\": {}, \"type\": \"text\"}], \"type\": \"rich_content\"}, \"rich_content_enabled\": true, \"special_message\": \"\"}",
+   "duration_s": 4.8
+  },
+  {
+   "id": "comp_nlq_admits_unanswerable",
+   "area": "Data/NLQ",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  }
+ ]
+}

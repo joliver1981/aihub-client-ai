@@ -1,0 +1,46 @@
+{
+  "results": [
+    {
+      "test": "Build returns 200",
+      "passed": true,
+      "detail": "status=200"
+    },
+    {
+      "test": "Zip contains automation folder",
+      "passed": true,
+      "detail": "entries=['automations/test-0030-export/automation.json', 'automations/test-0030-export/main.py', 'solution.json']"
+    },
+    {
+      "test": "Zip has credential prompt for secret",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "test": "Automation files in zip",
+      "passed": true,
+      "detail": "files=['automations/test-0030-export/automation.json', 'automations/test-0030-export/main.py']"
+    },
+    {
+      "test": "Install returns 200",
+      "passed": false,
+      "detail": "status=207"
+    },
+    {
+      "test": "Installed automation exists",
+      "passed": false,
+      "detail": "found=[]"
+    },
+    {
+      "test": "Empty automation skipped or 422",
+      "passed": true,
+      "detail": "status=200"
+    },
+    {
+      "test": "UI assets endpoint includes automations",
+      "passed": true,
+      "detail": "assets={\"agents\": [{\"deps\": {\"knowledge_document_ids\": [], \"tool_names\": []}, \"display\": \"Folder Monitoring Agent edited-4694 edited-5476 edited-6071 edited-2241\", \"id\": 1, \"tooltip\": \"Assistant with access "
+    }
+  ],
+  "passed": 6,
+  "failed": 2
+}

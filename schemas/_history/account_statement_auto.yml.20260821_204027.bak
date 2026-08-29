@@ -1,0 +1,28 @@
+document_type: account_statement
+fields:
+  accountIdentifier:
+    description: Account number or identifier for the statement
+  balances.endingBalance.amount:
+    description: Ending balance amount for the statement period
+  balances.endingBalance.currency:
+    description: Currency of the ending balance
+  balances.totalAmountDue.amount:
+    description: Total amount due on the account
+  balances.totalAmountDue.currency:
+    description: Currency of the total amount due
+  customer.name:
+    description: Name of the customer or account holder
+  documentType:
+    description: Type/classification of the document (e.g., account statement)
+  statementPeriod.month:
+    description: Month covered by the statement period
+  statementPeriod.periodLabel:
+    description: Human-readable label for the statement period
+  statementPeriod.year:
+    description: Year covered by the statement period
+  opening_balance:
+    description: Opening balance amount at the start of the statement period
+    evolved: '2026-08-21'
+  statement_date:
+    description: Date the statement was issued
+    evolved: '2026-08-21'

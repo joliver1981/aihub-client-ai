@@ -1,0 +1,56 @@
+{
+  "results": [
+    {
+      "test": "CC creates automation",
+      "passed": true,
+      "detail": "response_snippet=[STATUS: thinking - Analyzing your request...] [STATUS: scanning - Scanning platform: 284 agents, 0 connections found...] [STATUS: processing - Processing with AI...] [STATUS: building - Working with "
+    },
+    {
+      "test": "CC saves code",
+      "passed": false,
+      "detail": "response_snippet=[STATUS: thinking - Analyzing your request...] [STATUS: scanning - Scanning platform: 284 agents, 0 connections found...] [STATUS: processing - Processing with AI...] [STATUS: building - Working with "
+    },
+    {
+      "test": "CC dry-run with verify report",
+      "passed": true,
+      "detail": "response_snippet=[STATUS: thinking - Analyzing your request...] [STATUS: scanning - Scanning platform: 284 agents, 0 connections found...] [STATUS: processing - Processing with AI...] [STATUS: building - Working with Builder Agent...] I can\u2019t show a verified dry-run result yet.\n\nThe latest platform verification did "
+    },
+    {
+      "test": "CC promotes automation",
+      "passed": true,
+      "detail": "response_snippet=[STATUS: thinking - Analyzing your request...] [STATUS: scanning - Scanning platform: 284 agents, 0 connections found...] [STATUS: processing - Processing with AI...] [STATUS: building - Working with "
+    },
+    {
+      "test": "CC runs automation",
+      "passed": true,
+      "detail": "response_snippet=[STATUS: thinking - Analyzing your request...] [STATUS: scanning - Scanning platform: 284 agents, 0 connections found...] [STATUS: processing - Processing with AI...] [STATUS: building - Working with "
+    },
+    {
+      "test": "CC reports password rejection honestly",
+      "passed": true,
+      "detail": "response_snippet=[STATUS: thinking - Analyzing your request...] [STATUS: scanning - Scanning platform: 284 agents, 0 connections found...] [STATUS: processing - Processing with AI...] [STATUS: building - Working with Builder Agent...] I need a few details before updating the existing automation \u201ccc-test-0028\u201d (workf"
+    },
+    {
+      "test": "CC lists automation runs",
+      "passed": true,
+      "detail": "response_snippet=[STATUS: thinking - Analyzing your request...] [STATUS: scanning - Scanning platform: 284 agents, 0 connections found...] [STATUS: processing - Processing with AI...] [STATUS: building - Working with "
+    },
+    {
+      "test": "CC schedules automation",
+      "passed": true,
+      "detail": "response_snippet=[STATUS: thinking - Analyzing your request...] [STATUS: scanning - Scanning platform: 284 agents, 0 connections found...] [STATUS: processing - Processing with AI...] [STATUS: building - Working with "
+    },
+    {
+      "test": "Role-1 refused automation tools",
+      "passed": false,
+      "detail": "response_snippet=[STATUS: thinking - Analyzing your request...] [STATUS: scanning - Scanning platform: 284 agents, 0 connections found...] [STATUS: processing - Processing with AI...] [STATUS: building - Working with Builder Agent...] I found 113 automations/workflows in your workspace. Here are some of the current "
+    },
+    {
+      "test": "Forged role-1 internal/manage -> 403",
+      "passed": true,
+      "detail": "status=403"
+    }
+  ],
+  "passed": 8,
+  "failed": 2
+}

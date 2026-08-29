@@ -1,0 +1,938 @@
+{
+  "lane": "the_agent_chat_attachments",
+  "suite": "word",
+  "model": "claude-sonnet-5",
+  "role": 3,
+  "transport": {
+    "upload": "http://127.0.0.1:5111/api/uploads",
+    "chat": "http://127.0.0.1:5111/api/chat",
+    "session": "fresh per question",
+    "attachments": "whole corpus"
+  },
+  "scoring": {
+    "overall_pct": 88.88888888888889,
+    "total_weight": 27.0,
+    "total_earned": 24.0,
+    "by_file": {
+      "01_clean_handbook.docx": {
+        "weight": 6.0,
+        "earned": 6.0,
+        "n": 6,
+        "pct": 100.0
+      },
+      "02_tables_heavy_report.docx": {
+        "weight": 5.0,
+        "earned": 4.0,
+        "n": 5,
+        "pct": 80.0
+      },
+      "03_embedded_charts_kpis.docx": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "04_tracked_changes_contract.docx": {
+        "weight": 5.0,
+        "earned": 3.0,
+        "n": 4,
+        "pct": 60.0
+      },
+      "05_long_doc_toc_footnotes.docx": {
+        "weight": 6.0,
+        "earned": 6.0,
+        "n": 6,
+        "pct": 100.0
+      }
+    },
+    "by_dim": {
+      "direct_lookup": {
+        "weight": 19.0,
+        "earned": 19.0,
+        "n": 19,
+        "pct": 100.0
+      },
+      "bullet_extract": {
+        "weight": 3.0,
+        "earned": 3.0,
+        "n": 3,
+        "pct": 100.0
+      },
+      "table_in_word": {
+        "weight": 5.0,
+        "earned": 4.0,
+        "n": 5,
+        "pct": 80.0
+      },
+      "comparison": {
+        "weight": 3.0,
+        "earned": 2.0,
+        "n": 3,
+        "pct": 66.66666666666667
+      },
+      "chart_caption": {
+        "weight": 2.0,
+        "earned": 2.0,
+        "n": 2,
+        "pct": 100.0
+      },
+      "tracked_change_accepted": {
+        "weight": 2.0,
+        "earned": 0.0,
+        "n": 1,
+        "pct": 0.0
+      },
+      "long_doc_retrieval": {
+        "weight": 2.0,
+        "earned": 2.0,
+        "n": 2,
+        "pct": 100.0
+      },
+      "footnote_extract": {
+        "weight": 1.0,
+        "earned": 1.0,
+        "n": 1,
+        "pct": 100.0
+      },
+      "not_present": {
+        "weight": 1.0,
+        "earned": 1.0,
+        "n": 1,
+        "pct": 100.0
+      }
+    },
+    "leak_count": 1
+  },
+  "results": [
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "Who founded Veridian Labs and when?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "I'll check the attached documents for this information.\nAll 5 documents imported successfully. Now let me search for the founding information.\nFound it in the employee handbook (`01_clean_handbook.docx`):\n\n**Veridian Labs was founded in March 2014 by Dr. Anika Vorhees and Marcus Holloway** in Cambridge, Massachusetts.\n\nAdditional context from the same handbook: the company designs precision optical sensors for industrial automation, ships to 38 countries, and as of January 2026 employs 412 people across 5 sites (Cambridge MA HQ, Eindhoven NL, Penang Malaysia, Bangalore India, and Austin TX).",
+      "chat_status": 200,
+      "elapsed_s": 377.22283816337585,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "How many manufacturing or operating sites does Veridian Labs have?",
+      "dimensions": [
+        "direct_lookup",
+        "bullet_extract"
+      ],
+      "weight": 1.0,
+      "answer": "Already imported previously. Now let me search.\nPer **01_clean_handbook.docx** (Veridian Labs Employee Handbook 2026, p.1):\n\nVeridian Labs operates **5 sites** total, but only **1** is designated as a manufacturing site:\n\n| Site | Function |\n|---|---|\n| Cambridge, MA | Headquarters (engineering + HQ) |\n| Eindhoven, Netherlands | European R&D and customer support |\n| **Penang, Malaysia** | **Manufacturing site #1 (optical assemblies)** |\n| Bangalore, India | Software platform and DevOps |\n| Austin, TX | North-American sales hub |\n\nSo the company has **1 manufacturing site** (Penang, Malaysia) among its 5 total operating locations, as of January 2026 (412 employees across all 5).",
+      "chat_status": 200,
+      "elapsed_s": 154.42205214500427,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "How many vacation days does an employee with 7 years of service receive at Veridian Labs?",
+      "dimensions": [
+        "bullet_extract",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Already imported \u2014 let me search it.\nAt Veridian Labs, vacation accrual is based on tenure brackets (per the Employee Handbook, p.1):\n\n- 0\u20132 years: 18 days/year\n- 3\u20135 years: 22 days/year\n- **6\u201310 years: 25 days/year**\n- 11+ years: 28 days/year\n\n**An employee with 7 years of service falls in the 6\u201310 year bracket, so they receive 25 vacation days per year.** (Unused days roll over up to a 10-day cap, with any excess forfeited on December 31.)",
+      "chat_status": 200,
+      "elapsed_s": 31.1801598072052,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "What is the daily per diem for travel to Tokyo?",
+      "dimensions": [
+        "bullet_extract"
+      ],
+      "weight": 1.0,
+      "answer": "Already imported \u2014 good, let me search for the per diem info.\nBased on the employee handbook you attached (**01_clean_handbook.docx**, p.1, \"Travel & Per Diem\"):\n\n**Tokyo is a Tier 1 city, and the per diem is $115/day** (flat rate covering all expenses).\n\n> \"Per diem amounts (USD) by city tier are: Tier 1 (NYC, SF, London, Tokyo, Singapore): $115/day\"\n\n\u26a0\ufe0f **Heads up on a conflict:** the document store also has a *different* employee handbook already on file (`stress_01_employee_handbook_22pg`) whose Appendix A also lists Tokyo as a Tier 1 international city but breaks per diem down by category instead of a flat rate:\n\n| Category | International Tier 1 |\n|---|---|\n| Lodging (per night) | $350 |\n| Meals (per day) | $125 |\n| Incidentals (per day) | $50 |\n| Ground Transport (per day) | $100 |\n| **Daily Total** | **$625** |\n\nIf your organization's policy is the one in the file you just uploaded, the answer is **$115/day**. If it's actually governed by the other handbook in the system, it's **$625/day** total (or you'd itemize by category). Let me know which policy applies if you want me to resolve the conflict definitively.",
+      "chat_status": 200,
+      "elapsed_s": 167.41520524024963,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "How often are performance reviews held at Veridian Labs?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Already indexed. Now let me search.\nAt Veridian Labs, performance reviews are held **semi-annually \u2014 in April and October**, per the Employee Handbook 2026 (01_clean_handbook.docx, p.1, Section 4: Performance Reviews). Compensation adjustments follow shortly after each cycle (May 1 for the Spring/April review, November 1 for the Fall/October review), and reviews use a 5-point scale: Exceeds, Strong, Meets, Developing, Not Meeting.\n\n(Note: other passages returned belong to an unrelated \"Greenfield Technologies\" handbook already in the document store \u2014 not Veridian Labs \u2014 so I excluded those from this answer.)",
+      "chat_status": 200,
+      "elapsed_s": 35.71100473403931,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "Does Veridian Labs have a code of conduct that protects whistleblowers from retaliation?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "I'll import these documents so they're searchable, then look for whistleblower/retaliation protections.\nAll 5 already indexed. Now let me search for whistleblower/retaliation content.\nFound it in the Veridian Labs Employee Handbook (already in the store). Section 5, \"Conduct & Reporting,\" states:\n\n> \"Concerns may be reported anonymously to ethics@veridianlabs.com. Reports are reviewed by the People Operations lead, Sasha Kovalenko, and the General Counsel, Bao Tran. **Retaliation against reporters is grounds for termination.**\"\n\n**Answer: Yes.** Veridian Labs' Employee Handbook (2026, effective April 1, 2026) includes a conduct/reporting policy that:\n- Lets employees report concerns anonymously (ethics@veridianlabs.com)\n- Routes reports to People Operations lead Sasha Kovalenko and General Counsel Bao Tran for review\n- Explicitly states that retaliation against reporters is grounds for termination \u2014 i.e., whistleblowers are protected from retaliation.\n\n*Source: `01_clean_handbook.docx`, Section 5 (\"Conduct & Reporting\").*",
+      "chat_status": 200,
+      "elapsed_s": 61.871705055236816,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "Which Eldoria Logistics hub had the highest throughput in Q1 2026?",
+      "dimensions": [
+        "table_in_word",
+        "comparison"
+      ],
+      "weight": 1.0,
+      "answer": "Already in the store \u2014 but the search still found nothing. Let me re-check directly by reading the files (they're already imported, and the search index should cover them; let me search again more broadly, and also just read the tables-heavy report directly since it's most likely to hold hub throughput data).\n**Memphis** had the highest throughput in Q1 2026 among Eldoria Logistics hubs, averaging **49,100 parcels/day** (Jan 48,200 \u2192 Feb 47,800 \u2192 Mar 51,300).\n\nFor context, the next closest hubs were Louisville (32,600/day) and Cologne (29,467/day) \u2014 Memphis led by a wide margin and also topped the Q1 revenue-lane and damage-claims tables (source: *02_tables_heavy_report.docx*, Q1 2026 Operations Report).",
+      "chat_status": 200,
+      "elapsed_s": 39.40765619277954,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "What was Memphis's Q1 average daily parcel throughput?",
+      "dimensions": [
+        "table_in_word",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Found it in **Eldoria Logistics \u2014 Q1 2026 Operations Report**: Memphis's Q1 2026 average daily parcel throughput was **49,100 parcels/day** (Jan 48,200 \u2192 Feb 47,800 \u2192 Mar 51,300), making it the highest-throughput hub for the quarter.",
+      "chat_status": 200,
+      "elapsed_s": 12.740923881530762,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "Which service tier missed its on-time delivery SLA in Q1 2026?",
+      "dimensions": [
+        "table_in_word",
+        "comparison"
+      ],
+      "weight": 1.0,
+      "answer": "All 5 files were already in the store. Now let me search for the SLA data.\n**Priority Overnight** was the only service tier that missed its Q1 2026 on-time delivery SLA.\n\nFrom Eldoria Logistics' Q1 2026 Operations Report (\"02_tables_heavy_report.docx\"):\n\n| Tier | Target SLA | Q1 Actual | Variance |\n|---|---|---|---|\n| **Priority Overnight** | 99.0% | **98.6%** | **-0.4 pp (missed)** |\n| Express 2-Day | 97.5% | 97.9% | +0.4 pp (met) |\n| Standard 4-Day | 95.0% | 96.2% | +1.2 pp (met) |\n| Economy 7-Day | 92.0% | 93.5% | +1.5 pp (met) |\n\nThe report's summary explicitly states: *\"Priority Overnight was the only service tier to miss its SLA (98.6% vs 99.0%, -0.4 pp).\"*",
+      "chat_status": 200,
+      "elapsed_s": 42.430304765701294,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "What was the top revenue lane (origin \u2192 destination) for Eldoria Logistics in Q1?",
+      "dimensions": [
+        "table_in_word",
+        "comparison"
+      ],
+      "weight": 1.0,
+      "answer": "I searched but couldn't find anything about \"Eldoria Logistics\" anywhere I have access to:\n\n- **Documents store** (143 docs total): no matches for \"Eldoria\" or \"revenue lane\" \u2014 and the 5 files you just attached (handbook, tables report, embedded-charts KPIs, tracked-changes contract, long-doc TOC) don't look logistics-related either.\n- **Data connections**: none named for Eldoria or freight/logistics lanes (I see EDW, ERPDB, Salesforce, various AIRDB/sales connections, but nothing indicating lane/origin-destination revenue data, and no obvious \"Eldoria\" entity).\n\nI don't want to guess or fabricate a lane/number. Could you point me to where this data actually lives? For example:\n- A specific data connection/table that has lane-level revenue (origin/destination + Q1 revenue)?\n- A report or spreadsheet I should import (from your uploads, a folder, or a portal)?\n- Is \"Eldoria Logistics\" a customer name inside one of your existing systems (e.g., Salesforce, ERPDB) that I should query by name?\n\nOnce I know where the data is, I can pull it and give you the top revenue lane for Q1.",
+      "chat_status": 200,
+      "elapsed_s": 29.701123476028442,
+      "matched": false,
+      "leaked": false,
+      "raw_score": 0.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "What was Cologne's average damage claim amount in Q1 2026?",
+      "dimensions": [
+        "table_in_word",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Found it in the report you attached \u2014 **Eldoria Logistics \u2014 Q1 2026 Operations Report** (`02_tables_heavy_report.docx`), Section 4 \"Damage & Loss Claims\":\n\n**Cologne's average damage claim in Q1 2026 was $215 per claim** \u2014 the highest average of any hub (142 claims filed, $30.5K total paid).\n\nFor context, other hubs' Q1 average claims: Memphis $187, Louisville $162, Rotterdam $198, Singapore $224, Dubai $256.",
+      "chat_status": 200,
+      "elapsed_s": 22.122066259384155,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "How many active accounts did Atlas Networks have in March 2026?",
+      "dimensions": [
+        "chart_caption",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Found it in your attached document.\n\n**Atlas Networks had 89,700 active accounts in March 2026** (paid logos), per the *\"Atlas Networks \u2014 FY2026 Board Update\"* (03_embedded_charts_kpis.docx). That's up from 82,400 in July 2025 \u2014 an 8.9% sequential increase over the 9 months.",
+      "chat_status": 200,
+      "elapsed_s": 45.137988805770874,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "What is Atlas Networks' FY2026 total ARR?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Already imported \u2014 now let's search for the answer.\nFound it \u2014 in **03_embedded_charts_kpis.docx** (Atlas Networks FY2026 Board Update, p.1):\n\n**Atlas Networks' FY2026 total ARR is $248M**, up 18.4% year-over-year, with Atlas Core making up the largest share at 42% of that ARR (Professional Services the smallest at 7%).",
+      "chat_status": 200,
+      "elapsed_s": 87.15549039840698,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "What share of Atlas Networks' FY2026 ARR comes from the Atlas Core product line?",
+      "dimensions": [
+        "chart_caption",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Atlas Core makes up **42% of Atlas Networks' FY2026 ARR** (total ARR = $248M, up 18.4% YoY), per the CEO office's FY2026 Board Update (03_embedded_charts_kpis.docx, Section 2 \"ARR Composition\"). Professional Services is the smallest line at 7%.",
+      "chat_status": 200,
+      "elapsed_s": 12.070023536682129,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "Who is Atlas Networks' CEO and CFO?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "This is a one-off lookup, so I'll just read the attached files directly rather than importing them.\nPer Atlas Networks' FY2026 Board Update (03_embedded_charts_kpis.docx):\n\n- **CEO:** Larissa Verma\n- **CFO:** Hideo Tanaka",
+      "chat_status": 200,
+      "elapsed_s": 19.585151433944702,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "How many customers does Atlas Networks serve, and in how many countries?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Found it in **03_embedded_charts_kpis.docx** (Atlas Networks \u2014 FY2026 Board Update):\n\nAtlas Networks serves **4,200 customers across 23 countries**.",
+      "chat_status": 200,
+      "elapsed_s": 13.951820135116577,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_tracked_changes_contract.docx",
+      "question": "What is the monthly fee Cyrene Industries pays Westbrook & Vale under the MSA?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Under the MSA (Master Services Agreement, effective June 1, 2026) between Cyrene Industries (Client) and Westbrook & Vale LLP (Provider), Cyrene Industries pays a **monthly fee of $48,500 USD**, per Section 2 (Fees and Payment). Invoices are net-30, with 1.5%/month interest on late payments.",
+      "chat_status": 200,
+      "elapsed_s": 10.848763465881348,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_tracked_changes_contract.docx",
+      "question": "What is the initial term of the Master Services Agreement?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "This is a one-off question about a specific attached file, so I'll just read the tracked-changes contract directly (the most likely candidate for a Master Services Agreement).\nThe initial term of the Master Services Agreement (between Cyrene Industries and Westbrook & Vale LLP, effective June 1, 2026) is **twenty-four (24) months**, commencing on the Effective Date. Either party may terminate for convenience with 60 days' written notice.",
+      "chat_status": 200,
+      "elapsed_s": 13.011070013046265,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_tracked_changes_contract.docx",
+      "question": "What is the current penalty per business day for late delivery under Section 5?",
+      "dimensions": [
+        "tracked_change_accepted"
+      ],
+      "weight": 2.0,
+      "answer": "**$12,500 USD per business day**, capped at thirty (30) days.\n\nThis is from the current (post-revision) text of Section 5 in `04_tracked_changes_contract.docx` \u2014 the document notes the earlier draft figure of $5,000 was struck by a tracked deletion, and once all tracked changes are accepted, the standing figure is $12,500/business day.",
+      "chat_status": 200,
+      "elapsed_s": 12.091513872146606,
+      "matched": false,
+      "leaked": true,
+      "raw_score": 0.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_tracked_changes_contract.docx",
+      "question": "How long does the confidentiality obligation survive after termination?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The confidentiality obligation in the Master Services Agreement (Cyrene Industries / Westbrook & Vale LLP, Section 3) survives for **five (5) years following termination**.\n\nFor reference, permitted disclosures during that period are limited to legal compulsion and disclosure to professional advisors bound by similar confidentiality obligations.",
+      "chat_status": 200,
+      "elapsed_s": 9.734658002853394,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "What is the peak event throughput of the Hyperion Logistics Network?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "This document (03_embedded_charts_kpis.docx) is about \"Atlas Networks,\" not \"Hyperion Logistics Network.\" Let me check the other attached files.\nThe Hyperion Logistics Network (HLN) has a peak event throughput of **28,000 events/sec**, designed for high-throughput dispatch with sub-second routing decisions.\n\nSource: *\"05_long_doc_toc_footnotes.docx\"* \u2014 Hyperion Logistics Network \u2014 Technical Reference (v4.2), Section 1 (Introduction) and confirmed again in Section 10 (Anchor Fingerprint Facts): \"Hyperion Logistics Network (HLN) peak throughput: 28,000 events/sec.\"",
+      "chat_status": 200,
+      "elapsed_s": 19.30538058280945,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "Which 3 cloud regions does Hyperion Logistics Network deploy to?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Hyperion Logistics Network (HLN) deploys to 3 regions:\n\n1. **us-east-1**\n2. **eu-central-1**\n3. **ap-southeast-2**\n\nSource: `05_long_doc_toc_footnotes.docx` \u2014 Section 2 (Network Topology) and confirmed again in Section 10 (Anchor Fingerprint Facts).",
+      "chat_status": 200,
+      "elapsed_s": 15.748008966445923,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "When was the last successful disaster-recovery drill performed?",
+      "dimensions": [
+        "long_doc_retrieval",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Already imported previously \u2014 good, they're in the store. Now let me search for the disaster-recovery drill info.\nAccording to **05_long_doc_toc_footnotes.docx** (Hyperion Logistics Network Technical Reference v4.2), Section 8 \u2013 Disaster Recovery:\n\n> **Last successful DR drill: February 14, 2026**\n\nAdditional context from that same section:\n- RPO (Recovery Point Objective): 60 seconds for the data plane, 5 minutes for control-plane state\n- RTO (Recovery Time Objective): 30 minutes for full regional failover\n- Failover is automated via Argo Workflows, triggered from SLO burn-rate alarms\n\nNote: this is from that specific document. Your document store also contains an unrelated older/different technical doc (not one of the 5 you just attached) citing a \"last full-stack DR drill\" of March 9, 2026 \u2014 flagging that in case you meant a different system, but for the files you uploaded today, **February 14, 2026** is the answer.",
+      "chat_status": 200,
+      "elapsed_s": 128.30092477798462,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "Who authored RFC-HLN-031 and when was it approved?",
+      "dimensions": [
+        "footnote_extract",
+        "long_doc_retrieval"
+      ],
+      "weight": 1.0,
+      "answer": "Already imported. Let me search for the RFC.\nI found RFC\u2011HLN\u2011031 in **05_long_doc_toc_footnotes.docx** (Hyperion Logistics Network Technical Reference).\n\n- **Author:** Mei-Ling Park\n- **Approved:** October 25, 2025 \u2014 by the Platform Engineering Council\n\nNote there's a small internal inconsistency in the document worth flagging: the body text (Section 3) says the RFC \"was authored by Mei-Ling Park and approved on October 18, 2025,\" but footnote 1 \u2014 which is more specific \u2014 clarifies that October 18, 2025 was the **publish** date, and the actual **approval** by the Platform Engineering Council came a week later, on **October 25, 2025**. I'd go with the footnote's more detailed account for the approval date.",
+      "chat_status": 200,
+      "elapsed_s": 87.74925327301025,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "Does Hyperion Logistics Network use Azure as one of its cloud providers?",
+      "dimensions": [
+        "not_present"
+      ],
+      "weight": 1.0,
+      "answer": "I'll check the attached documents for mentions of Hyperion Logistics Network and cloud providers.\nNo, according to the technical reference document (`05_long_doc_toc_footnotes.docx`), Hyperion Logistics Network (HLN) is deployed across **AWS and GCP** only \u2014 Azure is not mentioned as one of its cloud providers.",
+      "chat_status": 200,
+      "elapsed_s": 17.04919195175171,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "What programming language is the router-core service written in, and what is its p95 latency?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Found it in **05_long_doc_toc_footnotes.docx** (Hyperion Logistics Network Technical Reference, v4.2):\n\n- **Language:** Rust\n- **p95 latency:** 84 ms (end-to-end)\n\nBoth figures are stated twice in the doc \u2014 once in Section 3 (\"Routing Subsystem\") and again confirmed in the \"Anchor Fingerprint Facts\" section.",
+      "chat_status": 200,
+      "elapsed_s": 20.81248903274536,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    }
+  ],
+  "extras": [
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "Who founded Veridian Labs and when?",
+      "tools": [
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "search_documents",
+        "search_documents",
+        "search_documents"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "How many manufacturing or operating sites does Veridian Labs have?",
+      "tools": [
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "search_documents",
+        "list_documents",
+        "search_documents",
+        "search_documents",
+        "search_documents"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "How many vacation days does an employee with 7 years of service receive at Veridian Labs?",
+      "tools": [
+        "import_documents",
+        "search_documents"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "What is the daily per diem for travel to Tokyo?",
+      "tools": [
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "search_documents",
+        "search_documents",
+        "search_documents",
+        "query_document_records"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "How often are performance reviews held at Veridian Labs?",
+      "tools": [
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "search_documents"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "Does Veridian Labs have a code of conduct that protects whistleblowers from retaliation?",
+      "tools": [
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "search_documents",
+        "search_documents",
+        "search_documents",
+        "list_documents"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "Which Eldoria Logistics hub had the highest throughput in Q1 2026?",
+      "tools": [
+        "list_documents",
+        "search_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "search_documents",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "What was Memphis's Q1 average daily parcel throughput?",
+      "tools": [
+        "read_file",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "Which service tier missed its on-time delivery SLA in Q1 2026?",
+      "tools": [
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "search_documents",
+        "query_document_records",
+        "read_file",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "What was the top revenue lane (origin \u2192 destination) for Eldoria Logistics in Q1?",
+      "tools": [
+        "list_data_connections",
+        "search_documents",
+        "list_documents"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "What was Cologne's average damage claim amount in Q1 2026?",
+      "tools": [
+        "list_data_connections",
+        "read_file",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "How many active accounts did Atlas Networks have in March 2026?",
+      "tools": [
+        "list_data_connections",
+        "get_connection_schema",
+        "get_connection_schema",
+        "get_connection_schema",
+        "list_saved_views",
+        "list_integrations",
+        "get_connection_schema",
+        "get_connection_schema",
+        "get_connection_schema",
+        "read_file",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "What is Atlas Networks' FY2026 total ARR?",
+      "tools": [
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "search_documents",
+        "search_documents",
+        "list_documents"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "What share of Atlas Networks' FY2026 ARR comes from the Atlas Core product line?",
+      "tools": [
+        "read_file",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "Who is Atlas Networks' CEO and CFO?",
+      "tools": [
+        "Skill",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "How many customers does Atlas Networks serve, and in how many countries?",
+      "tools": [
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "04_tracked_changes_contract.docx",
+      "question": "What is the monthly fee Cyrene Industries pays Westbrook & Vale under the MSA?",
+      "tools": [
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "04_tracked_changes_contract.docx",
+      "question": "What is the initial term of the Master Services Agreement?",
+      "tools": [
+        "Skill",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "04_tracked_changes_contract.docx",
+      "question": "What is the current penalty per business day for late delivery under Section 5?",
+      "tools": [
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "04_tracked_changes_contract.docx",
+      "question": "How long does the confidentiality obligation survive after termination?",
+      "tools": [
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "What is the peak event throughput of the Hyperion Logistics Network?",
+      "tools": [
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "Which 3 cloud regions does Hyperion Logistics Network deploy to?",
+      "tools": [
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "When was the last successful disaster-recovery drill performed?",
+      "tools": [
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "search_documents",
+        "search_documents",
+        "search_documents",
+        "query_document_records"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "Who authored RFC-HLN-031 and when was it approved?",
+      "tools": [
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "import_documents",
+        "search_documents"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "Does Hyperion Logistics Network use Azure as one of its cloud providers?",
+      "tools": [
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "What programming language is the router-core service written in, and what is its p95 latency?",
+      "tools": [
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "graded_by_llm": false,
+      "stream_error": null,
+      "no_tool_calls": false
+    }
+  ],
+  "uploaded": [
+    [
+      "01_clean_handbook.docx",
+      200,
+      0.01563549041748047
+    ],
+    [
+      "02_tables_heavy_report.docx",
+      200,
+      0.0
+    ],
+    [
+      "03_embedded_charts_kpis.docx",
+      200,
+      0.01551508903503418
+    ],
+    [
+      "04_tracked_changes_contract.docx",
+      200,
+      0.01564335823059082
+    ],
+    [
+      "05_long_doc_toc_footnotes.docx",
+      200,
+      0.0
+    ]
+  ]
+}

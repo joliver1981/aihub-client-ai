@@ -1,0 +1,53 @@
+document_type: operations_report
+fields:
+  anchor_facts.highest_avg_damage_claim.avg_claim_usd:
+    description: Average damage claim value (USD) for that hub
+  anchor_facts.highest_avg_damage_claim.hub:
+    description: Hub with the highest average damage claim value
+  anchor_facts.highest_throughput_hub.hub:
+    description: Hub with the highest parcel throughput
+  anchor_facts.highest_throughput_hub.value_parcels_per_day:
+    description: Throughput value (parcels/day) for the highest-throughput hub
+  anchor_facts.sla_miss.actual_pct:
+    description: Actual achieved percentage for that tier
+  anchor_facts.sla_miss.target_sla_pct:
+    description: Target SLA percentage for that tier
+  anchor_facts.sla_miss.tier:
+    description: Service tier with the largest SLA miss
+  anchor_facts.sla_miss.variance_pp:
+    description: Variance in percentage points between target and actual SLA
+  anchor_facts.top_revenue_lane.destination:
+    description: Destination of the top revenue-generating lane
+  anchor_facts.top_revenue_lane.origin:
+    description: Origin of the top revenue-generating lane
+  anchor_facts.top_revenue_lane.q1_revenue_usd_thousands:
+    description: Q1 revenue (USD thousands) for the top revenue lane
+  document_metadata.company:
+    description: Company the report pertains to
+  document_metadata.currency:
+    description: Currency used for monetary figures in the report
+  document_metadata.date_prepared:
+    description: Date the report was prepared
+  document_metadata.prepared_by:
+    description: Person or team who prepared the report
+  document_metadata.report_title:
+    description: Title of the operations report
+  document_metadata.reporting_period:
+    description: Period covered by the report (e.g. Q1 2026)
+records:
+  hub_performance:
+    columns:
+      avg_claim_usd: Average claim value (USD) at this hub
+      claims_filed: Number of damage/loss claims filed at this hub
+      excerpt: Verbatim text/table snippet supporting this row
+      feb_2026: Parcels per day in February 2026
+      hub: Name/code of the hub
+      jan_2026: Parcels per day in January 2026
+      mar_2026: Parcels per day in March 2026
+      q1_avg: Average parcels per day over Q1
+      source_page: Page number(s) where this row's data appears
+      source_pages: Page number(s) this row came from
+      total_paid_usd_thousands: Total amount paid out for claims (USD thousands)
+    expected_rows: 6
+    grain: one row per hub, combining its Q1 throughput and damage/loss claim metrics
+    vocabulary: {}

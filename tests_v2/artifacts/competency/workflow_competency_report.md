@@ -1,6 +1,6 @@
 # Workflow Execution — Competency Report
 
-Generated: 2026-05-24 20:44:34
+Generated: 2026-08-26 21:20:12
 DB connection used for Database-node workflows: id=135
 
 ## Headline
@@ -32,8 +32,8 @@ DB connection used for Database-node workflows: id=135
 ## Per-workflow detail
 
 ### `var_chain_substitution`
-- workflow_id: 1212
-- execution_id: ce31723f-c356-4fda-acb5-c5572715df62
+- workflow_id: 1549
+- execution_id: 503e3ade-1190-473f-8b0e-7e3a295e0c84
 - final status: **Completed**
 - elapsed: 2.1s
 - variables observed: `{'a': '42', 'b': '42'}`
@@ -43,8 +43,8 @@ DB connection used for Database-node workflows: id=135
    - ✅ **b_equals_42** — b='42'
 
 ### `var_arithmetic`
-- workflow_id: 1213
-- execution_id: 9f0babea-52fa-46ed-8c87-bb6c7f1df310
+- workflow_id: 1550
+- execution_id: f03fd94e-354d-47bf-9669-d5fdf71e8fe8
 - final status: **Completed**
 - elapsed: 2.1s
 - variables observed: `{'a': '10', 'b': '1010101010'}`
@@ -53,8 +53,8 @@ DB connection used for Database-node workflows: id=135
    - ❌ **b_evaluates_to_50** — b='1010101010'
 
 ### `database_query_count`
-- workflow_id: 1214
-- execution_id: eaf8250f-f079-4e7a-a036-8b59ae524249
+- workflow_id: 1551
+- execution_id: 1d91387a-63bd-4089-a9ba-93b9f738c229
 - final status: **Completed**
 - elapsed: 2.1s
 - variables observed: `{'product_count': {'columns': ['n'], 'rows': [['200']]}}`
@@ -63,8 +63,8 @@ DB connection used for Database-node workflows: id=135
    - ✅ **product_count_is_200** — product_count="{'columns': ['n'], 'rows': [['200']]}"
 
 ### `multi_step_chain`
-- workflow_id: 1215
-- execution_id: 18206565-f6d2-4f50-ac06-24a2c15d60c1
+- workflow_id: 1552
+- execution_id: 187876f8-ff4a-4273-add6-2e04878dd127
 - final status: **Completed**
 - elapsed: 2.1s
 - variables observed: `{'store_count': {'columns': ['n'], 'rows': [['15']]}, 'summary': 'Stores in DB: {"columns": ["n"], "rows": [["15"]]}'}`
@@ -74,8 +74,8 @@ DB connection used for Database-node workflows: id=135
    - ✅ **summary_chains** — summary='Stores in DB: {"columns": ["n"], "rows": [["15"]]}'
 
 ### `conditional_branch_true`
-- workflow_id: 1216
-- execution_id: a6416f1f-d535-4105-a445-98485fd5549c
+- workflow_id: 1553
+- execution_id: e6398a0e-bf8f-4ec8-a9b9-a6be1140566e
 - final status: **Completed**
 - elapsed: 2.1s
 - variables observed: `{'result': 'high', 'x': '10'}`

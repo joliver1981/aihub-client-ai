@@ -1,0 +1,173 @@
+document_type: technical_reference
+fields:
+  architecture.control_plane:
+    description: Description of the control plane architecture
+  architecture.data_plane:
+    description: Description of the data plane architecture
+  cloud_provider:
+    description: Primary cloud provider hosting the platform
+  data_stores.object_storage.replication:
+    description: Replication strategy for object storage
+  data_stores.object_storage.type:
+    description: Type of object storage used
+  data_stores.primary_store.read_replicas_per_region:
+    description: Number of read replicas per region for primary store
+  data_stores.primary_store.type:
+    description: Type of primary data store
+  data_stores.primary_store.version:
+    description: Version of primary data store
+  data_stores.time_series_store.managed_by:
+    description: Managing entity/service for time-series store
+  data_stores.time_series_store.type:
+    description: Type of time-series data store
+  deployment_topology.cutover_strategy.health_check_method:
+    description: Health check method used during cutover
+  deployment_topology.cutover_strategy.type:
+    description: Type of deployment cutover strategy
+  deployment_topology.image_promotion_pipeline.promotion_method:
+    description: Method used to promote container images through pipeline
+  disaster_recovery.RPO:
+    description: Recovery Point Objective for the platform
+  disaster_recovery.RTO:
+    description: Recovery Time Objective for the platform
+  disaster_recovery.failover.automation_tool:
+    description: Tool used to automate failover
+  disaster_recovery.failover.type:
+    description: Type of failover mechanism
+  disaster_recovery.last_dr_drill_date:
+    description: Date of the last disaster recovery drill
+  document.title:
+    description: Title of the technical reference document
+  document.total_chapters:
+    description: Total number of chapters in the document
+  document.type:
+    description: Document type classification
+  document.version:
+    description: Version number of the document
+  event_bus.brokers_per_region:
+    description: Number of message brokers per region
+  event_bus.retention.audit_topics_days:
+    description: Retention period for audit topics in days
+  event_bus.retention.transient_topics_days:
+    description: Retention period for transient topics in days
+  event_bus.technology.name:
+    description: Name of event bus/messaging technology
+  event_bus.technology.version:
+    description: Version of event bus technology
+  event_bus.topic_naming_convention:
+    description: Naming convention used for event bus topics
+  identity_access.authentication.identity_provider.name:
+    description: Name of identity provider
+  identity_access.authentication.identity_provider.type:
+    description: Type of identity provider
+  identity_access.authentication.protocol:
+    description: Authentication protocol used
+  identity_access.authorization.language:
+    description: Policy language used for authorization
+  identity_access.authorization.model:
+    description: Authorization model used
+  identity_access.service_identity.framework:
+    description: Framework used for service identity
+  identity_access.service_identity.rotation_interval:
+    description: Rotation interval for service identity credentials
+  identity_access.service_identity.transport_security:
+    description: Transport security mechanism for service identity
+  infrastructure.aws_regions_count:
+    description: Number of AWS regions the platform is deployed in
+  infrastructure.highest_volume_service.metric_unit:
+    description: Unit of the performance metric
+  infrastructure.highest_volume_service.metric_value:
+    description: Performance metric value for the highest-volume service
+  infrastructure.highest_volume_service.name:
+    description: Name of the highest-traffic microservice
+  infrastructure.highest_volume_service.percentile:
+    description: Percentile associated with the performance metric
+  infrastructure.microservices_total_count:
+    description: Total number of microservices in the platform
+  observability.logging.destination:
+    description: Destination system for logs
+  observability.logging.shipping_agent:
+    description: Agent used to ship logs
+  observability.metrics.collector:
+    description: Tool used to collect metrics
+  observability.tracing.sampling_rate.baseline:
+    description: Baseline tracing sampling rate
+  operational_runbooks.repository.name:
+    description: Name of the runbook repository
+  operational_runbooks.repository.platform:
+    description: Platform hosting the runbook repository
+  operational_runbooks.review_frequency:
+    description: Frequency of runbook review
+  organization.name:
+    description: Organization that owns/authored the platform
+  parties_involved.bug_bounty_platform.name:
+    description: Name of bug bounty platform partner
+  parties_involved.bug_bounty_platform.role:
+    description: Role of the bug bounty platform partner
+  parties_involved.security_vendor.name:
+    description: Name of external security vendor
+  parties_involved.security_vendor.role:
+    description: Role of the security vendor
+  platform_name:
+    description: Name of the platform/service stack being documented
+  rfc.approved_by:
+    description: Approver of the RFC
+  rfc.author:
+    description: Author of the RFC
+  rfc.date_approved:
+    description: Date the RFC was approved
+  rfc.date_authored:
+    description: Date the RFC was authored
+  rfc.id:
+    description: Identifier of the governing RFC/design document
+  rfc.purpose:
+    description: Purpose/summary of the RFC
+  rfc.title:
+    description: Title of the RFC
+  rfc_policy.active_rfc_index.range_end:
+    description: End of active RFC index range
+  rfc_policy.active_rfc_index.range_start:
+    description: Start of active RFC index range
+  rfc_policy.requirement:
+    description: Policy requirement governing RFC usage
+  security.bug_bounty.platform:
+    description: Platform hosting the bug bounty program
+  security.bug_bounty.start_date:
+    description: Start date of the bug bounty program
+  security.bug_bounty.status:
+    description: Current status of the bug bounty program
+  security.network_security.description:
+    description: Description of network security measures
+  security.network_security.type:
+    description: Type of network security controls
+  security.pen_test.frequency:
+    description: Frequency of penetration testing
+  security.pen_test.latest_engagement_date:
+    description: Date of latest penetration test engagement
+  security.pen_test.partner:
+    description: Vendor/partner conducting penetration testing
+  security.secrets_management.tool:
+    description: Tool used for secrets management
+records:
+  microservices:
+    columns:
+      excerpt: Verbatim text excerpt describing the service metric
+      metric_type: Type of performance metric reported
+      metric_unit: Unit of the performance metric
+      metric_value: Value of the performance metric
+      percentile: Percentile associated with the metric, if applicable
+      service_name: Name of the microservice
+      source_page: Page number(s) where this service is described
+      source_pages: Page number(s) this row came from
+    expected_rows: 8
+    grain: one row per microservice or service component described with its performance/operational
+      metric
+    vocabulary:
+      metric_type:
+      - latency
+      - throughput
+      - requests_per_second
+      - error_rate
+      - cpu_utilization
+      - memory_utilization
+      - availability

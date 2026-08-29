@@ -1,0 +1,53 @@
+document_type: vendor_invoice
+fields:
+  document_type:
+    description: Type/classification of the document
+  financial_summary.currency:
+    description: Currency used for amounts
+  financial_summary.subtotal:
+    description: Sum of line items before tax
+  financial_summary.tax_amount:
+    description: Total tax amount charged
+  financial_summary.tax_rate:
+    description: Tax rate applied
+  financial_summary.total_due:
+    description: Total amount owed
+  invoice_details.customer_po:
+    description: Customer purchase order number
+  invoice_details.due_date:
+    description: Date payment is due
+  invoice_details.invoice_date:
+    description: Date invoice was issued
+  invoice_details.invoice_number:
+    description: Unique invoice identifier
+  invoice_details.payment_terms:
+    description: Payment terms (e.g. Net 30)
+  payment_instructions.reference:
+    description: Reference to include with payment
+  payment_instructions.remit_to:
+    description: Entity/address to send payment to
+  payment_instructions.terms:
+    description: Additional payment instructions/terms
+  vendor.location:
+    description: Vendor's address/location
+  vendor.name:
+    description: Name of vendor/supplier issuing invoice
+  bill_to:
+    description: Customer billing address/name to whom the invoice is addressed
+    evolved: '2026-08-21'
+  ship_to:
+    description: Shipping address for the order
+    evolved: '2026-08-24'
+records:
+  line_items:
+    columns:
+      amount: Total amount for the line
+      description: Description of goods/services billed
+      excerpt: Verbatim text excerpt from document
+      page: Source page number(s)
+      quantity: Quantity billed
+      source_pages: Page number(s) this row came from
+      unit_price: Price per unit
+    expected_rows: 8
+    grain: one row per invoice line item
+    vocabulary: {}

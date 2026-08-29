@@ -16,8 +16,8 @@
             }
           ],
           "created_at": "2026-07-30T23:34:13+00:00",
-          "updated_at": "2026-08-19T22:47:53+00:00",
-          "success_count": 25,
+          "updated_at": "2026-08-29T19:48:05+00:00",
+          "success_count": 30,
           "last_run_status": "ok"
         },
         "vendor_invoice_download_2fa": {
@@ -290,6 +290,84 @@
           ],
           "created_at": "2026-08-23T18:13:21+00:00",
           "updated_at": "2026-08-25T01:26:03+00:00",
+          "success_count": 0,
+          "last_run_status": null
+        },
+        "download_master_price_list": {
+          "name": "Download Master Price List",
+          "portal_slug": null,
+          "start_url": "http://localhost:3000/login-2fa",
+          "goal": "Open the Download Center and download the master price list (price-list.xlsx). Stop right after that one download.",
+          "agent_oversight": true,
+          "takeover_timeout": null,
+          "steps": [
+            {
+              "type": "goto",
+              "url": "http://localhost:3000/login-2fa"
+            },
+            {
+              "type": "login",
+              "username_anchor": {
+                "text": "Username or email",
+                "css": "#username",
+                "xpath": "html/body/main/div/form/div[1]/input"
+              },
+              "password_anchor": {
+                "text": "Password",
+                "css": "#password",
+                "xpath": "html/body/main/div/form/div[2]/input"
+              },
+              "submit_anchor": {
+                "role": "button",
+                "text": "Continue to verification",
+                "css": "#continue",
+                "xpath": "html/body/main/div/form/button"
+              }
+            },
+            {
+              "type": "verify_code",
+              "reason": "Enter the verification / 2-step (2FA) code",
+              "timeout": 900
+            },
+            {
+              "type": "click",
+              "anchor": {
+                "role": "link",
+                "text": "Download Center PDF / Word / Excel / CSV / ZIP downloads Documents",
+                "xpath": "html/body/main/div[4]/div[2]/div/a[5]"
+              }
+            },
+            {
+              "type": "click",
+              "anchor": {
+                "role": "link",
+                "text": "Download Center PDF / Word / Excel / CSV / ZIP downloads Documents",
+                "xpath": "html/body/main/div[4]/div[2]/div/a[5]"
+              }
+            },
+            {
+              "type": "click",
+              "anchor": {
+                "role": "link",
+                "text": "Download Center PDF / Word / Excel / CSV / ZIP downloads Documents",
+                "xpath": "html/body/main/div[4]/div[2]/div/a[5]"
+              }
+            },
+            {
+              "type": "goto",
+              "url": "http://localhost:3000/downloads"
+            },
+            {
+              "type": "click",
+              "anchor": {
+                "role": "link",
+                "text": "\u2b07 Download",
+                "xpath": "html/body/main/div[2]/div[3]/div[3]/a[1]"
+              }
+            }
+          ],
+          "created_at": "2026-08-27T02:06:53+00:00",
+          "updated_at": "2026-08-27T02:06:53+00:00",
           "success_count": 0,
           "last_run_status": null
         }

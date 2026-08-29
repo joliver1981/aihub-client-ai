@@ -1,0 +1,91 @@
+{
+  "results": [
+    {
+      "test": "Create automation (201)",
+      "passed": true,
+      "detail": "status=201, id=36caeebb-a725-44e0-bee1-8a8342fd1bd2"
+    },
+    {
+      "test": "Save code v1",
+      "passed": true,
+      "detail": "version=1"
+    },
+    {
+      "test": "Dry-run success",
+      "passed": true,
+      "detail": "status=success, verify=[{\"checks\": [{\"check\": \"exists\", \"ok\": true}], \"kind\": \"file\", \"path\": \"report.csv\"}]"
+    },
+    {
+      "test": "Promote v1",
+      "passed": true,
+      "detail": "pinned=1"
+    },
+    {
+      "test": "Run v1 success",
+      "passed": true,
+      "detail": "status=success"
+    },
+    {
+      "test": "Run history has entries",
+      "passed": true,
+      "detail": "runs=2"
+    },
+    {
+      "test": "Run log retrieved",
+      "passed": true,
+      "detail": "log_len=415"
+    },
+    {
+      "test": "Secret scan rejects password literal",
+      "passed": true,
+      "detail": "error=Credential material must not be hard-coded in automation code. Read connections/secrets from the env"
+    },
+    {
+      "test": "Liar script -> failed",
+      "passed": true,
+      "detail": "status=failed"
+    },
+    {
+      "test": "SFTP upload + file verify -> success",
+      "passed": false,
+      "detail": "status=error"
+    },
+    {
+      "test": "Missing SFTP -> unverified or failed",
+      "passed": true,
+      "detail": "status=unverified"
+    },
+    {
+      "test": "Normal run uses pinned v1",
+      "passed": true,
+      "detail": "version=1"
+    },
+    {
+      "test": "Dry-run uses latest v2",
+      "passed": true,
+      "detail": "version=3"
+    },
+    {
+      "test": "Dashboard returns 200",
+      "passed": true,
+      "detail": "status=200"
+    },
+    {
+      "test": "Dashboard has content",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "test": "Skip-if-running produces 'skipped'",
+      "passed": true,
+      "detail": "runs=7, last3=['failed', 'success', 'success']"
+    },
+    {
+      "test": "Role-1 -> 403",
+      "passed": true,
+      "detail": "status=403"
+    }
+  ],
+  "passed": 16,
+  "failed": 1
+}

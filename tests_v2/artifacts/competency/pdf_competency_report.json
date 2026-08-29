@@ -101,9 +101,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Pelagic Maritime was \u201cfounded in 1998 by Captain Ingrid Hellesund.\u201d Source: **01_clean_report.pdf**.",
+      "answer": "## \ud83d\udcc4 Founding\n\nPelagic Maritime was founded by **Captain Ingrid Hellesund** in **1998**.\n\nSource: [01_clean_report.pdf p.1] \u2014 \u201cFounded in 1998 by Captain Ingrid Hellesund.\u201d",
       "chat_status": 200,
-      "elapsed_s": 6.902381658554077,
+      "elapsed_s": 6.806117296218872,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -117,9 +117,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Pelagic Maritime operates **47 vessels**. The document states: \u201cThe company operates a fleet of **47 vessels** across the North Atlantic and Mediterranean.\u201d Source: **01_clean_report.pdf**.",
+      "answer": "## \ud83d\udea2 Fleet Size\n\nPelagic Maritime operates **47 vessels** across the North Atlantic and Mediterranean.  \n\nSource: [01_clean_report.pdf p.1] \u2014 \u201c**The company operates a fleet of 47 vessels**.\u201d",
       "chat_status": 200,
-      "elapsed_s": 7.6459527015686035,
+      "elapsed_s": 5.244053602218628,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -133,9 +133,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Pelagic Maritime's FY2025 revenue was **$812M**. Source: **01_clean_report.pdf**.\n\nExact text: **\"FY2025 revenue: $812M (up 6.8% YoY).\"**",
+      "answer": "## \ud83d\udcca FY2025 Revenue\n\nPelagic Maritime\u2019s **FY2025 revenue was $812M**.\n\nSource: *\u201cFY2025 revenue: $812M (up 6.8% YoY).\u201d* [01_clean_report.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 6.899019002914429,
+      "elapsed_s": 7.506215572357178,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -149,9 +149,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Pelagic Maritime\u2019s newest vessel is **\u201cthe MV Aurora Heron,\u201d** which the document says \u201c**was commissioned in March 2024**\u201d \u2014 source: **01_clean_report.pdf**.",
+      "answer": "## \ud83d\udea2 Newest Vessel\n\nPelagic Maritime\u2019s newest vessel is the **MV Aurora Heron**, commissioned in **March 2024**.\n\nSource: [01_clean_report.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 7.0501625537872314,
+      "elapsed_s": 5.377866506576538,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -165,9 +165,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Pelagic Maritime committed to a **38% absolute reduction by 2030, baseline 2020**. Source: **01_clean_report.pdf**.",
+      "answer": "## \ud83c\udf3f Emissions Commitment\n\nPelagic Maritime committed to a **38% absolute reduction** in carbon emissions by **2030**, using **2020 as the baseline**. [01_clean_report.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 7.893356084823608,
+      "elapsed_s": 6.5817484855651855,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -182,9 +182,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Halberd Steel\u2019s Q1 2026 revenue was **$1.42 billion**. The document states: **\u201cHalberd posted quarterly revenue of $1.42 billion, up 9.1% year-on-year.\u201d** Source: **02_multi_column_newsletter.pdf**.",
+      "answer": "## \ud83d\udcca Q1 2026 Revenue\n\nHalberd Steel Industries reported **$1.42 billion** in Q1 2026 revenue.\n\n> \u201cHalberd posted quarterly revenue of $1.42 billion, up 9.1% year-on-year.\u201d  \n> \u2014 [02_multi_column_newsletter.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 9.138061046600342,
+      "elapsed_s": 8.594732284545898,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -199,9 +199,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Halberd \u201clit the first heat\u201d at its new Chongqing electric-arc furnace on **February 28, 2026**. Source: **02_multi_column_newsletter.pdf**.",
+      "answer": "## \ud83d\udd25 Chongqing Furnace First Heat\n\nHalberd lit the first heat at its new Chongqing electric-arc furnace on **February 28, 2026**. [02_multi_column_newsletter.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 7.671388864517212,
+      "elapsed_s": 7.816845417022705,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -216,9 +216,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "The Chongqing furnace \u201ccost $680 million\u201d to build, according to **02_multi_column_newsletter.pdf**.",
+      "answer": "## \ud83c\udfed Chongqing Furnace Cost\n\nThe Chongqing electric-arc furnace cost **$680 million** to build.\n\nSource: *02_multi_column_newsletter.pdf* p.1 \u2014 \u201c**The 2.4-million-tonne-per-year facility cost $680 million**.\u201d",
       "chat_status": 200,
-      "elapsed_s": 6.547602653503418,
+      "elapsed_s": 6.864626169204712,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -233,9 +233,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Halberd Steel's new Chief Technology Officer is **Dr. Wynne Rasmussen**. The newsletter says: **\u201cDr. Wynne Rasmussen joined Halberd as Chief Technology Officer on January 6, 2026\u201d**.  \nSource: **02_multi_column_newsletter.pdf**",
+      "answer": "## \ud83d\udc64 Halberd Steel\u2019s New CTO\n\nHalberd Steel Industries\u2019 new Chief Technology Officer is **Dr. Wynne Rasmussen**. She joined on **January 6, 2026**, succeeding the retiring Dr. Lars Pettersen. [02_multi_column_newsletter.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 7.472575664520264,
+      "elapsed_s": 7.000715970993042,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -250,9 +250,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "It was the **Bremen mill**. The newsletter states: \u201c**Our Bremen mill achieved 1,000 consecutive days without a lost-time injury on March 18, 2026**.\u201d Source: **02_multi_column_newsletter.pdf**.",
+      "answer": "## \ud83e\uddba Safety Milestone\n\nThe **Bremen mill** recently achieved **\u201c1,000 consecutive days without a lost-time injury\u201d** on **March 18, 2026**.  \n\nSource: *02_multi_column_newsletter.pdf* [p.1]",
       "chat_status": 200,
-      "elapsed_s": 9.208539009094238,
+      "elapsed_s": 21.879836082458496,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -267,9 +267,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "The invoice number is **INV-2026-04827**. Source: **03_invoice_with_tables.pdf** (\u201c**INVOICE #INV-2026-04827**\u201d).",
+      "answer": "## \ud83d\udcc4 Invoice Number\n\nThe invoice number is **INV-2026-04827**. [03_invoice_with_tables.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 7.0929036140441895,
+      "elapsed_s": 6.81560492515564,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -283,9 +283,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "The invoice is issued to **\u201cAurora Bioplastics Inc.\u201d** in **\u201cMunich, Germany\u201d**. Source: **03_invoice_with_tables.pdf**.",
+      "answer": "## \ud83d\udcc4 Invoice Recipient\n\nThe invoice is issued to **Aurora Bioplastics Inc.** in **Munich, Germany**.\n\nSource: [03_invoice_with_tables.pdf p.1] \u2014 \u201cTo: Aurora Bioplastics Inc., Maximilianstra\u00dfe 28, 80539 Munich, Germany.\u201d",
       "chat_status": 200,
-      "elapsed_s": 6.725210666656494,
+      "elapsed_s": 7.028702735900879,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -300,9 +300,9 @@
         "invoice_calc"
       ],
       "weight": 1.0,
-      "answer": "The line total for **SKU `QC-PLT-018`** is **`11400.0`**.  \nQuoted row from **03_invoice_with_tables.pdf**:\n\n`QC-PLT-018 | Platinum-on-glass electrode, 50 mm | 80 | 142.5 | 11400.0`\n\nSource: **03_invoice_with_tables.pdf**",
+      "answer": "## \ud83d\udcc4 Line Total\n\nThe line total for **SKU QC-PLT-018** is **\u00a311,400.00**.\n\n- **Item:** \u201cPlatinum-on-glass electrode, 50 mm\u201d\n- **Quantity:** 80\n- **Unit price:** \u00a3142.50\n\nSource: [03_invoice_with_tables.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 7.581853628158569,
+      "elapsed_s": 7.107629060745239,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -317,9 +317,9 @@
         "invoice_calc"
       ],
       "weight": 1.0,
-      "answer": "The VAT amount on the Quasar invoice is **\u00a36,160.00**. Source: **03_invoice_with_tables.pdf** (\u201cVAT (20%) \u00a36,160.00\u201d).",
+      "answer": "## \ud83d\udcb7 VAT Amount\n\nThe Quasar invoice lists **VAT (20%)** as **\u00a36,160.00**.  \n\nSource: [03_invoice_with_tables.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 6.727055311203003,
+      "elapsed_s": 6.212841749191284,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -334,9 +334,9 @@
         "invoice_calc"
       ],
       "weight": 1.0,
-      "answer": "The Quasar invoice shows **\u201cTOTAL DUE \u00a336,960.00\u201d**.  \nSource: **03_invoice_with_tables.pdf**.",
+      "answer": "## \ud83d\udcb7 Total Due\n\nThe Quasar Components Ltd. invoice lists **TOTAL DUE: \u00a336,960.00**.\n\nSource: [03_invoice_with_tables.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 7.223275184631348,
+      "elapsed_s": 6.5772624015808105,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -351,9 +351,9 @@
         "header_footer_isolation"
       ],
       "weight": 1.0,
-      "answer": "The total budget for Project Greenline is **$42M**.\n\nSource: **04_headers_footers_doc.pdf** \u2014 \u201c**The total budget is $42M**\u201d and \u201c**Project Greenline total budget: $42M**.\u201d",
+      "answer": "## \ud83d\udcc4 Project Greenline Budget\n\nThe **total budget is $42M**.\n\nSource: *04_headers_footers_doc.pdf* states, \u201c**The total budget is $42M**.\u201d [04_headers_footers_doc.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 7.719640493392944,
+      "elapsed_s": 6.535604000091553,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -367,9 +367,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "The project sponsor for Project Greenline is **COO Aldous Marchand**. Source: **04_headers_footers_doc.pdf**.",
+      "answer": "## \ud83d\udcc4 Project Greenline Sponsor\n\nThe project sponsor is **COO Aldous Marchand**. The memo states: \u201c**Project sponsor: COO Aldous Marchand.**\u201d  \nSource: [04_headers_footers_doc.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 7.85518741607666,
+      "elapsed_s": 6.998557806015015,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -383,9 +383,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "The Cologne pilot equipment installation begins on **May 18, 2026**. Source: **04_headers_footers_doc.pdf**.\n\nExact text: **\u201cEquipment installation begins May 18, 2026.\u201d**",
+      "answer": "## \ud83d\udcc5 Cologne Pilot Installation\n\nThe Cologne pilot equipment installation begins **May 18, 2026**. The memo states: \u201c**Equipment installation begins May 18, 2026.**\u201d [04_headers_footers_doc.pdf p.2]",
       "chat_status": 200,
-      "elapsed_s": 7.834333896636963,
+      "elapsed_s": 6.754151344299316,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -399,9 +399,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "The expected unplanned-downtime reduction from the Cologne pilot is **14%**.\n\nSource: **04_headers_footers_doc.pdf** \u2014 \u201cExpected benefits: **14% reduction in unplanned downtime** and 3% improvement in yield.\u201d",
+      "answer": "## \ud83d\udcc9 Expected Reduction\n\nThe Cologne pilot is expected to deliver a **14% reduction in unplanned downtime**.\n\nSource: *04_headers_footers_doc.pdf*, page 2 \u2014 \u201c**Expected benefits: 14% reduction in unplanned downtime**.\u201d",
       "chat_status": 200,
-      "elapsed_s": 7.228850603103638,
+      "elapsed_s": 6.733912706375122,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -416,9 +416,9 @@
         "comparison"
       ],
       "weight": 1.0,
-      "answer": "The highest-severity risk in Project Greenline is **\u201cR2 Cybersecurity exposure on OT network\u201d** with severity **High**.  \nSource: **04_headers_footers_doc.pdf**\n\nThe document\u2019s anchor facts also state: **\u201cHighest-severity risk: R2 cybersecurity exposure on OT network.\u201d**",
+      "answer": "## \u26a0\ufe0f Highest-Severity Risk\n\n**R2: Cybersecurity exposure on the OT network** \u2014 rated **High**.\n\nSource: [04_headers_footers_doc.pdf p.3\u20134]",
       "chat_status": 200,
-      "elapsed_s": 6.770238161087036,
+      "elapsed_s": 7.37814998626709,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -433,9 +433,9 @@
         "page_anchor"
       ],
       "weight": 2.0,
-      "answer": "RFC-OPAL-007 was authored by **Verena Strauss** and was **approved by the Architecture Council on November 4, 2025**. Source: **05_large_50_page.pdf**.",
+      "answer": "## \ud83d\udcc4 RFC-OPAL-007\n\n**Verena Strauss** authored RFC-OPAL-007, **\u201cCross-region routing fabric.\u201d** It was approved by the **Architecture Council** on **November 4, 2025**.\n\nSource: [05_large_50_page.pdf p.11]",
       "chat_status": 200,
-      "elapsed_s": 6.931886672973633,
+      "elapsed_s": 8.597394227981567,
       "matched": true,
       "leaked": false,
       "raw_score": 2.0,
@@ -449,9 +449,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Opal Networks \u201cruns on AWS in three regions: us-west-2, eu-west-1, ap-southeast-1.\u201d Source: 05_large_50_page.pdf.",
+      "answer": "## \ud83c\udf0d AWS Deployment Regions\n\nOpal Networks deploys to **three AWS regions**:\n\n- **us-west-2**\n- **eu-west-1**\n- **ap-southeast-1**\n\nThe technical reference states: \u201cOpal Networks is a distributed control plane for fleet management. It runs on AWS in three regions: us-west-2, eu-west-1, ap-southeast-1.\u201d [05_large_50_page.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 6.551029443740845,
+      "elapsed_s": 8.087899446487427,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -465,9 +465,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Opal Networks\u2019 targets are **\u201cRTO 25 minutes, RPO 60 seconds.\u201d** Source: **05_large_50_page.pdf** (Chapter 8 / Appendix A).",
+      "answer": "## \ud83c\udfaf Opal Networks Recovery Targets\n\n- **RTO:** **25 minutes**\n- **RPO:** **60 seconds**\n\nThe document states: \u201c**RTO 25 minutes, RPO 60 seconds.**\u201d [05_large_50_page.pdf p.8]",
       "chat_status": 200,
-      "elapsed_s": 6.629633665084839,
+      "elapsed_s": 7.3116960525512695,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -482,9 +482,9 @@
         "direct_lookup"
       ],
       "weight": 1.0,
-      "answer": "Opal Networks\u2019 most recent third-party penetration test was performed by **Praesidium Security** \u2014 the document states: **\u201cQuarterly third-party pen-test (latest: Praesidium Security, March 2026).\u201d**  \nSource: **05_large_50_page.pdf** (Chapter 9 / Appendix A)",
+      "answer": "## \ud83d\udd12 Penetration-Test Partner\n\n**Praesidium Security** performed Opal Networks\u2019 most recent third-party penetration test, conducted in **March 2026**.\n\nSource: [05_large_50_page.pdf p.9] \u2014 \u201cQuarterly third-party pen-test (latest: Praesidium Security, March 2026).\u201d",
       "chat_status": 200,
-      "elapsed_s": 8.194492101669312,
+      "elapsed_s": 8.172221660614014,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -498,9 +498,9 @@
         "not_present"
       ],
       "weight": 1.0,
-      "answer": "No. The document says Opal Networks \u201cruns on AWS in three regions: us-west-2, eu-west-1, ap-southeast-1.\u201d It does not mention Azure as a cloud provider. Source: 05_large_50_page.pdf.",
+      "answer": "## \u2601\ufe0f Cloud Provider\n\n**No.** The available technical reference states that Opal Networks \u201c**runs on AWS in three regions: us-west-2, eu-west-1, ap-southeast-1**.\u201d It does not identify Azure as a cloud provider.  \n\nSource: [05_large_50_page.pdf p.1]",
       "chat_status": 200,
-      "elapsed_s": 7.110769987106323,
+      "elapsed_s": 7.557709217071533,
       "matched": true,
       "leaked": false,
       "raw_score": 1.0,
@@ -512,27 +512,27 @@
     [
       "01_clean_report.pdf",
       200,
-      5.897685766220093
+      5.992576837539673
     ],
     [
       "02_multi_column_newsletter.pdf",
       200,
-      5.684760808944702
+      5.981906890869141
     ],
     [
       "03_invoice_with_tables.pdf",
       200,
-      6.094171047210693
+      5.695954322814941
     ],
     [
       "04_headers_footers_doc.pdf",
       200,
-      6.045752048492432
+      5.378854036331177
     ],
     [
       "05_large_50_page.pdf",
       200,
-      6.169065237045288
+      6.034448623657227
     ]
   ]
 }
