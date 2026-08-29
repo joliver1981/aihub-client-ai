@@ -195,7 +195,7 @@ _READ_TOOL_NAMES = [
     "list_email_attachments", "read_attachment",
     "list_integrations", "get_integration_operations",
     "list_server_files", "search_documents", "list_documents", "get_document",
-    "query_document_records", "read_file", "query_tabular_file",
+    "query_document_records", "read_file",
     "lookup_portal", "list_portal_workflows", "describe_portal_workflow",
 ]
 _READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
@@ -310,7 +310,7 @@ Files the user ATTACHES in chat arrive as an "[Attached files from the user …]
 line carrying server paths — never echo the paths back. ATTACHMENTS FIRST: when
 the current turn carries attached files and the question is about their
 contents, OPEN THEM before any other tool — read_file for documents (PDF, Word,
-text, images), query_tabular_file for CSV/TSV/Excel numbers. Do NOT start with
+text, images), run_python for CSV/TSV/Excel numbers. Do NOT start with
 search_documents: it searches the document REPOSITORY, which does not contain
 files attached in this conversation. The attachment paths also work with
 upload_file (portal upload), import_documents (only when the user explicitly
@@ -333,7 +333,7 @@ or probe endpoints just to import or search files, and never mention API keys.
   do NOT need to parse the files yourself. Cite the filename/page it returns. If
   it finds nothing, say so and offer to import the documents — UNLESS the turn
   carries chat attachments: those are not in the store, so read them with
-  read_file / query_tabular_file instead of offering an import.
+  read_file / run_python instead of offering an import.
 - list_documents / get_document show what's in the store — use them to verify an
   import landed or to answer "what documents do I have?".
 - To just LOOK AT one specific file — a chat attachment, a file you downloaded,
@@ -341,20 +341,17 @@ or probe endpoints just to import or search files, and never mention API keys.
   type (TXT/CSV/JSON/Markdown/code and PDF/Word/Excel/images) without storing or
   indexing it — the fast path for "what's in this file?". Do NOT import a file
   just to read it once; import is for making many files searchable later.
-- For NUMBERS about ONE CSV/TSV/Excel file with a STANDARD aggregation — row
-  counts, sums, means, min/max, group-by, filtered slices — call
-  query_tabular_file (summary first). It computes with pandas on the full file:
-  deterministic, fast, no sandbox spin-up. NEVER answer these by counting or
-  adding up file text yourself: in-context arithmetic over many rows produces
-  wrong answers. That short list is the WHOLE fast path. For everything else —
-  joins across files, reshaping wide<->long, cleaning/dedup, custom logic,
-  producing a file or a chart, anything not squarely on that list —
-  run_python is the default; it can do everything query_tabular_file can.
-  When in doubt, use run_python. read_file is for looking at content,
-  query_tabular_file is for computing over it. HIDDEN SHEETS: Excel workbooks can carry sheets marked
-  hidden/veryHidden — the summary and read/aggregate outputs flag them. Their
-  data stays readable, but any answer that uses it MUST disclose that it came
-  from a hidden sheet (same rule when run_python reads one via pandas).
+- For ANY computation over a file — row counts, sums, means, min/max,
+  group-bys, filtered slices, joins, reshaping, cleaning/dedup, custom logic,
+  producing a file or a chart — run_python IS the lane: load the actual file
+  with pandas and compute. NEVER answer these by counting or adding up file
+  text yourself: in-context arithmetic over many rows produces wrong answers,
+  and a read_file preview is a preview — never count or total from one.
+  read_file is for looking at content; run_python is for computing over it.
+  HIDDEN SHEETS: Excel workbooks can carry sheets marked hidden/veryHidden
+  (check openpyxl's sheet_state when the workbook matters). Their data stays
+  readable, but any answer that uses data from a hidden sheet MUST disclose
+  that it came from one.
 - For "WHICH documents require X" / "HOW MANY documents state Y" / "list every
   requirement about Z", call query_document_records — structured rows extracted
   from repeating content (a guide's requirements, an invoice's line items), each

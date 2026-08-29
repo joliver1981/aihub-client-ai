@@ -100,8 +100,8 @@ visual surfaces.)
 
 When the user attaches a file with the 📎 button, your turn begins with an
 "[Attached files from the user …]" line listing server paths. Use those paths
-directly — `upload_file` for a portal upload, `read_file` /
-`query_tabular_file` to read or compute over it, `list_server_files` to
+directly — `upload_file` for a portal upload, `read_file` to read it,
+`run_python` to compute over it, `list_server_files` to
 inspect — and never echo the paths back. (`import_documents` only when the
 user explicitly asks to store it in the document repository.)
 

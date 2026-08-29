@@ -330,7 +330,7 @@ async def _existing_paths_for(basename: str) -> set:
     "anyway). Supported: PDF, Word, Excel, CSV, TXT, and common images. Report "
     "the per-file outcome it returns (imported / already-present / failed) — "
     "don't claim success for files it didn't import. NOT for chat attachments: "
-    "to answer about an attached file use read_file / query_tabular_file — "
+    "to answer about an attached file use read_file / run_python — "
     "importing publishes it into the shared searchable store, so attachments "
     "are refused unless the user explicitly asked to import them (then pass "
     "force=true).",
@@ -398,7 +398,7 @@ async def import_documents(args: dict[str, Any]) -> dict[str, Any]:
     # it lands it in the shared document store, whose search ACLs are
     # category(document_type)-based — NOT per-user — so other users' searches
     # can surface it. Reading an attachment never requires an import
-    # (read_file / query_tabular_file), so this path only proceeds on an
+    # (read_file / run_python), so this path only proceeds on an
     # explicit force=true, which the model may pass only when the user
     # explicitly asked to import/store the attachment.
     if not force:
@@ -412,7 +412,7 @@ async def import_documents(args: dict[str, Any]) -> dict[str, Any]:
         if up and (pcase == up or pcase.startswith(up + os.sep)):
             return _text(
                 "That file is a private chat attachment — to answer from it, "
-                "use read_file (documents) or query_tabular_file (CSV/Excel); "
+                "use read_file (documents) or run_python (CSV/Excel); "
                 "no import is needed for a one-off read. Importing would "
                 "publish it into the SHARED searchable document store, where "
                 "other users' searches can surface it. Only if the user has "
@@ -1018,131 +1018,12 @@ def _read_bytes(path: str) -> bytes:
         return fh.read()
 
 
-# Tabular files the structured query lane accepts (matches agent_excel_tools'
-# TABULAR_DATA_EXTENSIONS on the main app side).
-_TABULAR_QUERY_EXTS = {"csv", "tsv", "xlsx", "xls"}
-
-
-@tool(
-    "query_tabular_file",
-    "Get EXACT row counts, column profiles, filtered data slices, and REAL "
-    "computed aggregations (sum/count/mean/min/max/median/std, optional "
-    "group-by) from a tabular data file — CSV, TSV, or Excel — on the server. "
-    "The math runs in pandas on the FULL file, so use this INSTEAD OF doing "
-    "arithmetic yourself over file text whenever the user asks how many rows a "
-    "CSV/Excel file has, or for totals, sums, averages, or per-category "
-    "breakdowns over one (in-context arithmetic over hundreds of rows gets "
-    "wrong answers; this does not). operation='summary' → exact row count, "
-    "columns, dtypes, stats, sample rows (START HERE). operation='read' → a "
-    "row slice as a table (options: sheet_name, columns as comma-separated "
-    "names, start_row, end_row, filter_condition as a pandas query like "
-    "\"Amount > 100\"). operation='aggregate' → computed aggregations "
-    "(options: aggregations as JSON like '{\"Revenue\":\"sum\"}', group_by, "
-    "filter_condition). Accepts the same path forms as read_file: a server "
-    "path, an /api/files link, or a chat-attachment id.",
-    {
-        "type": "object",
-        "properties": {
-            "path": {"type": "string",
-                     "description": "Server file path, an /api/files/<id> link, "
-                                    "or a chat-attachment file id."},
-            "operation": {"type": "string",
-                          "enum": ["summary", "read", "aggregate"],
-                          "description": "What to compute (default summary)."},
-            "sheet_name": {"type": "string",
-                           "description": "Excel sheet (default first; ignored "
-                                          "for CSV/TSV)."},
-            "columns": {"type": "string",
-                        "description": "read: comma-separated column names to "
-                                       "include."},
-            "start_row": {"type": "integer",
-                          "description": "read: first data row, 1-based."},
-            "end_row": {"type": "integer",
-                        "description": "read: last data row."},
-            "filter_condition": {"type": "string",
-                                 "description": "pandas query filter, e.g. "
-                                                "\"Region == 'North'\"."},
-            "group_by": {"type": "string",
-                         "description": "aggregate: comma-separated group-by "
-                                        "columns."},
-            "aggregations": {"type": "string",
-                             "description": "aggregate: JSON of column:function, "
-                                            "e.g. '{\"Revenue\": \"sum\"}'."},
-        },
-        "required": ["path"],
-        "additionalProperties": False,
-    },
-)
-async def query_tabular_file(args: dict[str, Any]) -> dict[str, Any]:
-    # Same authz chokepoint as read_file: resolve the caller-visible path form
-    # to a real path THIS user may read, then the protected-dir fence.
-    path, err = _resolve_read_path(args.get("path"))
-    if err:
-        return _text(err, is_error=True)
-    ncase = os.path.normcase(path)
-    for bad in _FORBIDDEN_DIRS:
-        if ncase == bad or ncase.startswith(bad + os.sep):
-            return _text("Refused: that file is in a protected system/secret "
-                         "location and won't be read.", is_error=True)
-    name = os.path.basename(path)
-    ext = name.rsplit(".", 1)[1].lower() if "." in name else ""
-    if ext not in _TABULAR_QUERY_EXTS:
-        return _text(f"'{name}' is not a tabular data file (need "
-                     f"{', '.join(sorted(_TABULAR_QUERY_EXTS))}). For other "
-                     "file types use read_file.", is_error=True)
-
-    body = {"path": path,
-            "operation": (args.get("operation") or "summary").lower()}
-    for key in ("sheet_name", "columns", "start_row", "end_row",
-                "filter_condition", "group_by", "aggregations"):
-        if args.get(key) not in (None, ""):
-            body[key] = args[key]
-
-    # Invocation ledger (2026-08-28): this lane answers real computations, so
-    # it must be as observable as run_python — a turn answered here was
-    # previously indistinguishable from one answered with no computation at
-    # all (that blind spot produced a retracted "fabricates answers" finding
-    # and helped the sci-notation precision bug go unnoticed). Same file and
-    # record shape as the run_python writers, discriminated by "lane".
-    import time as _time
-    started = _time.time()
-    rc = 1
-    try:
-        try:
-            j, code = await _post_main("/api/internal/tabular/query", body,
-                                       internal=True)
-        except Exception as e:
-            return _text(f"Could not query {name}: {type(e).__name__}: {e}",
-                         is_error=True)
-        if code != 200 or not isinstance(j, dict):
-            detail = j.get("message") if isinstance(j, dict) else str(j)[:300]
-            return _text(f"Could not query {name} (HTTP {code}: {detail}).",
-                         is_error=True)
-        result = j.get("result") or {}
-        if not result.get("ok"):
-            return _text(f"Tabular query failed for {name}: "
-                         f"{result.get('error') or 'unknown error'}",
-                         is_error=True)
-        rc = 0
-        return _text(result.get("text") or "No output.")
-    finally:
-        try:
-            import json as _json
-            from CommonUtils import get_log_path
-            rec = {"ts": _time.time(), "surface": "the-agent",
-                   "lane": "query_tabular_file", "agent": None,
-                   "user": int((CURRENT_USER.get() or {}).get("user_id") or 0),
-                   "file": name, "operation": body["operation"], "rc": rc,
-                   "duration_s": round(_time.time() - started, 1)}
-            with open(get_log_path("run_python_code_invocations.jsonl"),
-                      "a", encoding="utf-8") as ledger:
-                ledger.write(_json.dumps(rec) + "\n")
-        except Exception as e:
-            logger.debug(f"query_tabular_file: ledger write failed: {e}")
-
+# query_tabular_file removed 2026-08-29: single-lane analysis — run_python is
+# the one lane for computation over a file. The lane-choice was a measured
+# failure source (haiku Q33/Q41 answered wide-file math from summary stats);
+# the /api/internal/tabular/query endpoint it consumed stays in the main app.
 
 DOCUMENT_TOOLS = [
     list_server_files, import_documents, search_documents,
     list_documents, get_document, query_document_records, read_file,
-    query_tabular_file,
 ]
