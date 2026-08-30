@@ -3590,9 +3590,19 @@ class LLMDocumentProcessor:
         archive_path = os.path.join(directory_path, archive_dir)
         os.makedirs(archive_path, exist_ok=True)
         
-        # Find all matching files
-        pattern = os.path.join(directory_path, "**" if recursive else "", file_pattern)
-        file_paths = glob.glob(pattern, recursive=recursive)
+        # Find all matching files. FilePattern may be a comma-separated list
+        # of globs (e.g. "*.pdf,*.docx,*.xlsx") — the job form accepts that
+        # syntax, but a single glob.glob() call treats the commas as literal
+        # filename characters and matches NOTHING. Glob each pattern and
+        # de-duplicate; a single pattern behaves exactly as before.
+        patterns = [
+            os.path.join(directory_path, "**" if recursive else "", p.strip())
+            for p in str(file_pattern).split(',') if p.strip()
+        ]
+        file_paths = []
+        for pattern in patterns:
+            file_paths.extend(glob.glob(pattern, recursive=recursive))
+        file_paths = list(dict.fromkeys(file_paths))
 
         self.logger.info(f"Processing file paths (before filter): {file_paths}")
 
@@ -3617,7 +3627,7 @@ class LLMDocumentProcessor:
         self.logger.info(f"archive_dir (input): {archive_dir}")
         self.logger.info(f"archive_path: {archive_path}")
         self.logger.info(f"file_pattern (input): {file_pattern}")
-        self.logger.info(f"pattern: {pattern}")
+        self.logger.info(f"patterns: {patterns}")
         self.logger.info(f"document_type: {document_type}")
         self.logger.info(f"Processing file paths: {file_paths}")
         
