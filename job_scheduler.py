@@ -266,6 +266,80 @@ class JobSchedulerService:
             
         logger.info("Job scheduler service stopped")
 
+    # JobType -> (target table, id column) for the target-existence reaper.
+    # ONLY types whose TargetId provably keys the listed table belong here:
+    # portal_workflow targets a slug carried in its parameters and automation
+    # resolves a GUID from its parameters, so neither can be existence-checked
+    # by TargetId. Unlisted types are NEVER reaped (fail-open).
+    REAPABLE_TARGET_TABLES = {
+        'workflow': ('[dbo].[Workflows]', 'id'),
+    }
+
+    def _reap_orphaned_target_jobs(self, conn):
+        """Remove scheduler jobs whose target row no longer exists.
+
+        TargetId is polymorphic (workflow/document/agent/... depending on
+        JobType), so the DB cannot enforce a foreign key on it and deleting a
+        target leaves its schedules firing forever (observed: schedules for
+        deleted workflows 404-ing every 5 minutes for months). Deleting the
+        ScheduledJobs row cascades to definitions, parameters and history.
+
+        The existence check is against the DATABASE, never a call result — a
+        transient HTTP failure must never delete a schedule.
+
+        JOB_REAPER_MODE governs behavior: 'report' (default) only logs what
+        WOULD be removed (once per job per process); 'delete' actually removes.
+        Report-first because the dev fleet holds workflow-typed jobs that were
+        seam-converted to automations (e.g. jobs 194/80 on 2026-08-30: target
+        workflow gone, yet recent runs completed via the automations runner) —
+        flip to 'delete' only once that inventory has been reconciled.
+        """
+        act = os.getenv('JOB_REAPER_MODE', 'report').strip().lower() == 'delete'
+        if not hasattr(self, '_reaper_reported'):
+            self._reaper_reported = set()
+        for job_type, (table, id_col) in self.REAPABLE_TARGET_TABLES.items():
+            try:
+                cursor = conn.cursor()
+                cursor.execute(f"""
+                    SELECT j.ScheduledJobId, j.JobName, j.TargetId, s.ScheduleId
+                    FROM ScheduledJobs j
+                    LEFT JOIN ScheduleDefinitions s ON s.ScheduledJobId = j.ScheduledJobId
+                    LEFT JOIN {table} t ON t.{id_col} = j.TargetId
+                    WHERE j.JobType = ? AND t.{id_col} IS NULL
+                """, job_type)
+                orphans = {}
+                for job_id, job_name, target_id, schedule_id in cursor.fetchall():
+                    entry = orphans.setdefault(job_id, {'name': job_name, 'target': target_id, 'schedules': []})
+                    if schedule_id is not None:
+                        entry['schedules'].append(schedule_id)
+                for job_id, info in orphans.items():
+                    if not act:
+                        if job_id not in self._reaper_reported:
+                            self._reaper_reported.add(job_id)
+                            logger.warning(
+                                f"Reaper (report mode): scheduler job {job_id} '{info['name']}' "
+                                f"({job_type}) targets {info['target']} which no longer exists — "
+                                f"{len(info['schedules'])} schedule(s); set JOB_REAPER_MODE=delete to remove")
+                        continue
+                    for schedule_id in info['schedules']:
+                        aps_id = f"{job_type}_{job_id}_{schedule_id}"
+                        try:
+                            if self.scheduler.get_job(aps_id):
+                                self.scheduler.remove_job(aps_id)
+                        except Exception:
+                            pass
+                        self._forget_job(aps_id, schedule_id)
+                    cursor.execute("DELETE FROM ScheduledJobs WHERE ScheduledJobId = ?", job_id)
+                    logger.warning(
+                        f"Reaped scheduler job {job_id} '{info['name']}' ({job_type}): "
+                        f"target {info['target']} no longer exists — removed "
+                        f"{len(info['schedules'])} schedule(s)")
+                if act and orphans:
+                    conn.commit()
+                cursor.close()
+            except Exception as reap_err:
+                logger.error(f"Error reaping orphaned {job_type} jobs: {reap_err}")
+
     def _update_schedules_from_db(self):
         """
         Poll the database for new or updated schedules and update the scheduler accordingly.
@@ -276,6 +350,10 @@ class JobSchedulerService:
             # One fresh connection for this poll pass (concurrency-safe: job
             # callbacks use their own connections via _db_cursor)
             conn, cursor = self._db_cursor()
+
+            # Self-heal: drop scheduler jobs whose target was deleted, BEFORE
+            # the registration pass below can re-add their schedules.
+            self._reap_orphaned_target_jobs(conn)
 
             # Get all active scheduled jobs and their definitions
             query = """

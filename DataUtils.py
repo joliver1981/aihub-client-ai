@@ -1394,7 +1394,12 @@ def get_workflow_variables(workflow_id):
     return df
 
 def delete_workflow(workflow_id):
-    print('Executing get workflows...')
+    print('Executing delete workflow...')
+    # Drop the workflow's scheduler jobs first — TargetId is polymorphic so no
+    # FK/cascade covers this link, and an orphaned schedule keeps firing into
+    # a void. (The scheduler's target-existence reaper is the safety net for
+    # every other deletion path.)
+    _execute_sql_no_results(dcfg.SQL_DELETE_WORKFLOW_SCHEDULER_JOBS.replace('{id}', str(workflow_id)))
     result = _execute_sql_no_results(dcfg.SQL_DELETE_WORKFLOW.replace('{id}', str(workflow_id)))
     return result
 

@@ -119,6 +119,10 @@ SQL_SELECT_WORKFLOW = """SELECT w.*, wc.name [category] FROM [dbo].[Workflows] w
 
 SQL_DELETE_WORKFLOW = """DELETE FROM [dbo].[Workflows] WHERE id = {id}"""
 
+# TargetId is polymorphic, so no FK/cascade covers ScheduledJobs -> Workflows;
+# deleting the ScheduledJobs row cascades to its definitions/parameters/history.
+SQL_DELETE_WORKFLOW_SCHEDULER_JOBS = """DELETE FROM [dbo].[ScheduledJobs] WHERE JobType = 'workflow' AND TargetId = {id}"""
+
 SQL_SELECT_GROUPS = """SELECT * FROM [dbo].[Groups]"""
 
 SQL_SELECT_GROUP = """SELECT * FROM [dbo].[Groups] WHERE id = {id}"""
