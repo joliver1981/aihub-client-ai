@@ -3320,7 +3320,14 @@ class GeneralAgent():
 
         self.agent_executor = AgentExecutor(agent=self.agent, tools=self.tools, verbose=True, callbacks=[self.handler],
         max_iterations=int(cfg.MAX_GENERAL_AGENT_ITERATIONS),  # Add this - prevents runaway tool calls
-        early_stopping_method="generate")
+        # MUST be "force". "generate" is only implemented on the legacy Agent
+        # class; this executor wraps a runnable chain, so it resolves to
+        # BaseMultiActionAgent.return_stopped_response, which raises ValueError
+        # on anything else. That exception was being caught upstream and served
+        # to the user as the answer text ("Got unsupported early_stopping_method
+        # `generate`"), HTTP 200 — so every turn that exhausted max_iterations
+        # returned an error string instead of a reply.
+        early_stopping_method="force")
 
     def _create_llm(self, temperature=0.0):
         """

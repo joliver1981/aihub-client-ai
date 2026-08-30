@@ -422,7 +422,7 @@ WORKFLOW_DURABLE_SESSIONS = os.getenv('WORKFLOW_DURABLE_SESSIONS', 'true').lower
 # Workflow Builder (AIHUB-0024 F3): per-request timeout (seconds) on the WorkflowAgent LLM
 # so a hung call fails fast instead of hanging the worker until the HTTP connection resets.
 WORKFLOW_AGENT_LLM_TIMEOUT_S = int(os.getenv('WORKFLOW_AGENT_LLM_TIMEOUT_S', '120'))
-MAX_GENERAL_AGENT_ITERATIONS = 10                       # Prevents runaway tool calls
+MAX_GENERAL_AGENT_ITERATIONS = int(os.getenv('MAX_GENERAL_AGENT_ITERATIONS', '25'))  # Prevents runaway tool calls
 # Server-side deadline (seconds) for a single general-agent LLM response.
 # Philosophy: if the model CAN finish a long task, let it — but cap it so a
 # runaway request can't hang forever. If exceeded, /chat/general returns a
