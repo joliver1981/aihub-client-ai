@@ -160,9 +160,11 @@ document"*. A 7-page DOCX with 6 explicit `w:br type="page"` breaks became 1 pag
 Consequences worth knowing before you read any result: page-level retrieval cannot locate a
 fact *within* a DOCX; a DOCX page-hit returns the whole document into context
 (`DOC_INCLUDE_FULL_PAGE_IN_CHUNK_RESULTS=true`); and the 999-page routing threshold undercounts
-DOCX by roughly 7×. 31 documents in this corpus are DOCX, so a full load stores ~1,000 pages
-rather than the 1,153 ground truth describes. Not fixed here — this pack builds the corpus, it
-does not change the engine.
+DOCX by roughly 4.5×. 31 documents in this corpus are DOCX, contributing 139 ground-truth pages
+that store as 31 — so a full load stores **1,045 pages, not 1,153** (108 lost). Still past the
+999 threshold, so the corpus design survives the defect. Not fixed here — this pack builds the
+corpus, it does not change the engine. Write-up for the fixer:
+[`docs/docx-pagination-handoff.md`](../../docs/docx-pagination-handoff.md).
 
 ## Reproducibility
 
