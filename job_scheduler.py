@@ -287,14 +287,11 @@ class JobSchedulerService:
         The existence check is against the DATABASE, never a call result — a
         transient HTTP failure must never delete a schedule.
 
-        JOB_REAPER_MODE governs behavior: 'report' (default) only logs what
-        WOULD be removed (once per job per process); 'delete' actually removes.
-        Report-first because the dev fleet holds workflow-typed jobs that were
-        seam-converted to automations (e.g. jobs 194/80 on 2026-08-30: target
-        workflow gone, yet recent runs completed via the automations runner) —
-        flip to 'delete' only once that inventory has been reconciled.
+        JOB_REAPER_MODE governs behavior: 'delete' (default) removes the
+        orphaned jobs; 'report' only logs what WOULD be removed (once per job
+        per process) — the staging mode used to vet a fleet before arming.
         """
-        act = os.getenv('JOB_REAPER_MODE', 'report').strip().lower() == 'delete'
+        act = os.getenv('JOB_REAPER_MODE', 'delete').strip().lower() != 'report'
         if not hasattr(self, '_reaper_reported'):
             self._reaper_reported = set()
         for job_type, (table, id_col) in self.REAPABLE_TARGET_TABLES.items():

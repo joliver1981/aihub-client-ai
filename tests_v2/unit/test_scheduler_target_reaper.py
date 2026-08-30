@@ -109,10 +109,23 @@ class TestTargetReaper:
         assert conn.commits == 0
         svc.scheduler.remove_job.assert_not_called()
 
-    def test_report_mode_is_default_and_never_deletes(self, monkeypatch):
-        # Without JOB_REAPER_MODE=delete the reaper only logs — no DELETE, no
-        # commit, no APScheduler removal — and reports each job only once.
+    def test_delete_is_the_default_mode(self, monkeypatch):
+        # With no JOB_REAPER_MODE set, the reaper acts — installed apps get
+        # the self-healing behavior without any .env edit (the installer only
+        # writes .env when missing, so upgrades never see new template lines).
         monkeypatch.delenv("JOB_REAPER_MODE", raising=False)
+        rows = [(179, "Pricing Download Process", 1217, 279)]
+        svc, conn = _svc(rows)
+        svc._reap_orphaned_target_jobs(conn)
+
+        deletes = [e for e in conn.cursor_obj.executed if e[0].startswith("DELETE FROM ScheduledJobs")]
+        assert len(deletes) == 1
+        assert conn.commits == 1
+
+    def test_report_mode_never_deletes(self, monkeypatch):
+        # JOB_REAPER_MODE=report: log-only — no DELETE, no commit, no
+        # APScheduler removal — and each job is reported only once.
+        monkeypatch.setenv("JOB_REAPER_MODE", "report")
         rows = [(179, "Pricing Download Process", 1217, 279)]
         svc, conn = _svc(rows)
         svc._reap_orphaned_target_jobs(conn)
