@@ -210,9 +210,7 @@
                             {% if job.NextScheduledRunAt %}
                                 <div>
                                     <strong>Next Scheduled Run:</strong>
-                                    <span class="{% if job.NextScheduledRunAt < now %}text-danger{% endif %}">
-                                        {{ job.NextScheduledRunAt.strftime('%Y-%m-%d %H:%M') }}
-                                    </span>
+                                    <span class="next-run-at {% if job.NextScheduledRunAt < now %}text-danger{% endif %}" data-utc="{{ job.NextScheduledRunAt.isoformat() }}Z"></span>
                                 </div>
                             {% endif %}
                         </div>
@@ -559,6 +557,7 @@ function toggleDocTheme() {
     </div>
 </div>
 <!-- Include this script at the end of your job_detail.html file -->
+<script src="{{ url_for('static', filename='js/schedule_display.js') }}?v=20260830tz"></script>
 <script>
     $(document).ready(function() {
         // Initialize date pickers
@@ -672,17 +671,16 @@ function toggleDocTheme() {
                     } else if (schedule.type === 'cron') {
                         scheduleDesc = `Cron: ${schedule.cron_expression}`;
                     } else if (schedule.type === 'date') {
-                        // Convert UTC to local time for display
-                        const localDate = new Date(normalizeUtcDateString(schedule.start_date));
-                        scheduleDesc = `One-time: ${formatDateTime(localDate)}`;
+                        // formatDateTime treats the naive string as UTC and renders local
+                        scheduleDesc = `One-time: ${formatDateTime(schedule.start_date)}`;
                     }
-                    
-                    let nextRun = schedule.next_run_time 
-                        ? `Next run: ${formatDateTime(new Date(schedule.next_run_time))}` 
+
+                    let nextRun = schedule.next_run_time
+                        ? `Next run: ${formatDateTime(schedule.next_run_time)}`
                         : 'No future runs scheduled';
-                    
-                    let lastRun = schedule.last_run_time 
-                        ? `Last run: ${formatDateTime(new Date(schedule.last_run_time))}` 
+
+                    let lastRun = schedule.last_run_time
+                        ? `Last run: ${formatDateTime(schedule.last_run_time)}`
                         : 'Never run';
                     
                     let runsInfo = '';
@@ -872,8 +870,8 @@ function toggleDocTheme() {
                 // Date settings
                 console.log(`Schedule Start Date: ${schedule.start_date}`);
                 console.log(`Schedule End Date: ${schedule.end_date}`);
-                $('#editStartDate').val(schedule.start_date ? convertUtcToLocal(new Date(normalizeUtcDateString(schedule.start_date))) : '');
-                $('#editEndDate').val(schedule.end_date ? convertUtcToLocal(new Date(normalizeUtcDateString(schedule.end_date))) : '');
+                $('#editStartDate').val(schedule.start_date ? formatDateTimeForInput(schedule.start_date) : '');
+                $('#editEndDate').val(schedule.end_date ? formatDateTimeForInput(schedule.end_date) : '');
                 
                 // Other settings
                 $('#editMaxRuns').val(schedule.max_runs);
@@ -910,110 +908,10 @@ function toggleDocTheme() {
         }
     }
     
-    // Helper function to format date/time
-    function formatDateTime(date) {
-        // For display in UI elements (in user's local timezone)
-        if (typeof date === 'string') {
-            date = new Date(date);
-        }
-        return date.toLocaleString();
-    }
+    // Date helpers (formatDateTime, formatDateTimeForInput, parseUtcDate,
+    // getIntervalDescription, [data-utc] conversion) come from the shared
+    // static/js/schedule_display.js included above.
 
-    function normalizeUtcDateString(dateStr) {
-        // Add 'Z' if the string looks like a UTC datetime but lacks a timezone
-        if (typeof dateStr === 'string' && !dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.includes('T')) {
-            // Basic date/time format like "2025-05-16 22:27:00"
-            dateStr = dateStr.replace(' ', 'T') + 'Z';
-        } else if (typeof dateStr === 'string' && dateStr.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/)) {
-            dateStr += 'Z';
-        }
-        return dateStr;
-    }
-
-    // Converts a UTC date/time string or Date object to local time and formats it
-    function convertUtcToLocal(utcDate) {
-        let date = typeof utcDate === 'string' ? new Date(utcDate) : utcDate;
-
-        if (isNaN(date.getTime())) {
-            throw new Error('Invalid date');
-        }
-
-        // Format using 24-hour time
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        
-        return `${year}-${month}-${day} ${hours}:${minutes}`;
-    }
-
-    function convertUtcToLocalString(utcString) {
-        const date = new Date(utcString);
-        if (isNaN(date)) return '';
-        
-        // Format using 24-hour time
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        
-        return `${year}-${month}-${day} ${hours}:${minutes}`;
-    }
-
-    // Update all UTC -> Local displays
-    document.querySelectorAll('[data-utc]').forEach(el => {
-        const utc = el.dataset.utc;
-        if (utc) {
-            el.textContent = convertUtcToLocalString(utc);
-        }
-    });
-
-    
-    // Helper function to format date/time for input fields
-    function formatDateTimeForInput(date) {
-        if (typeof date === 'string') {
-            date = new Date(date);
-        }
-        
-        // Format using 24-hour time
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        
-        return `${year}-${month}-${day} ${hours}:${minutes}`;
-    }
-    
-    // Helper function to get interval description
-    function getIntervalDescription(schedule) {
-        const parts = [];
-        
-        if (schedule.interval_seconds) {
-            parts.push(`${schedule.interval_seconds} second${schedule.interval_seconds !== 1 ? 's' : ''}`);
-        }
-        
-        if (schedule.interval_minutes) {
-            parts.push(`${schedule.interval_minutes} minute${schedule.interval_minutes !== 1 ? 's' : ''}`);
-        }
-        
-        if (schedule.interval_hours) {
-            parts.push(`${schedule.interval_hours} hour${schedule.interval_hours !== 1 ? 's' : ''}`);
-        }
-        
-        if (schedule.interval_days) {
-            parts.push(`${schedule.interval_days} day${schedule.interval_days !== 1 ? 's' : ''}`);
-        }
-        
-        if (schedule.interval_weeks) {
-            parts.push(`${schedule.interval_weeks} week${schedule.interval_weeks !== 1 ? 's' : ''}`);
-        }
-        
-        return `Every ${parts.join(', ')}`;
-    }
-    
     // Helper function to show an alert
     function showAlert(type, message) {
         const alertHtml = `

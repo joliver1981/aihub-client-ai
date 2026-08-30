@@ -7648,8 +7648,9 @@ def document_processor_view_job(job_id):
     cursor.close()
     conn.close()
 
-    now = datetime.datetime.now()
-    
+    # NextScheduledRunAt is stored in UTC, so the overdue comparison must be too
+    now = datetime.datetime.utcnow()
+
     return render_template('document_processor/job_detail.html', job=job, executions=executions, now=now)
 
 @app.route('/document_processor/job/<int:job_id>/edit', methods=['GET'])

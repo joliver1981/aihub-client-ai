@@ -320,6 +320,7 @@
 </div>
 
 <!-- JavaScript -->
+<script src="{{ url_for('static', filename='js/schedule_display.js') }}?v=20260830tz"></script>
 <script>
     $(document).ready(function() {
         // Initialize date pickers
@@ -473,7 +474,7 @@
                 if (job.schedules && job.schedules.length > 0) {
                     const lastRunTimes = job.schedules
                         .filter(s => s.last_run_time)
-                        .map(s => new Date(s.last_run_time));
+                        .map(s => parseUtcDate(s.last_run_time));
                     
                     if (lastRunTimes.length > 0) {
                         const mostRecent = new Date(Math.max.apply(null, lastRunTimes));
@@ -517,15 +518,16 @@
                     } else if (schedule.type === 'cron') {
                         scheduleDesc = `Cron: ${schedule.cron_expression}`;
                     } else if (schedule.type === 'date') {
-                        scheduleDesc = `One-time: ${formatDateTime(new Date(schedule.start_date))}`;
+                        // formatDateTime treats the naive string as UTC and renders local
+                        scheduleDesc = `One-time: ${formatDateTime(schedule.start_date)}`;
                     }
-                    
-                    let nextRun = schedule.next_run_time 
-                        ? `Next run: ${formatDateTime(new Date(schedule.next_run_time))}` 
+
+                    let nextRun = schedule.next_run_time
+                        ? `Next run: ${formatDateTime(schedule.next_run_time)}`
                         : 'No future runs scheduled';
-                    
-                    let lastRun = schedule.last_run_time 
-                        ? `Last run: ${formatDateTime(new Date(schedule.last_run_time))}` 
+
+                    let lastRun = schedule.last_run_time
+                        ? `Last run: ${formatDateTime(schedule.last_run_time)}`
                         : 'Never run';
                     
                     let runsInfo = '';
@@ -595,8 +597,8 @@
                 `;
                 
                 executions.forEach(execution => {
-                    const startTime = formatDateTime(new Date(execution.start_time));
-                    const endTime = execution.end_time ? formatDateTime(new Date(execution.end_time)) : '-';
+                    const startTime = formatDateTime(execution.start_time);
+                    const endTime = execution.end_time ? formatDateTime(execution.end_time) : '-';
                     
                     let statusBadge = '';
                     switch (execution.status.toLowerCase()) {
@@ -674,8 +676,7 @@
             scheduleData.interval_hours = $('#intervalHours').val() ? parseInt($('#intervalHours').val()) : null;
             scheduleData.interval_days = $('#intervalDays').val() ? parseInt($('#intervalDays').val()) : null;
             scheduleData.interval_weeks = $('#intervalWeeks').val() ? parseInt($('#intervalWeeks').val()) : null;
-            //scheduleData.timezone_offset = new Date().getTimezoneOffset();
-            
+
             // Validate that at least one interval is set
             if (!scheduleData.interval_seconds && !scheduleData.interval_minutes && 
                 !scheduleData.interval_hours && !scheduleData.interval_days && !scheduleData.interval_weeks) {
@@ -742,9 +743,9 @@
                 // Cron settings
                 $('#editCronExpression').val(schedule.cron_expression);
                 
-                // Date settings
-                $('#editStartDate').val(schedule.start_date ? formatDateTimeForInput(new Date(schedule.start_date)) : '');
-                $('#editEndDate').val(schedule.end_date ? formatDateTimeForInput(new Date(schedule.end_date)) : '');
+                // Date settings (stored UTC → local wall time for the picker)
+                $('#editStartDate').val(schedule.start_date ? formatDateTimeForInput(schedule.start_date) : '');
+                $('#editEndDate').val(schedule.end_date ? formatDateTimeForInput(schedule.end_date) : '');
                 
                 // Other settings
                 $('#editMaxRuns').val(schedule.max_runs);
@@ -771,7 +772,11 @@
             start_date: $('#editStartDate').val() || null,
             end_date: $('#editEndDate').val() || null,
             max_runs: $('#editMaxRuns').val() ? parseInt($('#editMaxRuns').val()) : null,
-            is_active: $('#editIsActive').is(':checked')
+            is_active: $('#editIsActive').is(':checked'),
+            // Dates above are browser-local wall time; the offset lets the
+            // server convert them to UTC (without it, local time is stored
+            // verbatim and the schedule shifts by the UTC offset every save)
+            timezone_offset: new Date().getTimezoneOffset()
         };
         
         if (scheduleType === 'interval') {
@@ -868,62 +873,9 @@
         }, 5000);
     }
     
-    // Helper function to format date/time
-    function formatDateTime(date) {
-        // For display in UI elements (in user's local timezone)
-        if (typeof date === 'string') {
-            date = new Date(date);
-        }
-        return date.toLocaleString();
-    }
-    
-    // Helper function to format date/time for input fields
-    function formatDateTimeForInput_legacy(date) {
-        return date.toISOString().slice(0, 16).replace('T', ' ');
-    }
-
-    function formatDateTimeForInput(date) {
-        // For input fields
-        if (typeof date === 'string') {
-            date = new Date(date);
-        }
-        
-        // Format using local date components but make it clear this is local time
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        
-        return `${year}-${month}-${day} ${hours}:${minutes}`;
-    }
-
-    // Helper function to get interval description
-    function getIntervalDescription(schedule) {
-        const parts = [];
-        
-        if (schedule.interval_seconds) {
-            parts.push(`${schedule.interval_seconds} second${schedule.interval_seconds !== 1 ? 's' : ''}`);
-        }
-        
-        if (schedule.interval_minutes) {
-            parts.push(`${schedule.interval_minutes} minute${schedule.interval_minutes !== 1 ? 's' : ''}`);
-        }
-        
-        if (schedule.interval_hours) {
-            parts.push(`${schedule.interval_hours} hour${schedule.interval_hours !== 1 ? 's' : ''}`);
-        }
-        
-        if (schedule.interval_days) {
-            parts.push(`${schedule.interval_days} day${schedule.interval_days !== 1 ? 's' : ''}`);
-        }
-        
-        if (schedule.interval_weeks) {
-            parts.push(`${schedule.interval_weeks} week${schedule.interval_weeks !== 1 ? 's' : ''}`);
-        }
-        
-        return `Every ${parts.join(', ')}`;
-    }
+    // Date helpers (formatDateTime, formatDateTimeForInput, parseUtcDate,
+    // getIntervalDescription) come from the shared
+    // static/js/schedule_display.js included above.
 </script>
 
 <!-- Theme Toggle Script -->

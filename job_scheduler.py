@@ -107,7 +107,6 @@ class JobSchedulerService:
         self.thread_pool_size = thread_pool_size
         self.process_pool_size = process_pool_size
         
-        self.db_conn = None
         self.is_running = False
         # Delta-reload state (james approved 2026-08-19): per-job definition
         # fingerprints so the 60s sync only touches jobs that actually CHANGED.
@@ -154,12 +153,38 @@ class JobSchedulerService:
         self._init_scheduler()
         
     def _connect_db(self):
-        """Connect to the SQL Server database"""
+        """Probe the SQL Server database so startup fails fast on a bad
+        connection string. Individual operations open their own short-lived
+        connections via _db_cursor() — see below."""
         try:
-            self.db_conn = pyodbc.connect(self.db_connection_string)
+            conn = pyodbc.connect(self.db_connection_string)
+            conn.close()
             logger.info("Connected to SQL Server database")
         except Exception as e:
             logger.error(f"Failed to connect to SQL database: {str(e)}")
+            raise
+
+    def _db_cursor(self):
+        """Open a fresh connection + cursor (tenant context set) for one DB
+        operation. The caller commits on the returned connection and closes it
+        in a finally block.
+
+        APScheduler executor threads run job callbacks concurrently with each
+        other and with the sync loop; a single shared pyodbc connection cannot
+        serve two statements at once ('Connection is busy with results for
+        another command'), which silently lost execution records, run counters,
+        and last/next-run stamps whenever two jobs fired in the same instant
+        (observed 2026-08-30: a one-time document job fired on time, every DB
+        write collided, and the schedule re-fired/misfired forever after).
+        """
+        conn = pyodbc.connect(self.db_connection_string)
+        try:
+            cursor = conn.cursor()
+            if self.tenant_id:
+                cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
+            return conn, cursor
+        except Exception:
+            conn.close()
             raise
             
     def _init_scheduler(self):
@@ -239,39 +264,19 @@ class JobSchedulerService:
             self.scheduler.shutdown()
             logger.info("APScheduler stopped")
             
-        # Close database connection
-        if self.db_conn:
-            self.db_conn.close()
-            logger.info("Database connection closed")
-            
         logger.info("Job scheduler service stopped")
-    
-    def _is_connection_alive(self) -> bool:
-        """Check if the database connection is still alive"""
-        try:
-            cursor = self.db_conn.cursor()
-            cursor.execute("SELECT 1")
-            return True
-        except:
-            return False
 
     def _update_schedules_from_db(self):
         """
         Poll the database for new or updated schedules and update the scheduler accordingly.
         This runs periodically to keep the scheduler in sync with the database.
         """
+        conn = None
         try:
-            # Check if DB connection is alive
-            if not self.db_conn or not self._is_connection_alive():
-                logger.info("Database connection lost, reconnecting...")
-                self._connect_db()
-                
-            cursor = self.db_conn.cursor()
-            
-            # Set tenant context if needed
-            if self.tenant_id:
-                cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
-            
+            # One fresh connection for this poll pass (concurrency-safe: job
+            # callbacks use their own connections via _db_cursor)
+            conn, cursor = self._db_cursor()
+
             # Get all active scheduled jobs and their definitions
             query = """
             SELECT j.ScheduledJobId, j.JobName, j.JobType, j.TargetId, j.Description,
@@ -474,9 +479,7 @@ class JobSchedulerService:
             # but the APScheduler job was still running in memory.
             try:
                 # Get all active schedule IDs from the DB (pattern: {type}_{jobid}_{scheduleid})
-                cursor2 = self.db_conn.cursor()
-                if self.tenant_id:
-                    cursor2.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
+                cursor2 = conn.cursor()
                 cursor2.execute("""
                     SELECT j.JobType, j.ScheduledJobId, s.ScheduleId
                     FROM ScheduledJobs j
@@ -500,12 +503,15 @@ class JobSchedulerService:
                         logger.info(f"Removed orphaned APScheduler job (no DB record): {job.id}")
             except Exception as orphan_err:
                 logger.warning(f"Error during orphan cleanup: {orphan_err}")
-            
+
             cursor.close()
-            
+
         except Exception as e:
             logger.error(f"Error updating schedules from database: {str(e)}")
             logger.error(traceback.format_exc())
+        finally:
+            if conn:
+                conn.close()
     
     def _create_trigger(
         self, 
@@ -627,10 +633,9 @@ class JobSchedulerService:
         per-job variant cost one SELECT per job per poll. Same type coercion
         as _get_job_parameters."""
         out: Dict[int, Dict[str, Any]] = {}
+        conn = None
         try:
-            cursor = self.db_conn.cursor()
-            if self.tenant_id:
-                cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
+            conn, cursor = self._db_cursor()
             cursor.execute("""
                 SELECT ScheduledJobId, ParameterName, ParameterValue, ParameterType
                 FROM ScheduledJobParameters
@@ -648,6 +653,9 @@ class JobSchedulerService:
             cursor.close()
         except Exception as e:
             logger.error(f"Error getting all job parameters: {str(e)}")
+        finally:
+            if conn:
+                conn.close()
         return out
 
     @staticmethod
@@ -704,14 +712,10 @@ class JobSchedulerService:
             Dictionary of parameter name-value pairs
         """
         params = {}
-        
+        conn = None
         try:
-            cursor = self.db_conn.cursor()
-            
-            # Set tenant context if needed
-            if self.tenant_id:
-                cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
-            
+            conn, cursor = self._db_cursor()
+
             # Get parameters for this job
             query = """
             SELECT ParameterName, ParameterValue, ParameterType
@@ -739,10 +743,13 @@ class JobSchedulerService:
                 params[param_name] = param_value
             
             cursor.close()
-            
+
         except Exception as e:
             logger.error(f"Error getting job parameters: {str(e)}")
-        
+        finally:
+            if conn:
+                conn.close()
+
         return params
     
     def _update_schedule_status(self, schedule_id: int, is_active: bool = True):
@@ -753,27 +760,27 @@ class JobSchedulerService:
             schedule_id: ID of the schedule
             is_active: Whether the schedule is active
         """
+        conn = None
         try:
-            cursor = self.db_conn.cursor()
-            
-            # Set tenant context if needed
-            if self.tenant_id:
-                cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
-            
+            conn, cursor = self._db_cursor()
+
             # Update schedule status
             query = """
             UPDATE ScheduleDefinitions
             SET IsActive = ?
             WHERE ScheduleId = ?
             """
-            
+
             cursor.execute(query, is_active, schedule_id)
-            self.db_conn.commit()
-            
+            conn.commit()
+
             cursor.close()
-            
+
         except Exception as e:
             logger.error(f"Error updating schedule status: {str(e)}")
+        finally:
+            if conn:
+                conn.close()
     
     def _update_next_run_time(self, schedule_id: int, next_run_time: Optional[datetime] = None):
         """
@@ -783,12 +790,9 @@ class JobSchedulerService:
             schedule_id: ID of the schedule
             next_run_time: Next scheduled run time (None if no future runs)
         """
+        conn = None
         try:
-            cursor = self.db_conn.cursor()
-
-            # Set tenant context if needed
-            if self.tenant_id:
-                cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
+            conn, cursor = self._db_cursor()
 
             # APScheduler returns next_run_time as a TIMEZONE-AWARE datetime in the trigger's zone
             # (e.g. 09:00-04:00 for an America/New_York cron). The NextRunTime column is naive and
@@ -806,12 +810,15 @@ class JobSchedulerService:
             """
 
             cursor.execute(query, next_run_time, schedule_id)
-            self.db_conn.commit()
-            
+            conn.commit()
+
             cursor.close()
-            
+
         except Exception as e:
             logger.error(f"Error updating next run time: {str(e)}")
+        finally:
+            if conn:
+                conn.close()
     
     def _increment_run_count(self, schedule_id: int):
         """
@@ -820,27 +827,27 @@ class JobSchedulerService:
         Args:
             schedule_id: ID of the schedule
         """
+        conn = None
         try:
-            cursor = self.db_conn.cursor()
-            
-            # Set tenant context if needed
-            if self.tenant_id:
-                cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
-            
+            conn, cursor = self._db_cursor()
+
             # Increment run count
             query = """
             UPDATE ScheduleDefinitions
             SET CurrentRuns = CurrentRuns + 1
             WHERE ScheduleId = ?
             """
-            
+
             cursor.execute(query, schedule_id)
-            self.db_conn.commit()
-            
+            conn.commit()
+
             cursor.close()
-            
+
         except Exception as e:
             logger.error(f"Error incrementing run count: {str(e)}")
+        finally:
+            if conn:
+                conn.close()
     
     def _update_last_run_time(self, schedule_id: int, last_run_time: datetime):
         """
@@ -853,27 +860,27 @@ class JobSchedulerService:
             schedule_id: ID of the schedule
             last_run_time: Last run time
         """
+        conn = None
         try:
-            cursor = self.db_conn.cursor()
-            
-            # Set tenant context if needed
-            if self.tenant_id:
-                cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
-            
+            conn, cursor = self._db_cursor()
+
             # Update last run time
             query = """
             UPDATE ScheduleDefinitions
             SET LastRunTime = ?
             WHERE ScheduleId = ?
             """
-            
+
             cursor.execute(query, last_run_time, schedule_id)
-            self.db_conn.commit()
-            
+            conn.commit()
+
             cursor.close()
-            
+
         except Exception as e:
             logger.error(f"Error updating last run time: {str(e)}")
+        finally:
+            if conn:
+                conn.close()
     
     def _create_execution_record(self, scheduled_job_id: int, schedule_id: int) -> int:
         """
@@ -886,13 +893,10 @@ class JobSchedulerService:
         Returns:
             ID of the created execution record
         """
+        conn = None
         try:
-            cursor = self.db_conn.cursor()
-            
-            # Set tenant context if needed
-            if self.tenant_id:
-                cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
-            
+            conn, cursor = self._db_cursor()
+
             # Create execution record
             query = """
             INSERT INTO ScheduleExecutionHistory (
@@ -900,21 +904,24 @@ class JobSchedulerService:
             )
             VALUES (?, ?, getutcdate(), 'pending')
             """
-            
+
             cursor.execute(query, schedule_id, scheduled_job_id)
-            self.db_conn.commit()
-            
+            conn.commit()
+
             # Get the ID of the created record
             cursor.execute("SELECT @@IDENTITY")
             execution_id = cursor.fetchone()[0]
-            
+
             cursor.close()
-            
+
             return execution_id
-            
+
         except Exception as e:
             logger.error(f"Error creating execution record: {str(e)}")
             return None
+        finally:
+            if conn:
+                conn.close()
     
     def _update_execution_record(
         self, 
@@ -932,27 +939,30 @@ class JobSchedulerService:
             result_message: Message with execution results
             error_details: Details of any error that occurred
         """
+        if execution_id is None:
+            return
+
+        conn = None
         try:
-            cursor = self.db_conn.cursor()
-            
-            # Set tenant context if needed
-            if self.tenant_id:
-                cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
-            
+            conn, cursor = self._db_cursor()
+
             # Update execution record
             query = """
             UPDATE ScheduleExecutionHistory
             SET Status = ?, EndTime = getutcdate(), ResultMessage = ?, ErrorDetails = ?
             WHERE ExecutionId = ?
             """
-            
+
             cursor.execute(query, status, result_message, error_details, execution_id)
-            self.db_conn.commit()
-            
+            conn.commit()
+
             cursor.close()
-            
+
         except Exception as e:
             logger.error(f"Error updating execution record: {str(e)}")
+        finally:
+            if conn:
+                conn.close()
     
     def _convert_decimal_to_float(self, obj):
         """
@@ -987,25 +997,30 @@ class JobSchedulerService:
         
         logger.info(f"Executing document job: {job_name} (ID: {scheduled_job_id}, Target: {target_id})")
         
-        # Create execution record
+        # Create execution record (None if the insert failed — still run the job)
         execution_id = self._create_execution_record(scheduled_job_id, schedule_id)
-        
+        if execution_id is None:
+            logger.warning(f"No execution record for document job {job_name}; running without one")
+
         try:
             # Update execution status
             self._update_execution_record(execution_id, 'running')
-            
+
             # First, we need to get an authenticated session
             # Let's create a special API endpoint that doesn't require authentication
             print(f"=====>>>>> Calling execute_document_job: {job_name} (ID: {scheduled_job_id}, Target: {target_id})")
             api_url = f"{self.api_base_url}/api/scheduler/execute_document_job/{target_id}"
-            
-            # Make API call to run the job
-            response = requests.post(api_url, json={
+
+            # Make API call to run the job. Without an execution_id the endpoint
+            # creates its own record (same as a manual run).
+            payload = {
                 'api_key': os.getenv('API_KEY', ''),  # Pass API key for authentication
                 'scheduled_by': 'scheduler',
-                'execution_id': int(execution_id)  # Pass the execution ID to prevent duplicate creation
-            })
-            
+            }
+            if execution_id is not None:
+                payload['execution_id'] = int(execution_id)  # Pass the execution ID to prevent duplicate creation
+            response = requests.post(api_url, json=payload)
+
             # Check if the request was successful
             if response.status_code == 200:
                 result_message = f"Document job execution triggered successfully."
@@ -1013,74 +1028,67 @@ class JobSchedulerService:
             else:
                 result_message = f"Failed to trigger document job. Status code: {response.status_code}"
                 status = 'failed'
-            
+
             # Update execution record
             self._update_execution_record(
-                execution_id, 
-                status, 
+                execution_id,
+                status,
                 result_message=result_message
             )
-            
-            # Update schedule metadata
-            self._increment_run_count(schedule_id)
-            self._update_last_run_time(schedule_id, datetime.utcnow())
-            
+
             logger.info(f"Document job execution completed: {job_name} with status {status}")
-            
+
         except Exception as e:
             error_details = traceback.format_exc()
             logger.error(f"Error executing document job {job_name}: {str(e)}")
             logger.error(error_details)
-            
+
             # Update execution record
             self._update_execution_record(
-                execution_id, 
-                'failed', 
+                execution_id,
+                'failed',
                 result_message=f"Error executing document job: {str(e)}",
                 error_details=error_details
             )
+        finally:
+            # The fire consumed this slot whether or not the trigger call
+            # succeeded — count it so one-time/max-runs schedules can't be
+            # re-added and re-fired forever after a failed attempt.
+            self._increment_run_count(schedule_id)
+            self._update_last_run_time(schedule_id, datetime.utcnow())
 
     def _get_quickjob_data(self, target_id: int):
         """
         Get QuickJob data from the database.
         """
+        conn = None
         try:
-            agent_id = None
-            ai_system = None
-            description = None
+            conn, cursor = self._db_cursor()
 
-            # Check if DB connection is alive
-            if not self.db_conn or not self._is_connection_alive():
-                logger.info("Database connection lost, reconnecting...")
-                self._connect_db()
-                
-            cursor = self.db_conn.cursor()
-            
-            # Set tenant context if needed
-            if self.tenant_id:
-                cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
-            
             # Get quick job details
             cursor.execute("""
-                SELECT agent_id, ai_system, description 
-                FROM QuickJob 
+                SELECT agent_id, ai_system, description
+                FROM QuickJob
                 WHERE id = ?
             """, target_id)
-            
+
             row = cursor.fetchone()
             if not row:
                 raise Exception(f"Quick job {target_id} not found")
-            
+
             agent_id = row[0]
             ai_system = row[1]
             description = row[2]
-            
+
             cursor.close()
 
             return agent_id, ai_system, description
         except Exception as e:
             logger.error(f"Error getting quick job data: {str(e)}")
             return None, None, None
+        finally:
+            if conn:
+                conn.close()
 
     def _format_string_for_insert(self, input_string):
         output_string = "'" + str(input_string).replace("'", "''") + "'"
