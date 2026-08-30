@@ -1611,6 +1611,59 @@ def run_job_now(job_id):
         logger.error(f"Error running job: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@scheduler_bp.route('/jobs/<int:job_id>/run-once', methods=['POST'])
+@api_key_or_session_required(min_role=2)
+def queue_job_run_once(job_id):
+    """Queue ONE immediate run of an existing scheduled job THROUGH the engine.
+
+    Inserts a one-shot 'date' ScheduleDefinitions row ~30s out; the engine's
+    next poll picks it up (misfire grace 60s covers the poll gap), fires it via
+    the SAME executor a scheduled fire uses, records ScheduleExecutionHistory,
+    and consumes the row. Unlike POST /run/<id> — which dispatches inline and
+    supports only the job types it predates — this works for EVERY type the
+    engine executes (agent_session, automation, view_refresh, view_email,
+    portal_workflow, ...) and cannot double-fire.
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        set_tenant_context(cursor)
+
+        cursor.execute(
+            "SELECT JobName, JobType, IsActive FROM ScheduledJobs WHERE ScheduledJobId = ?",
+            job_id)
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'error': 'Job not found'}), 404
+        job_name, job_type, is_active = row[0], row[1], bool(row[2])
+        if not is_active:
+            # The engine only fires active jobs — a queued row on a paused job
+            # would sit inert past its misfire grace and never run.
+            return jsonify({'error': 'Job is paused — resume it before running.'}), 409
+
+        cursor.execute(
+            """INSERT INTO ScheduleDefinitions (ScheduledJobId, ScheduleType, StartDate, IsActive)
+               VALUES (?, 'date', DATEADD(second, 30, getutcdate()), 1)""",
+            job_id)
+        conn.commit()
+        cursor.execute("SELECT @@IDENTITY")
+        schedule_id = int(cursor.fetchone()[0])
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            'queued': True,
+            'job_id': job_id,
+            'job_name': job_name,
+            'job_type': job_type,
+            'schedule_id': schedule_id,
+            'note': 'The engine fires it on its next poll (within about a minute).',
+        }), 202
+
+    except Exception as e:
+        logger.error(f"Error queuing run-once for job {job_id}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 # Helper functions
 
 def _parse_datetime_string(datetime_str):

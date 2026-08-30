@@ -874,6 +874,59 @@ async def playbooks(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Schedules surface (2026-08-30) — see/run/pause/cancel/create every scheduled
+# job from one place. schedules_api talks to the main-app scheduler REST and
+# the automations manage seam; the JSS engine stays the single execution path
+# ("Run now" queues an engine-native one-shot row, so manual runs land in
+# ScheduleExecutionHistory exactly like scheduled fires). Visibility: Dev+ sees
+# all jobs (classic-page parity); role-1 sees only jobs whose user_id is theirs.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/schedules")
+async def schedules_list(request: Request):
+    user = _verify_request(request)
+    import schedules_api
+    return await schedules_api.list_jobs(user)
+
+
+@app.get("/api/schedules/{job_id}/history")
+async def schedules_history(request: Request, job_id: int, limit: int = 25):
+    user = _verify_request(request)
+    import schedules_api
+    return await schedules_api.history(user, job_id, limit)
+
+
+@app.post("/api/schedules/{job_id}/run")
+async def schedules_run_now(request: Request, job_id: int):
+    user = _verify_request(request)
+    import schedules_api
+    return await schedules_api.run_now(user, job_id)
+
+
+@app.post("/api/schedules/{job_id}/active")
+async def schedules_set_active(request: Request, job_id: int):
+    user = _verify_request(request)
+    body = await request.json()
+    import schedules_api
+    return await schedules_api.set_active(user, job_id, bool(body.get("active")))
+
+
+@app.delete("/api/schedules/{job_id}")
+async def schedules_delete(request: Request, job_id: int):
+    user = _verify_request(request)
+    import schedules_api
+    return await schedules_api.delete_job(user, job_id)
+
+
+@app.post("/api/schedules")
+async def schedules_create(request: Request):
+    user = _verify_request(request)
+    body = await request.json()
+    import schedules_api
+    return await schedules_api.create(user, body)
+
+
+# ---------------------------------------------------------------------------
 # Views API (A5) — deterministic dashboards. Refresh runs the pinned SQL
 # through the governed probe seam; no LLM is involved anywhere on this path.
 # ---------------------------------------------------------------------------
