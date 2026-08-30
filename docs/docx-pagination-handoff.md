@@ -1,6 +1,15 @@
 # Handoff: DOCX ingest stores every Word document as a single page
 
-**Status:** confirmed still present on the live path, 2026-08-29. Not fixed.
+**Status:** FIXED 2026-08-30 — `_docx_extract_pages` paginates on real break signals
+(`w:br type="page"`, `w:pageBreakBefore`, section starts via the FOLLOWING sectPr's
+`w:type`, `w:lastRenderedPageBreak` — including inside table rows) with synthetic
+block-packing fallback (`DOC_DOCX_SYNTHETIC_PAGE_CHARS`, default 2800, pages flagged
+`synthetic_pagination`) for documents carrying no signal. Live-verified: probe below
+reports DOCX 5 rows = PDF control; real Word-authored docs (13 found on this box)
+paginate to their rendered page counts; extraction breadth (tables, headers/footers,
+text boxes) covered by 41 unit checks. Existing DOCX rows in `DocumentPages` remain
+single-page until re-ingested — that decision is still open. Original write-up kept
+below for the record.
 **Component:** `LLMDocumentEngine._process_word_document`
 **Severity:** medium-high — silent. Nothing errors; text is complete; only pagination is lost,
 so every downstream page-level behaviour degrades without a signal.

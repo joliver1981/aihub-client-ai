@@ -4276,56 +4276,8 @@ class LLMDocumentProcessor:
             # Try to use python-docx for .docx files
             if file_path.lower().endswith('.docx'):
                 import docx
-                from docx.oxml.ns import qn
                 doc = docx.Document(file_path)
-
-                # Extract text from paragraphs
-                pages = []
-                full_text = ""
-
-                for para in doc.paragraphs:
-                    if para.text.strip():
-                        full_text += para.text.strip() + "\n\n"
-
-                # Extract text from tables
-                for table in doc.tables:
-                    table_text = ""
-                    for row in table.rows:
-                        row_text = " | ".join([cell.text.strip() for cell in row.cells])
-                        table_text += row_text + "\n"
-                    full_text += "\n" + table_text + "\n\n"
-
-                # Headers and footers (per section) — often contain titles, dates,
-                # form field labels that the high-level paragraphs/tables miss
-                for section in doc.sections:
-                    for hf in (section.header, section.footer):
-                        for para in hf.paragraphs:
-                            if para.text.strip():
-                                full_text += para.text.strip() + "\n"
-                        for table in hf.tables:
-                            for row in table.rows:
-                                row_text = " | ".join([cell.text.strip() for cell in row.cells])
-                                if row_text.strip():
-                                    full_text += row_text + "\n"
-
-                # Text boxes / shapes — content lives in w:txbxContent elements
-                # that python-docx does NOT expose via doc.paragraphs/doc.tables.
-                # This is the main reason "modern" Word docs (forms, brochures,
-                # callouts) appeared empty in earlier extractions.
-                txbx_tag = qn('w:txbxContent')
-                t_tag = qn('w:t')
-                for txbx in doc.element.iter(txbx_tag):
-                    box_text = "".join(t.text for t in txbx.iter(t_tag) if t.text)
-                    if box_text.strip():
-                        full_text += box_text.strip() + "\n"
-
-                # Handle as a single page document
-                pages.append({
-                    "page_number": 1,
-                    "text": full_text.strip()
-                })
-
-                return pages
+                return self._docx_extract_pages(doc)
 
             # For .doc files or if python-docx fails, use Claude Vision
             return self._process_generic_file(file_path, document_type)
@@ -4334,6 +4286,261 @@ class LLMDocumentProcessor:
             self.logger.error(f"Error processing Word document: {str(e)}")
             # Fallback to generic handling
             return self._process_generic_file(file_path, document_type)
+
+    def _docx_extract_pages(self, doc):
+        """
+        Extract a .docx into a list of {"page_number", "text"} pages.
+
+        A .docx stores flowing content, not pages, so pagination comes from the
+        break signals the file actually carries, honoured in document order:
+          - explicit page breaks: w:br type="page", w:pageBreakBefore
+          - section starts: w:sectPr (except type continuous/nextColumn)
+          - w:lastRenderedPageBreak — Word's layout milestones, written when
+            Word saves a file, present in Word-authored documents even when
+            they contain no explicit break at all
+        When a document carries NO signal (typical of generated files), it is
+        split synthetically on block boundaries at roughly
+        DOC_DOCX_SYNTHETIC_PAGE_CHARS per page and each page is marked
+        "synthetic_pagination": True — honest granularity and counts, but not
+        the numbers a reader sees in Word. A short document stays one page.
+
+        Extraction breadth is preserved from the single-page version of this
+        code: body paragraphs and tables (now interleaved in reading order),
+        per-section headers/footers, and w:txbxContent text boxes — the reason
+        "modern" Word docs (forms, brochures, callouts) used to extract empty.
+        """
+        from docx.oxml.ns import qn
+
+        W_P = qn('w:p'); W_TBL = qn('w:tbl')
+        W_T = qn('w:t'); W_TAB = qn('w:tab'); W_BR = qn('w:br'); W_CR = qn('w:cr')
+        W_TYPE = qn('w:type'); W_VAL = qn('w:val')
+        W_PPR = qn('w:pPr'); W_RPR = qn('w:rPr')
+        W_PBB = qn('w:pageBreakBefore'); W_SECTPR = qn('w:sectPr')
+        W_LRPB = qn('w:lastRenderedPageBreak'); W_TXBX = qn('w:txbxContent')
+        _MC = '{http://schemas.openxmlformats.org/markup-compatibility/2006}%s'
+        MC_AC = _MC % 'AlternateContent'; MC_CHOICE = _MC % 'Choice'
+
+        tokens = []             # str fragments, with None marking a page break
+        inline_boxes = set()    # ids of w:txbxContent already emitted in place
+        seen_box_texts = set()  # mc:Choice/mc:Fallback carry the same box twice
+
+        def inline_parts(el, parts, boxes):
+            # Document-order walk of one paragraph subtree. Text fragments and
+            # break markers (None) land in parts; w:txbxContent subtrees are
+            # diverted to boxes so a floating text box neither duplicates nor
+            # paginates the body with breaks of its own.
+            for child in el:
+                tag = child.tag
+                if tag == W_TXBX:
+                    boxes.append(child)
+                elif tag in (W_PPR, W_RPR):
+                    continue        # properties only — w:pPr/w:tabs would read as tabs
+                elif tag == W_T:
+                    if child.text:
+                        parts.append(child.text)
+                elif tag == W_TAB:
+                    parts.append("\t")
+                elif tag == W_CR:
+                    parts.append("\n")
+                elif tag == W_BR:
+                    parts.append(None if child.get(W_TYPE) == 'page' else "\n")
+                elif tag == W_LRPB:
+                    parts.append(None)
+                elif tag == MC_AC:
+                    # walk one branch, not both — Choice and Fallback describe
+                    # the same content (a drawing and its VML equivalent)
+                    choice = child.find(MC_CHOICE)
+                    inline_parts(choice if choice is not None else child, parts, boxes)
+                else:
+                    inline_parts(child, parts, boxes)
+
+        def emit_box(txbx):
+            inline_boxes.add(id(txbx))
+            text = "".join(t.text for t in txbx.iter(W_T) if t.text).strip()
+            if text and text not in seen_box_texts:
+                seen_box_texts.add(text)
+                tokens.append(text + "\n")
+
+        def breaks_before(p):
+            ppr = p.find(W_PPR)
+            pbb = ppr.find(W_PBB) if ppr is not None else None
+            return pbb is not None and pbb.get(W_VAL) not in ('0', 'false', 'off')
+
+        # Section boundaries: a paragraph carrying w:sectPr ends a section, but
+        # whether a PAGE break occurs there is decided by how the NEXT section
+        # starts — its w:type lives in the FOLLOWING sectPr (the next
+        # paragraph-embedded one, or the trailing body-level one), not in the
+        # sectPr that ends the current section.
+        sect_els = []
+        for _child in doc.element.body:
+            if _child.tag == W_P:
+                _ppr = _child.find(W_PPR)
+                _sect = _ppr.find(W_SECTPR) if _ppr is not None else None
+                if _sect is not None:
+                    sect_els.append(_sect)
+            elif _child.tag == W_SECTPR:
+                sect_els.append(_child)
+        next_sect = {id(s): (sect_els[i + 1] if i + 1 < len(sect_els) else None)
+                     for i, s in enumerate(sect_els)}
+
+        def breaks_after(p):
+            ppr = p.find(W_PPR)
+            sect = ppr.find(W_SECTPR) if ppr is not None else None
+            if sect is None:
+                return False
+            following = next_sect.get(id(sect))
+            stype = following.find(W_TYPE) if following is not None else None
+            return stype is None or stype.get(W_VAL) not in ('continuous', 'nextColumn')
+
+        def emit_paragraph(p):
+            if breaks_before(p):
+                tokens.append(None)
+            parts, boxes = [], []
+            inline_parts(p, parts, boxes)
+            segment = []
+            for item in parts:
+                if item is None:
+                    text = "".join(segment).strip()
+                    segment = []
+                    if text:
+                        tokens.append(text + "\n\n")
+                    tokens.append(None)
+                else:
+                    segment.append(item)
+            text = "".join(segment).strip()
+            if text:
+                tokens.append(text + "\n\n")
+            for box in boxes:
+                emit_box(box)
+            if breaks_after(p):
+                tokens.append(None)
+
+        def row_starts_page(tr):
+            # A table that spans pages carries Word's lastRenderedPageBreak
+            # milestone inside the row where the new page begins; markers
+            # sitting in a floating text box anchored in a cell do not count.
+            for el in tr.iter(W_LRPB):
+                boxed = False
+                for anc in el.iterancestors():
+                    if anc is tr:
+                        break
+                    if anc.tag == W_TXBX:
+                        boxed = True
+                        break
+                if not boxed:
+                    return True
+            return False
+
+        def emit_table(table):
+            table_text = ""
+            for row in table.rows:
+                if row_starts_page(row._tr):
+                    if table_text.strip():
+                        tokens.append("\n" + table_text + "\n\n")
+                    table_text = ""
+                    tokens.append(None)
+                row_text = " | ".join(cell.text.strip() for cell in row.cells)
+                table_text += row_text + "\n"
+            if table_text.strip():
+                tokens.append("\n" + table_text + "\n\n")
+
+        # ---- body content, in document order (paragraphs and tables interleave)
+        tables_by_el = {id(t._tbl): t for t in doc.tables}
+        for child in doc.element.body:
+            tag = child.tag
+            if tag == W_P:
+                emit_paragraph(child)
+            elif tag == W_TBL:
+                table = tables_by_el.get(id(child))
+                if table is not None:
+                    emit_table(table)
+
+        # Text boxes anchored anywhere else in the body (inside table cells,
+        # content controls) — the catch-all that keeps "modern" Word docs from
+        # extracting empty; boxes under body paragraphs were emitted in place.
+        for txbx in doc.element.body.iter(W_TXBX):
+            if id(txbx) not in inline_boxes:
+                emit_box(txbx)
+
+        # Headers and footers (per section) — often contain titles, dates,
+        # form field labels that the body paragraphs/tables miss. Emitted once,
+        # on the first page (where a reader sees them, and where
+        # _get_text_from_other_documents samples for type detection), rather
+        # than duplicated onto every page they would render on.
+        hf_text = ""
+        for section in doc.sections:
+            for hf in (section.header, section.footer):
+                for para in hf.paragraphs:
+                    if para.text.strip():
+                        hf_text += para.text.strip() + "\n"
+                for table in hf.tables:
+                    for row in table.rows:
+                        row_text = " | ".join(cell.text.strip() for cell in row.cells)
+                        if row_text.strip():
+                            hf_text += row_text + "\n"
+
+        # ---- assemble pages from the token stream --------------------------
+        raw_pages = [[]]
+        for item in tokens:
+            if item is None:
+                raw_pages.append([])
+            else:
+                raw_pages[-1].append(item)
+
+        had_break_signal = len(raw_pages) > 1
+        page_texts = ["".join(chunks).strip() for chunks in raw_pages]
+        # adjacent markers (a hard break Word also recorded as a rendered
+        # break) and leading/trailing markers produce empty segments — drop them
+        page_texts = [t for t in page_texts if t]
+
+        def synthetic_split(blocks, target):
+            # Pack whole blocks (paragraphs / tables / boxes) to ~target chars
+            # per page; a block longer than 2×target is cut at line boundaries
+            # so one giant table cannot recreate the single-page problem.
+            out, cur, cur_len = [], [], 0
+            for block in blocks:
+                if cur and cur_len + len(block) > target:
+                    out.append("".join(cur).strip())
+                    cur, cur_len = [], 0
+                while len(block) > 2 * target:
+                    cut = block.rfind("\n", 0, target)
+                    if cut <= 0:
+                        cut = target
+                    out.append(block[:cut].strip())
+                    block = block[cut:]
+                cur.append(block)
+                cur_len += len(block)
+            tail = "".join(cur).strip()
+            if tail:
+                out.append(tail)
+            return [t for t in out if t] or [""]
+
+        synthetic = False
+        if not had_break_signal:
+            target = int(getattr(cfg, 'DOC_DOCX_SYNTHETIC_PAGE_CHARS', 2800) or 0)
+            if target > 0 and sum(len(b) for b in raw_pages[0]) > target * 1.5:
+                page_texts = synthetic_split(raw_pages[0], target)
+                synthetic = True
+
+        if not page_texts:
+            page_texts = [""]
+
+        if hf_text.strip():
+            first = page_texts[0]
+            page_texts[0] = (first + "\n" + hf_text).strip() if first else hf_text.strip()
+
+        mode = ("synthetic blocks" if synthetic
+                else "document break signals" if had_break_signal
+                else "single page")
+        self.logger.info(f"DOCX pagination: {len(page_texts)} page(s) via {mode}")
+
+        pages = []
+        for i, text in enumerate(page_texts, start=1):
+            page = {"page_number": i, "text": text}
+            if synthetic:
+                page["synthetic_pagination"] = True
+            pages.append(page)
+        return pages
 
 
     # =========================================================================

@@ -646,6 +646,17 @@ DOC_INCLUDE_FULL_PAGE_IN_CHUNK_RESULTS = os.getenv('DOC_INCLUDE_FULL_PAGE_IN_CHU
 # document cannot eat the whole result budget. Announced in the output when it fires.
 DOC_SEARCH_MAX_CHARS_PER_SOURCE = int(os.getenv('DOC_SEARCH_MAX_CHARS_PER_SOURCE', 20000))
 
+# DOCX pagination. A .docx stores flowing content, not pages, so ingest honours the
+# break signals the file carries (explicit page breaks, section starts, and Word's
+# w:lastRenderedPageBreak layout milestones, written whenever Word saves). A document
+# with NO signal at all — typical of generated files — is split synthetically on block
+# boundaries at roughly this many characters per page (real pages run 1,500-3,200
+# chars, see above), so page-level retrieval, page counts, and the brute-force page
+# gates see honest sizes instead of one giant page per Word document. Synthetic pages
+# carry "synthetic_pagination": True on the page dict. 0 disables the synthetic
+# fallback only — real break signals are always honoured.
+DOC_DOCX_SYNTHETIC_PAGE_CHARS = int(os.getenv('DOC_DOCX_SYNTHETIC_PAGE_CHARS', 2800))
+
 # Document-level field extraction (DEFAULT ON).
 #   ON  = ONE extraction pass for the whole document. Pages are grouped into
 #         LLM-sized requests on PAGE BOUNDARIES (a page is never split or dropped),
