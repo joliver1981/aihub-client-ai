@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import Dict, List, Optional, Any, Union, Tuple
 import pyodbc
 from math import ceil
@@ -3791,6 +3792,13 @@ def document_search_meaning(conn_string, document_type=None, search_query=None,
         )
 
 
+def _fold_for_match(text):
+    """Casefold and collapse punctuation so 'Summit Center, Boston' matches
+    inside 'summit center boston lease term'. Pure format normalization for
+    substring comparison — no natural-language interpretation happens here."""
+    return re.sub(r"[^a-z0-9]+", " ", str(text).lower()).strip()
+
+
 def _normalize_search_strategy(search_strategy, user_question, search_attempts):
     """Coerce the strategy LLM's output into the shapes every branch consumes.
 
@@ -3834,6 +3842,35 @@ def _normalize_search_strategy(search_strategy, user_question, search_attempts):
         search_strategy["field_search"]["field_filters"] = [
             f for f in ff if isinstance(f, dict)]
         search_attempts.append("Dropped non-object entries from field_filters")
+
+    # ── Entity guard ────────────────────────────────────────────────────
+    # Seen live 2026-08-31 (pack-23): the rewriter turned "term of Summit
+    # Center, Boston lease?" into generic terms ('lease term', 'initial
+    # term', ...) — both constraints gone — and the engine answered from a
+    # Chicago lease. The strategy prompt now has the model list the
+    # question's entities; if any listed entity made it into no search
+    # term, search the raw question as well. Fails open: the worst case is
+    # one extra vector query with the question as written, exactly what the
+    # empty-terms fallback in the consumer already does.
+    entities = search_strategy.get("question_entities")
+    entities = [e for e in entities if isinstance(e, str) and e.strip()] \
+        if isinstance(entities, list) else []
+    terms = (search_strategy.get("semantic_search") or {}).get("search_terms") or []
+    folded_terms = [_fold_for_match(t) for t in terms
+                    if isinstance(t, str) and t.strip()]
+    if entities and folded_terms:
+        missing = [e for e in entities
+                   if not any(_fold_for_match(e) in ft for ft in folded_terms)]
+        question_already_searched = any(
+            _fold_for_match(user_question) in ft for ft in folded_terms)
+        if missing and not question_already_searched:
+            search_strategy["semantic_search"]["search_terms"] = \
+                list(terms) + [user_question]
+            search_attempts.append(
+                f"[entity-guard] no search term carried {missing} - "
+                f"added the user question verbatim as a term")
+            print(f"[search]     entity guard: terms dropped {missing} -> "
+                  f"also searching the raw question")
     return search_strategy
 
 
@@ -4005,8 +4042,9 @@ def document_search_super_enhanced_debug(
         "search_approach": "semantic", // One of: "semantic", "field", "hybrid", or "wide_net_filter"
         "reasoning": "Explanation of your choice and which specific fields you selected",
         "confidence": "high|medium|low", // Your confidence in this strategy
+        "question_entities": ["entity1", "entity2"], // Every specific name, place, organization, person, or identifier the user's question mentions, copied VERBATIM from the question (e.g. "Acme Corp", "Dallas", "S-1042"). Empty list if the question names none.
         "semantic_search": {{            // Include if semantic or hybrid search
-            "search_terms": ["term1", "term2"]  // Key terms for semantic search
+            "search_terms": ["term1", "term2"]  // Key terms for semantic search. At least one term MUST repeat the specific names/places/identifiers from the user's question verbatim (e.g. "Acme Corp Dallas lease term", NOT just "lease term"). Never generalize the question's proper nouns away - they are the constraint that picks the right document.
         }},
         "field_search": {{               // Include if field or hybrid search
             "field_filters": [
