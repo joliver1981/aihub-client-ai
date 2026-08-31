@@ -4272,14 +4272,28 @@ def document_search_super_enhanced_debug(
                 keep_best=True
             )
 
-            ai_result = ''
-            ai_result = format_search_results_for_ai(deduped_results)
-            combined_results.append(ai_result)
             semantic_result_count = 0
             for s_result in semantic_results:
                 semantic_result_count += len(s_result)
             print(f'[search]     semantic total {semantic_result_count} -> deduped {len(deduped_results)}')
-            return ai_result
+
+            if deduped_results:
+                ai_result = format_search_results_for_ai(deduped_results)
+                combined_results.append(ai_result)
+                return ai_result
+
+            # Zero chunks is not an answer. This return used to fire
+            # unconditionally, which made the hybrid field half (4b/6) and
+            # the whole Step-5 fallback sequence unreachable whenever the
+            # vector engine was up: an empty semantic pass came back as
+            # "No relevant documents found" with nothing else attempted
+            # (seen live 2026-08-31 when the type planner picked a type
+            # with zero searchable documents). combined_results stays []
+            # so the field branch and the `if not combined_results:` gate
+            # below behave exactly as in the vector-error path.
+            search_attempts.append(
+                "Semantic search returned 0 chunks - continuing to field search / fallbacks")
+            print('[search]     semantic 0 chunks -> not returning; trying field search / fallbacks')
     
     if search_strategy.get("search_approach") in ["field", "hybrid"]:
         field_filters = search_strategy.get("field_search", {}).get("field_filters", [])
