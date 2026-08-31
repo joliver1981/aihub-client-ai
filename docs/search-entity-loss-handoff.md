@@ -1,6 +1,41 @@
 # Handoff: the search strategy discards the entities in the user's question
 
-**Status:** confirmed live 2026-08-31 on the pack-23 corpus. Not fixed.
+**Status: FIXED 2026-08-31** — options A+B below, plus a third defect found during
+verification. Commits:
+
+- `293eb8b` — A: the strategy prompt now returns `question_entities` (verbatim, same
+  call — no new LLM call) and requires entity-bearing search terms. B: deterministic
+  entity guard in `_normalize_search_strategy`: any listed entity that survives into no
+  term (case/punctuation-folded substring) appends the raw question as one more term.
+  Fail-open; 8 unit tests in `tests/unit/test_search_strategy_normalize.py`.
+- `7e703c9` — found during verification: `get_document_types` offered types with zero
+  searchable documents (84 of 124 on the dev box were knowledge-only). When the step-1
+  planner picked one (`commercial_lease_agreement`, 6 docs all knowledge, over
+  `lease_agreement` with 185 leases) the whole search returned "No relevant documents
+  found". Now filtered to `is_knowledge_document = 0`, matching every downstream step.
+  This was a large share of the run-to-run instability blamed on ranking ties.
+- `ff52f28` — the inert `usage_count` sort flagged at the bottom of this doc.
+
+**Verified:** 3× direct probe + 3× live facade — every run's terms carried
+"Summit Center Boston", and all three Boston leases (S350/S400/S300) led the result
+window, stable across runs. 3× GA e2e via agent 1007: runs 1–2 full PASS (all three
+Boston terms, no Chicago, disambiguation offer); run 3 answered S350 only —
+correct city/term/citation, zero Chicago, but did not enumerate the other two
+Boston leases. That residue is the ambiguity-surfacing problem
+(`docs/search-ambiguity-signal-handoff.md`), not entity loss.
+
+**Answered from this doc's cautions:** the `field_search` half of a hybrid strategy is
+*unreachable* whenever the vector engine is up — the semantic branch returns before the
+`4b/6` block, even with 0 chunks (which also skips the Step-5 fallbacks). Filed as its
+own follow-up task rather than fixed here. Temperature note below is wrong in one
+detail: with `reasoning_effort` configured, `azureQuickPrompt`/`azureMiniQuickPrompt`
+force `temperature=1.0`, so steps 1 and 3 ARE nondeterministic.
+
+---
+
+Original write-up follows.
+
+**Status (original):** confirmed live 2026-08-31 on the pack-23 corpus. Not fixed.
 **Component:** `DocUtils.document_search_super_enhanced_debug` — Step 3, the search-strategy call
 **Severity:** high, and **silent**. The engine returns a confident, well-formatted answer with a
 correct citation — about the wrong document. Nothing in the output signals it.
