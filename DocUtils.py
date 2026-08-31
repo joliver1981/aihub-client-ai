@@ -3406,8 +3406,12 @@ def ai_select_relevant_fields(user_question: str, available_fields: List[Dict], 
             }
         field_analysis.append(field_info)
     
-    # Document Fields
-    sorted_fields = sorted(available_fields, key=lambda x: x.get('usage_count', 0), reverse=True)
+    # Document Fields — the production caller passes {'field_name',
+    # 'document_count'} dicts (built from the universe metadata), so keying
+    # on usage_count alone was a silent no-op sort.
+    sorted_fields = sorted(available_fields,
+                           key=lambda x: x.get('usage_count') or x.get('document_count') or 0,
+                           reverse=True)
 
     #print('Sorted Fields:')
     #print(sorted_fields)
@@ -3550,9 +3554,12 @@ def get_fallback_field_selection(available_fields: List[Dict], user_question: st
     # Select core fields that exist
     selected_fields = [f for f in core_fields if f in available_field_names]
     
-    # Fill remaining slots with highest usage fields
+    # Fill remaining slots with highest usage fields (tolerate both the
+    # usage_count and the document_count dict shapes — see ai_select_relevant_fields)
     remaining_slots = max_fields - len(selected_fields)
-    sorted_fields = sorted(available_fields, key=lambda x: x.get('usage_count', 0), reverse=True)
+    sorted_fields = sorted(available_fields,
+                           key=lambda x: x.get('usage_count') or x.get('document_count') or 0,
+                           reverse=True)
     
     for field in sorted_fields:
         if len(selected_fields) >= max_fields:
