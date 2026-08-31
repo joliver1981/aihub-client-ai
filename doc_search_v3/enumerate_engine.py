@@ -58,14 +58,21 @@ def _connect():
     return conn, cur
 
 
-def _llm(prompt: str, system: str, max_tokens: int = 800) -> str:
-    """One model call over the platform proxy (same transport as the extractors)."""
+def _llm(prompt: str, system: str, max_tokens: int = 800, model: str = None) -> str:
+    """One model call over the platform proxy (same transport as the extractors).
+
+    `model` defaults to ANTHROPIC_MODEL — the reasoning steps (type pick, field pick,
+    predicate framing) run once per question and should stay on the strong model. The
+    per-document map step passes DOC_SWEEP_MODEL instead: it runs once PER DOCUMENT, so
+    it is ~190x the call volume of everything else here combined and is where the cost
+    of a fan-out question actually lives.
+    """
     import config as cfg
     from CommonUtils import AnthropicProxyClient
     client = AnthropicProxyClient()
     resp = client.messages_create(
         messages=[{"role": "user", "content": [{"type": "text", "text": prompt}]}],
-        model=cfg.ANTHROPIC_MODEL, max_tokens=max_tokens, system=system)
+        model=model or cfg.ANTHROPIC_MODEL, max_tokens=max_tokens, system=system)
     content = resp.get('content') if isinstance(resp, dict) else None
     if not content:
         raise RuntimeError(f"LLM call failed: {str(resp)[:200]}")
@@ -191,9 +198,11 @@ def _verdict_one(question: str, doc_id: str, filename: str, cur_factory,
         text = "\n\n".join(f"[Page {pn}]\n{tx}" for pn, tx in pages if tx)[:480000]
         guide = (f"\nValue guide (use these canonical values): {value_guide}"
                  if value_guide else "")
+        import config as cfg
         raw = _llm(f"Question: {question}{guide}\n\nDocument: {filename}\n"
                    f"--- DOCUMENT TEXT ---\n{text}\n--- END ---",
-                   system=_VERDICT_SYSTEM, max_tokens=500)
+                   system=_VERDICT_SYSTEM, max_tokens=500,
+                   model=getattr(cfg, 'DOC_SWEEP_MODEL', None))
         data = _parse_json(raw)
         label = str(data.get('label') or '').strip().lower()
         if label not in ('yes', 'yes_qualified', 'no', 'not_addressed'):
