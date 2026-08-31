@@ -41,18 +41,27 @@ def get_document_types(allowed_document_types=None):
         # Values come from [dbo].[AgentDocumentTypes] (admin-controlled);
         # single quotes are escaped for safety, matching the inline-SQL
         # style used elsewhere in this file.
+        # Only offer types the document-store lane can actually search:
+        # every downstream step (universe, attributes, /api/document-types)
+        # filters is_knowledge_document = 0, so a type whose documents are
+        # all agent-knowledge would send the whole search into a silent
+        # zero-result path (seen live 2026-08-31: planner picked
+        # 'commercial_lease_agreement' — 6 docs, all knowledge — over
+        # 'lease_agreement' with 185 searchable leases).
         if allowed_document_types:
             quoted = ','.join("'" + str(t).replace("'", "''") + "'" for t in allowed_document_types)
             query = f"""
             SELECT distinct d.document_type
             FROM [dbo].[Documents] d
             WHERE d.document_type IN ({quoted})
+              AND d.is_knowledge_document = 0
             ORDER BY d.document_type
             """
         else:
             query = """
             SELECT distinct d.document_type
             FROM [dbo].[Documents] d
+            WHERE d.is_knowledge_document = 0
             ORDER BY d.document_type
             """
 
