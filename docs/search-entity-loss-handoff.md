@@ -24,10 +24,13 @@ correct city/term/citation, zero Chicago, but did not enumerate the other two
 Boston leases. That residue is the ambiguity-surfacing problem
 (`docs/search-ambiguity-signal-handoff.md`), not entity loss.
 
-**Answered from this doc's cautions:** the `field_search` half of a hybrid strategy is
-*unreachable* whenever the vector engine is up — the semantic branch returns before the
-`4b/6` block, even with 0 chunks (which also skips the Step-5 fallbacks). Filed as its
-own follow-up task rather than fixed here. Temperature note below is wrong in one
+**Answered from this doc's cautions:** the `field_search` half of a hybrid strategy was
+*unreachable* whenever the vector engine was up — the semantic branch returned before the
+`4b/6` block, even with 0 chunks (which also skipped the Step-5 fallbacks). Fixed in
+`8b6eb51`: the early return now fires only when dedup produced passages; a zero-chunk
+pass falls through to the field half / fallback sequence (4 control-flow tests in
+`tests/unit/test_super_search_fallthrough.py`; live-verified — `4b/6` executed and
+returned real passages under a stubbed-empty vector engine, happy path unchanged). Temperature note below is wrong in one
 detail: with `reasoning_effort` configured, `azureQuickPrompt`/`azureMiniQuickPrompt`
 force `temperature=1.0`, so steps 1 and 3 ARE nondeterministic.
 
