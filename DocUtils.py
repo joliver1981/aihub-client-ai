@@ -456,7 +456,36 @@ def rank_search_results(results: List[Dict[str, Any]], user_question: str) -> Li
     keep_threshold = float(getattr(cfg, 'DOC_RERANK_KEEP_THRESHOLD', 0.5))
     max_keep = int(getattr(cfg, 'DOC_RERANK_MAX_KEEP', 30))
 
-    candidates = unique_results[:fetch_n]
+    # Diverse window, not pure top-N. Cosine order alone lets ONE document fill the
+    # window when a corpus holds near-identical documents — six Summit Center leases
+    # differing only by city score within rounding noise of each other, so which city
+    # the user gets an answer about is decided by ties, and the re-ranker (the only
+    # step that sees the ORIGINAL question, city included) never gets shown the rest.
+    # Pass 1 takes at most DOC_RERANK_MAX_PER_DOC chunks per document so every matching
+    # document is represented; pass 2 back-fills any unused slots in cosine order so a
+    # narrow result set is never under-filled.
+    max_per_doc = int(getattr(cfg, 'DOC_RERANK_MAX_PER_DOC', 3))
+    if max_per_doc > 0 and len(unique_results) > fetch_n:
+        per_doc, candidates = {}, []
+        for result in unique_results:
+            doc_id = result.get("document_id")
+            if per_doc.get(doc_id, 0) < max_per_doc:
+                per_doc[doc_id] = per_doc.get(doc_id, 0) + 1
+                candidates.append(result)
+            if len(candidates) >= fetch_n:
+                break
+        if len(candidates) < fetch_n:
+            chosen = {id(r) for r in candidates}
+            for result in unique_results:
+                if id(result) not in chosen:
+                    candidates.append(result)
+                    if len(candidates) >= fetch_n:
+                        break
+        print(f"  rerank window: {len(candidates)} candidates from "
+              f"{len({r.get('document_id') for r in candidates})} distinct document(s) "
+              f"(cap {max_per_doc}/doc, {len(unique_results)} deduped candidates available)")
+    else:
+        candidates = unique_results[:fetch_n]
 
     # Build compact snippet payload — small per-item to keep token cost down.
     result_snippets = []
@@ -571,7 +600,6 @@ def detect_high_token_usage(results: List[Dict]) -> bool:
         total_text += json.dumps(result.get("all_fields", {}))
     
     estimated_tokens = len(total_text) // cfg.DOC_CHARS_PER_TOKEN
-    print(86 * '*')
     print(f"Estimated tokens: {estimated_tokens}")
 
     # Only summarize if we exceed the token limit
@@ -582,7 +610,6 @@ def detect_high_token_usage(results: List[Dict]) -> bool:
         HIGH_TOKEN_USAGE_DETECTED = False
         print('Did not exceed token limit, not trimming snippets...')
 
-    print(86 * '*')
 
     return HIGH_TOKEN_USAGE_DETECTED
 
@@ -771,13 +798,11 @@ def document_search(
         conn = pyodbc.connect(conn_string)
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        print('Values:', include_metadata, search_query, field_filters)
 
         if ai_selected_fields:
             for field in field_filters:
                 if field['field_name'] not in ai_selected_fields:
                     ai_selected_fields.append(field['field_name'])
-                    print('Added AI selected field:', field['field_name'])
         
         # Get metadata if requested
         if include_metadata:
@@ -1140,11 +1165,9 @@ def document_search(
                             """
                             all_params = not_exists_params
                         
-                        print(86 * '!')
                         # print(field_filter_sql)
                         # print(all_params)
                         print('Executing field filter sql...')
-                        print(86 * '!')
                         #time.sleep(30)
 
                         cursor.execute(field_filter_sql, all_params)
@@ -1180,21 +1203,16 @@ def document_search(
                                 WHERE {dt_clause_bare if dt_clause_bare else "1=1"}
                             """
                             print("==========>>>>>>>>>> SQL:")
-                            print(field_filter_sql)
                             cursor.execute(field_filter_sql)
                         else:
                             print("==========>>>>>>>>>> SQL:")
-                            print(field_filter_sql)
                             
                             all_params = params + params
 
                             print("==========>>>>>>>>>> Params:")
-                            print(params)
                             cursor.execute(field_filter_sql, all_params)
                         
-                        print(86 * '!')
                         print('Executed field filter sql...')
-                        print(86 * '!')
 
                     field_matches = cursor.fetchall()
 
@@ -1218,9 +1236,7 @@ def document_search(
                                 'value': field_value
                             })
 
-                    print(86 * '!')
                     print('No of pages found in field search:', len(matching_page_ids))
-                    print(86 * '!')
             
             ####################################################################################################
             # NOTE: This is the query that uses the pages (found from field search) to find the data for the AI
@@ -1274,9 +1290,7 @@ def document_search(
                         # Convert set to list and join for SQL IN clause
                         page_ids_list = list(matching_page_ids)[:max_results]  # Limit to max_results
 
-                        print(86 * '!')
                         print('Number of pages to include in search:', len(page_ids_list))
-                        print(86 * '!')
                         
                         # Use parameterized query with proper placeholders
                         placeholders = ', '.join(['?' for _ in page_ids_list])
@@ -1345,14 +1359,10 @@ def document_search(
 
                             query_params = page_ids_list
                         
-                        print(86 * '!')
-                        print(query)
-                        print(query_params)
                         if ai_selected_fields:
                             print('Executing ai selected data sql...')
                         else:
                             print('Executing data sql...')
-                        print(86 * '!')
                         #time.sleep(30)
 
                         cursor.execute(query, query_params)
@@ -1425,7 +1435,6 @@ def document_search(
                                     RESULT_OK = False
 
                             if RESULT_OK:
-                                print('Result:', result)
                                 print('--------------------------------')
                                 results.append(result)
                 
@@ -1532,9 +1541,7 @@ def document_search(
                     key = (result["document_id"], result["page_number"])
                     base_results[key] = formatted_result
 
-                print(86 * '!')
                 print('No of pages found after formatting search results:', len(base_results))
-                print(86 * '!')
                 
                 # Add additional pages based on cfg.DOC_RETURN_ADDITIONAL_PAGES
                 additional_pages = cfg.DOC_RETURN_ADDITIONAL_PAGES
@@ -1673,12 +1680,10 @@ def document_search(
         try:
             if user_question is not None and check_completeness and cfg.DOC_RETURN_ADDITIONAL_PAGES <= 0:
                 print('Checking document completeness...')
-                print(86 * '%')
                 print('Auto-return of additional pages not set, checking document completeness...')
                 print('User Question:', user_question)
                 document_metadata = response["results"][0]
                 print('Got document metadata...')
-                print(document_metadata)
                 current_document_text = response["results"][0]["snippet"]
                 print('Got document text...')
                 result = check_document_completeness(
@@ -1686,15 +1691,12 @@ def document_search(
                     current_document_text,
                     document_metadata
                     )
-                print('Result:', result)
                 if not result.get('has_sufficient_information', True):
                     # If we're already returning additional pages, modify the message
                     if any(result.get("is_additional_page", False) for result in search_results):
                         response["note"] = response.get("note", "") + " " + result.get('instruction', '')
                     else:
                         response["note"] = result.get('instruction', '')
-                    print('Full Document Response:', response)
-                print(86 * '%')
         except Exception as e:
             print('Failed to check document completeness...')
             print(str(e))
@@ -2543,7 +2545,7 @@ def get_document_universe(
             # Now process the field metadata with the document types with sample values
             sample_count = cfg.DOC_FIELD_SAMPLE_VALUES_COUNT if cfg.DOC_FIELD_SAMPLE_VALUES_COUNT else 3
 
-            print(f'Getting sample values for {len(field_rows)} fields...')
+            print(f'[search]     universe query returned {len(field_rows)} fields (sampling values)')
 
             for field_name, field_count, document_count in field_rows: 
                 # Build field metadata with inferred field purpose
@@ -3058,7 +3060,6 @@ def ask_ai_for_best_field(original_field: str, document_type: str, user_question
     """
     try:
         field_list = get_document_fields(document_type=document_type)
-        print('Field List:', field_list)
 
         print('Sending request to AI...')
         # Create the prompt for the AI
@@ -3085,12 +3086,10 @@ def ask_ai_for_best_field(original_field: str, document_type: str, user_question
         #print(user_message)
         
         result = azureQuickPrompt(prompt=user_message, system=system_message)
-        print('Results:', result)
         
         # Parse the JSON response
         try:
             suggested_fields = json.loads(result)
-            print('Suggested Fields:', suggested_fields)
         except json.JSONDecodeError:
             # If JSON parsing fails, try to extract field names from the text
             # This is a fallback in case the AI doesn't return proper JSON
@@ -3101,10 +3100,8 @@ def ask_ai_for_best_field(original_field: str, document_type: str, user_question
         # Verify that the responses are actually fields in our list
         valid_field_names = [field for field in field_list]
         verified_fields = []
-        print(valid_field_names)
         
         for field in suggested_fields:
-            print(field)
             if field in valid_field_names:
                 verified_fields.append(field)
             else:
@@ -3296,9 +3293,7 @@ def summarize_snippets_for_token_reduction(results: List[Dict], user_question: s
         total_text += json.dumps(result.get("all_fields", {}))
     
     estimated_tokens = len(total_text) // cfg.DOC_CHARS_PER_TOKEN
-    print(86 * '*')
     print(f"Estimated tokens: {estimated_tokens}")
-    print(86 * '*')
     
     # Only summarize if we exceed the token limit
     if estimated_tokens <= cfg.DOC_INTELLIGENT_MAX_CONTEXT_TOKENS:
@@ -3432,14 +3427,7 @@ def ai_select_relevant_fields(user_question: str, available_fields: List[Dict], 
             }
         field_analysis.append(field_info)
 
-    print(86 * '=')
-    print(86 * '=')
-    print(86 * '=')
-    print('FIELDS FOR ANALYSIS:')
     print(field_analysis)
-    print(86 * '=')
-    print(86 * '=')
-    print(86 * '=')
     #time.sleep(30)
 
     # Create AI prompt
@@ -3497,12 +3485,8 @@ def ai_select_relevant_fields(user_question: str, available_fields: List[Dict], 
         # Parse AI response
         selection_result = json.loads(ai_response)
 
-        print(86  * '=')
-        print(86  * '=')
-        print('~~~~~~~~~~~~~~~~~~~~~~~~~~~ AI FIELD SELECTION COMPLETE ANALYSIS ~~~~~~~~~~~~~~~~~~~~~~~~~~~')
-        print(selection_result)
-        print(86  * '=')
-        print(86  * '=')
+        print(f"[search]     field-selection confidence={selection_result.get('confidence')} "
+              f"type={selection_result.get('question_type')}")
         
         # Validate the response
         #if not validate_field_selection(selection_result, available_fields + available_attributes, max_fields):
@@ -3895,7 +3879,8 @@ def document_search_super_enhanced_debug(
     # When the caller (an agent wrapper) supplied an allow list we feed
     # the planner ONLY the types it can read so the LLM can't pick a
     # disallowed type to begin with.
-    print('Getting document types...')
+    print(f"\n[search] ===== {user_question[:110]}")
+    print('[search] 1/6 selecting document types...')
     document_types_json = get_document_types(allowed_document_types=allowed_document_types)
 
     # Use the specialized system prompt to determine relevant document types
@@ -3910,14 +3895,13 @@ def document_search_super_enhanced_debug(
         relevant_doc_types = json.loads(relevant_doc_types_json)
         if not isinstance(relevant_doc_types, list):
             relevant_doc_types = []
-        print('Relevant Document Types:')
-        print(relevant_doc_types)
+        print(f'[search]     document types -> {relevant_doc_types or "(all)"}')
         #time.sleep(5)
     except json.JSONDecodeError:
         # If we can't parse the result, assume no specific document types
         relevant_doc_types = []
         search_attempts.append("Failed to parse document type suggestions - proceeding with all document types")
-        print('Failed to parse document type suggestions - proceeding with all document types')
+        print('[search]     !! could not parse type suggestions - using ALL document types')
 
     # ── Per-agent ACL: intersect planner picks with the allow list ──────
     # Belt-and-braces over the get_document_types() narrowing above: even
@@ -3940,47 +3924,42 @@ def document_search_super_enhanced_debug(
             )
 
     # Step 2: Get document universe metadata for available fields and other metadata
-    print('Getting document universe...')
+    print('[search] 2/6 loading document universe...')
     universe_json = get_document_universe(
         conn_string,
         document_types=relevant_doc_types if relevant_doc_types else None,
         allowed_document_types=allowed_document_types,
     )
     universe_data = json.loads(universe_json)
-    print('Universe Data: <disabled print>')
     
     # Enhanced prompt with explicit field validation
     available_field_names = [field.get('name') for field in universe_data.get('field_metadata', [])]
     
     field_metadata = universe_data.get('field_metadata', [])
-    print('Total Fields in Metadata:', len(field_metadata))
+    print(f'[search]     universe: {len(field_metadata)} distinct fields')
 
     simplified_fields = [{'field_name': field['name'], 'document_count': field['document_count']} for field in field_metadata]
     #simplified_fields = [{'field_name': field['name'], 'field_path': field['field_path'], 'document_count': field['document_count']} for field in field_metadata]
 
-    print('Getting attributes from universe_data...')
     attribute_metadata = universe_data.get('custom_attribute_metadata', [])
 
     attribute_field_names = []
     if attribute_metadata:
         attribute_field_names = [item['attribute_name'] for item in attribute_metadata]
 
-    print('Creating attributes from universe_data...')
     simplified_attributes = [{'attribute_name': attr['attribute_name'], 'document_count': attr['documents_with_attribute']} for attr in attribute_metadata]
 
     ai_selected_fields = None
     ai_strategy_prompt = ""
     if cfg.DOC_USE_AI_SELECTED_FIELDS:
-        print('Using AI selected fields...')
-        print('Total Fields:', len(simplified_fields))
-        print('Total Attrs:', len(simplified_attributes))
+        print(f'[search]     planner sees top {cfg.DOC_TOP_N_FIELDS_INCLUDED_IN_RESULTS} of '
+              f'{len(simplified_fields)} fields + {len(simplified_attributes)} attributes')
         relevant_fields_response = ai_select_relevant_fields(user_question, simplified_fields, simplified_attributes, max_fields=8)
         # print('Relevant Fields Response:')
         # time.sleep(5)
         # print(relevant_fields_response)
         ai_selected_fields = relevant_fields_response['selected_fields']
-        print('AI Selected Fields:')
-        print(ai_selected_fields)
+        print(f'[search]     AI picked fields -> {ai_selected_fields}')
         #time.sleep(30)
         ai_strategy_prompt = "AI Suggested Fields: " + str(ai_selected_fields)
 
@@ -4079,7 +4058,7 @@ def document_search_super_enhanced_debug(
     """
     
     # Call Azure OpenAI to determine search strategy
-    print('Determining search strategy...')
+    print('[search] 3/6 determining search strategy...')
     #print(prompt)
     search_strategy_json = azureQuickPrompt(prompt=prompt, system=system_prompt)
     # print(86 * '-')
@@ -4088,8 +4067,7 @@ def document_search_super_enhanced_debug(
     # print(prompt)
     # print(86 * '-')
     # print(86 * '-')
-    print('Search Strategy Result:')
-    print(search_strategy_json)
+    print(f'[search]     strategy raw -> {str(search_strategy_json)[:300]}')
     #time.sleep(30)
     
     # Parse the search strategy
@@ -4134,7 +4112,7 @@ def document_search_super_enhanced_debug(
             semantic_terms = [user_question]
         
         search_attempts.append(f"Attempting semantic search with {len(semantic_terms)} terms")
-        print(f"Attempting semantic search with {len(semantic_terms)} terms")
+        print(f"[search] 4/6 semantic search · {len(semantic_terms)} term(s): {semantic_terms}")
         #time.sleep(2)
         
         # TODO: The new semantic vector search should be used here...
@@ -4143,20 +4121,18 @@ def document_search_super_enhanced_debug(
         for term in semantic_terms:
             # Try each relevant document type for semantic search
             if relevant_doc_types:
-                print('Attempting semantic vector search with document types...')
                 if search_strategy.get("search_approach") in ["semantic","hybrid"]:
                     try:
                         VECTOR_SEARCH_ERROR = False
                         from vector_engine_client import VectorEngineClient
                         vector_client = VectorEngineClient()
-                        print('Searching for AI with vector client (w/ document type filter)...')
                         doc_typ_filter = {"document_type": {"$in": relevant_doc_types}}
                         search_result = vector_client.search_for_ai(term, filters=doc_typ_filter)
                         semantic_results.append(search_result.get("results", []))
                         VECTOR_SEARCH = True
-                        print(f"Semantic search found {len(search_result.get('results', []))} results for '{term}'")
+                        print(f"[search]     vector -> {len(search_result.get('results', []))} chunks for '{term}'")
                     except Exception as e:
-                        print('Error during vector search using vector engine...', str(e))
+                        print(f'[search]     !! vector engine failed ({str(e)[:120]}) - falling back to SQL')
                         VECTOR_SEARCH_ERROR = True
 
                 if VECTOR_SEARCH_ERROR:
@@ -4188,7 +4164,7 @@ def document_search_super_enhanced_debug(
                             continue
             else:
                 # Search without document type restriction
-                print('Attempting global semantic search...')
+                print('[search]     (no type filter - global semantic search)')
                 if search_strategy.get("search_approach") in ["semantic","hybrid"]:
                     try:
                         VECTOR_SEARCH_ERROR = False
@@ -4197,9 +4173,9 @@ def document_search_super_enhanced_debug(
                         search_result = vector_client.search_for_ai(term)
                         semantic_results.append(search_result.get("results", []))
                         VECTOR_SEARCH = True
-                        print(f"Semantic search found {len(search_result.get('results', []))} results for '{term}'")
+                        print(f"[search]     vector -> {len(search_result.get('results', []))} chunks for '{term}'")
                     except Exception as e:
-                        print('Error during vector search using vector engine...', str(e))
+                        print(f'[search]     !! vector engine failed ({str(e)[:120]}) - falling back to SQL')
                         VECTOR_SEARCH_ERROR = True
 
                 if VECTOR_SEARCH_ERROR:
@@ -4248,8 +4224,7 @@ def document_search_super_enhanced_debug(
             semantic_result_count = 0
             for s_result in semantic_results:
                 semantic_result_count += len(s_result)
-            print('semantic_results length:', (semantic_result_count))
-            print('deduped_results length:', len(deduped_results))
+            print(f'[search]     semantic total {semantic_result_count} -> deduped {len(deduped_results)}')
             return ai_result
     
     if search_strategy.get("search_approach") in ["field", "hybrid"]:
@@ -4257,7 +4232,7 @@ def document_search_super_enhanced_debug(
         
         if field_filters:
             search_attempts.append(f"Attempting field-based search with {len(field_filters)} filters")
-            print(f"Attempting field-based search with {len(field_filters)} filters")
+            print(f"[search] 4b/6 field search · {len(field_filters)} filter(s)")
 
             # Try field search for each relevant document type
             target_doc_types = relevant_doc_types or [None]
@@ -4297,17 +4272,17 @@ def document_search_super_enhanced_debug(
 
     if search_strategy.get("search_approach") in ["wide_net_filter"]:
         combined_results = document_search_wide_net_strategy(user_question, document_types)
-        print('Finished wide net search...')
+        print('[search]     wide-net search complete')
     
     # Step 5: Enhanced fallback strategies if no results found
     if not combined_results:
         fallback_attempts.append("Primary search strategies returned no results - initiating fallback sequence")
-        print("Primary search strategies returned no results - initiating fallback sequence")
+        print("[search] !! primary strategies found NOTHING - entering fallback sequence")
         #time.sleep(2)
         # Fallback 1: Relaxed field search (convert equals to contains)
         if search_strategy.get("field_search", {}).get("field_filters"):
             fallback_attempts.append("Fallback 1: Relaxing field search operators")
-            print("Fallback 1: Relaxing field search operators")
+            print("[search]     fallback 1: relaxing field operators")
             #time.sleep(2)
             relaxed_filters = []
             
@@ -4319,7 +4294,6 @@ def document_search_super_enhanced_debug(
             
             if relaxed_filters:
                 for doc_type in relevant_doc_types or [None]:
-                    print('Attempting relaxed field search...')
                     fallback_result_json = document_search(
                         conn_string=conn_string,
                         document_type=doc_type,
@@ -4348,7 +4322,7 @@ def document_search_super_enhanced_debug(
         # Fallback 2: Broader semantic search with key terms extracted from question
         if not combined_results:
             fallback_attempts.append("Fallback 2: Extracting key terms for broader semantic search")
-            print("Fallback 2: Extracting key terms for broader semantic search")
+            print("[search]     fallback 2: key-term semantic search")
             #time.sleep(2)
             # Extract key terms from user question (simple approach)
             import re
@@ -4396,7 +4370,7 @@ def document_search_super_enhanced_debug(
         # Fallback 3: Global semantic search with full question
         if not combined_results:
             fallback_attempts.append("Fallback 3: Global semantic search with full question")
-            print("Fallback 3: Global semantic search with full question")
+            print("[search]     fallback 3: global semantic search")
             #time.sleep(2)
             fallback_result_json = document_search(
                 conn_string=conn_string,
@@ -4431,7 +4405,7 @@ def document_search_super_enhanced_debug(
         # Fallback 4: Existence-based search (find documents with any common fields)
         if not combined_results and relevant_doc_types:
             fallback_attempts.append("Fallback 4: Searching for documents with common fields")
-            print("Fallback 4: Searching for documents with common fields")
+            print("[search]     fallback 4: documents with common fields")
             #time.sleep(2)
             # Try to find documents that simply exist for the relevant document types
             for doc_type in relevant_doc_types:
@@ -4472,18 +4446,18 @@ def document_search_super_enhanced_debug(
         if not combined_results:
             error_message = "No documents found matching your query after trying multiple search strategies and fallback methods."
             fallback_attempts.append("All fallback strategies exhausted - no results found")
-            print("All fallback strategies exhausted - no results found")
+            print("[search] !! ALL strategies exhausted - returning no results")
             #time.sleep(2)
     # Step 6: Rank and deduplicate results
     # (rank_search_results always deduplicates and self-gates the LLM rerank via
     # DOC_USE_LLM_RERANK — it must not be tied to the unrelated snippet flag,
     # which silently disabled BOTH whenever snippets were turned off.)
     if combined_results and len(combined_results) > 1:
-        print('Ranking and deduping results...')
+        print('[search] 5/6 ranking and deduping...')
         original_count = len(combined_results)
         combined_results = rank_search_results(combined_results, user_question)
         search_attempts.append(f"Ranked and deduplicated results: {original_count} → {len(combined_results)}")
-        print(f"Ranked and deduplicated results: {original_count} → {len(combined_results)}")
+        print(f"[search]     ranked/deduped: {original_count} -> {len(combined_results)} passage(s)")
         #time.sleep(2)
     # Step 7: Apply document completeness check if requested
     note = None
@@ -4514,7 +4488,10 @@ def document_search_super_enhanced_debug(
     # Step 8.5: Get document counts for each document type
     distinct_document_ids = {result['document_id'] for result in combined_results if 'document_id' in result}
     count_distinct = len(distinct_document_ids)
-    print(f"Total distinct document IDs found: {count_distinct}")
+    print(f"[search] 6/6 RESULT: {len(combined_results)} passage(s) from {count_distinct} distinct document(s)")
+    if count_distinct > 1:
+        _names = sorted({(r.get("filename") or r.get("document_id") or "?") for r in combined_results})[:8]
+        print(f"[search]     documents: {_names}")
 
     special_instructions = ""
     if cfg.ENABLE_AGENT_KNOWLEDGE_MANAGEMENT:
@@ -4548,13 +4525,10 @@ def document_search_super_enhanced_debug(
     if note:
         response["note"] = note
 
-    print(86 * '-')
     print('Search Attempts:')
     print(search_attempts)
-    print(86 * '-')
     print('Fallback Attempts:')
     print(fallback_attempts)
-    print(86 * '-')
 
     # Return as JSON string
     return str(json.dumps(response, default=str)).replace('link_to_document', 'document_page_url')
@@ -5401,8 +5375,6 @@ def find_all_candidate_pages(search_terms: List[str], document_type = None) -> L
         ORDER BY 1,2,3
     """
 
-    print(query)
-    print(params)
     
     cursor.execute(query, params)
     

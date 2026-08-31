@@ -995,6 +995,10 @@ KNOWLEDGE_SUMMARY_SAMPLE_TOTAL_CHARS = int(os.getenv('KNOWLEDGE_SUMMARY_SAMPLE_T
 # Document search re-ranker — replaces the disabled rank_search_results in DocUtils.
 DOC_USE_LLM_RERANK = os.getenv('DOC_USE_LLM_RERANK', 'True').lower() == 'true'
 DOC_RERANK_FETCH_N = int(os.getenv('DOC_RERANK_FETCH_N', 30))           # Vector-search candidates fetched before rerank
+DOC_RERANK_MAX_PER_DOC = int(os.getenv('DOC_RERANK_MAX_PER_DOC', 3))    # Max chunks ONE document may contribute to the rerank window. Near-identical
+                                                                        # documents (six Summit Center leases differing only by city) otherwise let one
+                                                                        # document take most of DOC_RERANK_FETCH_N, and the rerank never sees the others.
+                                                                        # 0 disables the cap (old behaviour: pure top-N by cosine).
 DOC_RERANK_KEEP_THRESHOLD = float(os.getenv('DOC_RERANK_KEEP_THRESHOLD', 0.5))  # Keep all chunks scoring >= this
 DOC_RERANK_MAX_KEEP = int(os.getenv('DOC_RERANK_MAX_KEEP', 30))         # Safety cap on chunks kept
 
