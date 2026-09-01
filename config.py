@@ -982,6 +982,7 @@ DOC_SEARCH_V2_FORCE_ERROR = os.getenv('DOC_SEARCH_V2_FORCE_ERROR', 'False').lowe
 DOC_SWEEP_MAX_DOCS = int(os.getenv('DOC_SWEEP_MAX_DOCS', 1000))                                   # hard scope cap — recorded in the coverage ledger when it bites
 DOC_SWEEP_COST_CONFIRM_USD = float(os.getenv('DOC_SWEEP_COST_CONFIRM_USD', 5.00))                 # above this estimate, SWEEP returns a confirmation request instead of running
 DOC_SWEEP_MODEL = os.getenv('DOC_SWEEP_MODEL', 'claude-haiku-4-5')                                # map-step model (per-document extraction)
+DOC_SEARCH_STRATEGY_MODEL = os.getenv('DOC_SEARCH_STRATEGY_MODEL', '')                             # OpenAI model / Azure deployment for the super-search STRATEGY step (3/6) only - the one search call on the main model (steps 1-2 ride the mini model, rerank is Anthropic). Blank = follow AZURE_OPENAI_DEPLOYMENT_NAME / OPENAI_MODEL. The admin-UI Model Overrides key 'doc_search_strategy' wins over this and is re-read per search (no restart).
 DOC_SWEEP_PARALLEL = int(os.getenv('DOC_SWEEP_PARALLEL', 8))                                      # concurrent per-document map calls
 DOC_NEEDLE_V2_ENABLED = os.getenv('DOC_NEEDLE_V2_ENABLED', 'True').lower() == 'true'              # v2 hybrid needle (BM25+dense RRF + rerank + citations) for NEEDLE-shaped queries on v2 agents; False = defer needles to the legacy path (SWEEP unaffected)
 DOC_NEEDLE_TOP_PAGES = int(os.getenv('DOC_NEEDLE_TOP_PAGES', 8))                                  # evidence pages returned after fusion + rerank

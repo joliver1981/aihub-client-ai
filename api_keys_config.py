@@ -243,7 +243,8 @@ def _create_dropping_unsupported_params(create_fn, kwargs, _max_drops=4):
                 "parameter drift, not a caller bug.", param, dropped)
 
 
-def get_openai_config(use_alternate_api: bool = False, use_mini: bool = False) -> Dict[str, Any]:
+def get_openai_config(use_alternate_api: bool = False, use_mini: bool = False,
+                      model_override: Optional[str] = None) -> Dict[str, Any]:
     """
     Get the complete OpenAI configuration based on current settings.
 
@@ -255,6 +256,11 @@ def get_openai_config(use_alternate_api: bool = False, use_mini: bool = False) -
     Args:
         use_alternate_api: If True and using Azure, use alternate Azure deployment
         use_mini: If True, use the mini/smaller model variant
+        model_override: If given, use this model (direct OpenAI) / deployment
+            name (Azure) instead of the one the slot resolves. Key, endpoint,
+            api version and source are unchanged; reasoning_effort is derived
+            for the override. Lets one lane run a different model without
+            moving the system-wide setting (DocUtils search strategy step).
 
     Returns:
         Dict with all config needed for OpenAI calls:
@@ -334,6 +340,15 @@ def get_openai_config(use_alternate_api: bool = False, use_mini: bool = False) -
             'model': None,
             'source': 'azure'
         }
+
+    if model_override:
+        # Per-call model choice: swap only the model / deployment name, keep
+        # the transport (key, endpoint, api version) the slot resolved.
+        if config['api_type'] == 'open_ai':
+            config['model'] = model_override
+        else:
+            config['deployment_id'] = model_override
+        config['model_override'] = model_override
 
     # Add reasoning effort for models that support it
     effective_model = config.get('model') or config.get('deployment_id') or ''

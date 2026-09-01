@@ -442,17 +442,23 @@ def call_dropping_unknown_kwargs(fn, *args, _max_drops=4, **kwargs):
                 bad, dropped)
 
 
-def azureQuickPrompt(prompt, system="You are an assistant.", use_alternate_api=False, temp=0.0, provider="openai"):
+def azureQuickPrompt(prompt, system="You are an assistant.", use_alternate_api=False, temp=0.0, provider="openai",
+                     model=None):
     """
     Args:
         provider: "openai" (default) or "anthropic" to use Claude models.
                   When "anthropic", uses ANTHROPIC_ADVANCED model.
+        model: optional model / Azure deployment name for THIS call only.
+               Overrides the name get_openai_config() resolves (or
+               ANTHROPIC_ADVANCED for the anthropic provider); key, endpoint
+               and reasoning-effort handling are unchanged. None keeps the
+               existing behaviour for every caller.
     """
     if provider == "anthropic":
-        return _anthropic_quick_prompt(prompt, system=system, temp=temp, model=cfg.ANTHROPIC_ADVANCED)
+        return _anthropic_quick_prompt(prompt, system=system, temp=temp, model=model or cfg.ANTHROPIC_ADVANCED)
 
     messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
-    config = get_openai_config(use_alternate_api=use_alternate_api)
+    config = get_openai_config(use_alternate_api=use_alternate_api, model_override=model)
     client = _create_openai_client(config)
 
     model = config['model'] if config['api_type'] == 'open_ai' else config['deployment_id']

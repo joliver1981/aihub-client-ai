@@ -2555,7 +2555,8 @@ def get_document_universe(
             # Now process the field metadata with the document types with sample values
             sample_count = cfg.DOC_FIELD_SAMPLE_VALUES_COUNT if cfg.DOC_FIELD_SAMPLE_VALUES_COUNT else 3
 
-            print(f'[search]     universe query returned {len(field_rows)} fields (sampling values)')
+            print(f'[search]     universe query returned {len(field_rows)} fields'
+                  f'{" (sampling values)" if cfg.DOC_INCLUDE_FIELD_SAMPLES_VALUES else ""}')
 
             for field_name, field_count, document_count in field_rows: 
                 # Build field metadata with inferred field purpose
@@ -3976,6 +3977,61 @@ def _competing_documents_hint(results, search_strategy):
         return None
 
 
+def _strategy_field_block(field_metadata, attribute_metadata, scope_doc_types):
+    """The field catalogue the Step-3 strategy prompt embeds, as compact JSON.
+
+    A universe entry carries six keys; the strategy model uses two. The rest
+    is packaging: `display_name` is derived from `name` (replace('_',' ').title()),
+    `count` shadows `document_count`, `sample_values` is empty while
+    DOC_INCLUDE_FIELD_SAMPLES_VALUES is off, and `document_types` repeats the
+    types the search already narrowed to. Measured on the pack-23 corpus
+    (500 lease_agreement fields): 102,423 chars / ~28.9K tokens as six-key
+    indent=2 JSON -> 24,440 chars / ~5.5K tokens here, on EVERY search, on
+    the main model. Step 2 has always selected fields from an even thinner
+    shape (names only), so names + document_count are known-sufficient.
+
+    Information is kept, packaging is dropped: `sample_values` survive when
+    non-empty (re-enabling the config flag must not be silently undone here)
+    and `document_types` survives only where it NARROWS the scope - with one
+    selected type it is the same value repeated 500 times; with no type
+    filter (scope = whole universe) most fields carry a narrower list.
+    Returns (fields_json, attributes_json).
+    """
+    scope = set(scope_doc_types or [])
+    fields = []
+    for field in field_metadata or []:
+        entry = {"name": field.get("name"), "document_count": field.get("document_count")}
+        if field.get("sample_values"):
+            entry["sample_values"] = field["sample_values"]
+        doc_types = field.get("document_types") or []
+        if doc_types and set(doc_types) != scope:
+            entry["document_types"] = doc_types
+        fields.append(entry)
+    compact = {"separators": (",", ":"), "default": str}
+    return (json.dumps(fields, **compact),
+            json.dumps(attribute_metadata or [], **compact))
+
+
+def _strategy_model_override():
+    """Model for the Step-3 strategy call, or '' to follow the system model.
+
+    Precedence mirrors the Browser Use driver knob: the admin-UI override
+    (data/model_overrides.json key 'doc_search_strategy', re-read on every
+    search so a change applies to the next question with no restart) ->
+    DOC_SEARCH_STRATEGY_MODEL from .env -> '' (AZURE_OPENAI_DEPLOYMENT_NAME /
+    OPENAI_MODEL, as before). Step 3 is the ONE super-search call on the main
+    model (type + field selection already ride the mini model, rerank is
+    Anthropic), so this knob moves the lane's main-model spend without
+    touching the system-wide model.
+    """
+    fallback = (getattr(cfg, 'DOC_SEARCH_STRATEGY_MODEL', '') or '').strip()
+    try:
+        from model_overrides import resolve_live_override
+        return resolve_live_override('doc_search_strategy', fallback)
+    except Exception:
+        return fallback
+
+
 def document_search_super_enhanced_debug(
         conn_string: str,
         user_question: Optional[str] = None,
@@ -4107,6 +4163,13 @@ def document_search_super_enhanced_debug(
     # Only use field names that appear EXACTLY in this list of available fields:
     # {json.dumps(available_field_names + attribute_field_names, indent=2)}
 
+    # Step-3 field catalogue: names + document counts, compact (see _strategy_field_block).
+    strategy_fields_json, strategy_attributes_json = _strategy_field_block(
+        field_metadata, attribute_metadata,
+        relevant_doc_types or [d.get('type') for d in universe_data.get('document_types', [])])
+    print(f'[search]     strategy field block: {len(field_metadata)} fields, '
+          f'{len(strategy_fields_json):,} chars')
+
     # Step 3: Enhanced search strategy determination with explicit field guidance
     system_prompt = """You are an expert document retrieval specialist. 
     Your task is to analyze a user's question and determine the optimal search strategy 
@@ -4132,9 +4195,11 @@ def document_search_super_enhanced_debug(
 
     {ai_strategy_prompt}
     
-    Detailed field metadata with usage statistics:
-    {json.dumps(universe_data.get('field_metadata', []), indent=2)}
-    {json.dumps(attribute_metadata, indent=2)}
+    Available fields ("name" is the exact field_name to use in field_filters; "document_count" = how many of the relevant documents carry the field; "document_types" is listed only where a field is narrower than the relevant document types; "sample_values" where available):
+    {strategy_fields_json}
+
+    Available custom attributes:
+    {strategy_attributes_json}
     
     FIELD SELECTION GUIDELINES:
     - If no suitable fields exist for your intended search, use semantic search instead
@@ -4200,7 +4265,21 @@ def document_search_super_enhanced_debug(
     # Call Azure OpenAI to determine search strategy
     print('[search] 3/6 determining search strategy...')
     #print(prompt)
-    search_strategy_json = azureQuickPrompt(prompt=prompt, system=system_prompt)
+    strategy_model = _strategy_model_override()
+    if strategy_model:
+        print(f'[search]     strategy model -> {strategy_model} (doc-search override; system model untouched)')
+        try:
+            search_strategy_json = azureQuickPrompt(prompt=prompt, system=system_prompt, model=strategy_model)
+        except Exception as e:
+            # Fail open: a mistyped deployment must not take the search lane down.
+            print(f'[search]     !! strategy model {strategy_model!r} failed '
+                  f'({type(e).__name__}: {str(e)[:200]}) - retrying on the system model')
+            search_attempts.append(
+                f"[strategy-model] override {strategy_model!r} failed ({type(e).__name__}); "
+                f"retried on the system model")
+            search_strategy_json = azureQuickPrompt(prompt=prompt, system=system_prompt)
+    else:
+        search_strategy_json = azureQuickPrompt(prompt=prompt, system=system_prompt)
     # print(86 * '-')
     # print(86 * '-')
     # print('Search Strategy Prompt:')

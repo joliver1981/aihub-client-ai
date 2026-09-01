@@ -24,6 +24,8 @@ default chain remains intact.
 Used by:
     - config.py: calls apply_overrides_to_env() right after load_dotenv()
     - api_keys_config.py: GET/POST/DELETE /api/api-keys/model-overrides routes
+    - DocUtils.py: resolve_live_override('doc_search_strategy') on every super-search
+      (a LIVE key: the file is read per use, no env hop, no restart)
 """
 from __future__ import annotations
 
@@ -91,6 +93,14 @@ KEY_TO_ENV_VARS: Dict[str, List[str]] = {
     'browser_use_model': [
         'BROWSER_USE_LLM_MODEL',
     ],
+    # Document search - the super-search STRATEGY step (DocUtils step 3/6), the one search
+    # call on the main model (type + field selection already ride the mini model). Read LIVE
+    # by DocUtils on every search via resolve_live_override(), so a change applies to the
+    # next question with no restart. Blank = follow the OpenAI primary. Lets the doc-search
+    # lane trial a cheaper model without moving the platform model.
+    'doc_search_strategy': [
+        'DOC_SEARCH_STRATEGY_MODEL',
+    ],
 }
 
 ALLOWED_KEYS = frozenset(KEY_TO_ENV_VARS.keys())
@@ -101,7 +111,7 @@ ALLOWED_KEYS = frozenset(KEY_TO_ENV_VARS.keys())
 # os.environ[<var>] equal to the .env fallback, so the status/"default" the UI shows stays
 # truthful even after an override is cleared without a restart. get_override_status()
 # excludes them from restart_required for the same reason.
-LIVE_RELOAD_KEYS = frozenset({'browser_use_model'})
+LIVE_RELOAD_KEYS = frozenset({'browser_use_model', 'doc_search_strategy'})
 
 
 # -----------------------------------------------------------------------------
@@ -184,6 +194,20 @@ def apply_overrides_to_env() -> Dict[str, str]:
     if applied:
         logger.info(f"Applied {len(applied)} model-override env var(s) from {OVERRIDES_PATH}")
     return applied
+
+
+def resolve_live_override(key: str, fallback: str = '') -> str:
+    """Value of a LIVE_RELOAD key straight from data/model_overrides.json.
+
+    The consumer calls this on every use, so an admin change applies to the
+    next run without a restart. Blank / missing / unreadable -> `fallback`
+    (the .env / config chain the caller already resolved). Never raises.
+    """
+    try:
+        value = (load_overrides().get(key, '') or '').strip()
+    except Exception:
+        value = ''
+    return value or fallback
 
 
 # -----------------------------------------------------------------------------
@@ -331,6 +355,7 @@ def _read_config_defaults() -> Dict[str, str]:
         'anthropic_primary': getattr(cfg, 'ANTHROPIC_ADVANCED', '') or getattr(cfg, 'ANTHROPIC_MODEL', ''),
         'anthropic_mini':    getattr(cfg, 'ANTHROPIC_MINI', ''),
         'browser_use_model': _browser_use_model_default(cfg),
+        'doc_search_strategy': _doc_search_strategy_default(cfg, openai_primary),
     }
 
 
@@ -351,6 +376,16 @@ def _browser_use_model_default(cfg) -> str:
             or os.environ.get('AZURE_OPENAI_DEPLOYMENT_NAME', '')
             or getattr(cfg, 'AZURE_OPENAI_DEPLOYMENT_NAME', '')
             or BROWSER_USE_BUILTIN_DEFAULT)
+
+
+def _doc_search_strategy_default(cfg, openai_primary: str) -> str:
+    """What the document-search strategy step runs on when its override is
+    blank: the .env pin (DOC_SEARCH_STRATEGY_MODEL) if set, else the platform
+    OpenAI primary (DocUtils._strategy_model_override resolves the same way).
+    """
+    return (os.environ.get('DOC_SEARCH_STRATEGY_MODEL', '')
+            or getattr(cfg, 'DOC_SEARCH_STRATEGY_MODEL', '')
+            or openai_primary)
 
 
 def _value_came_from_previous_override(key: str, current_value: str) -> bool:

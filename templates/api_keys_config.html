@@ -377,6 +377,7 @@
         { key: 'anthropic_primary', label: 'Anthropic Primary Model', help: 'Default Claude model and "advanced" Claude for strong prompts.' },
         { key: 'anthropic_mini',    label: 'Anthropic Mini Model',    help: 'Fast Claude used for short internal prompts.' },
         { key: 'browser_use_model', label: 'Browser Use Driver Model', help: 'LLM that drives portal runs (Browser Use service). Default follows BROWSER_USE_LLM_MODEL in .env, else the OpenAI primary. A claude-* choice needs an Anthropic key. Applies to the next run — no restart needed.', live: true },
+        { key: 'doc_search_strategy', label: 'Document Search Strategy Model', help: 'Model for the document-search strategy step only (the one search call on the main model; type and field selection already use the mini model). Blank follows the OpenAI primary. Lets you trial a cheaper model on document search without changing the platform model. Applies to the next search — no restart needed.', live: true },
     ];
 
     async function loadModelOverrides() {

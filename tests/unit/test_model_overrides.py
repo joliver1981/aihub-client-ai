@@ -300,3 +300,64 @@ class TestBrowserUseLiveReloadKey:
         # Override cleared, .env pin differs from the built-in literal — still no banner.
         overrides_file.write_text(json.dumps({'browser_use_model': ''}))
         assert model_overrides.get_override_status()['restart_required'] is False
+
+
+# =============================================================================
+# 4. Document search strategy model — a LIVE key like browser_use_model
+# =============================================================================
+
+class TestDocSearchStrategyLiveKey:
+    """The doc-search strategy step (DocUtils step 3/6) reads its model from
+    data/model_overrides.json on every search, so the admin UI can point ONE
+    lane at a cheaper model with no restart and no change to the platform model."""
+
+    AZURE_CFG = TestPathAwareDisplay.AZURE_CFG
+
+    def test_registered_as_a_live_key_with_a_dropdown(self):
+        assert model_overrides.KEY_TO_ENV_VARS['doc_search_strategy'] == ['DOC_SEARCH_STRATEGY_MODEL']
+        assert 'doc_search_strategy' in model_overrides.LIVE_RELOAD_KEYS
+        from supported_models import DROPDOWNS
+        assert DROPDOWNS['doc_search_strategy'], 'doc_search_strategy needs a non-empty dropdown list'
+        assert 'gpt-5.6-luna' in DROPDOWNS['doc_search_strategy']
+
+    def test_apply_never_exports_the_live_key(self, overrides_file, monkeypatch):
+        import os
+        monkeypatch.delenv('DOC_SEARCH_STRATEGY_MODEL', raising=False)
+        overrides_file.write_text(json.dumps({'doc_search_strategy': 'gpt-5.6-luna'}))
+        assert model_overrides.apply_overrides_to_env() == {}
+        assert 'DOC_SEARCH_STRATEGY_MODEL' not in os.environ
+
+    def test_resolve_live_override_precedence(self, overrides_file):
+        overrides_file.write_text(json.dumps({'doc_search_strategy': ' gpt-5.6-luna '}))
+        assert model_overrides.resolve_live_override('doc_search_strategy', 'from-env') == 'gpt-5.6-luna'
+        overrides_file.write_text(json.dumps({'doc_search_strategy': ''}))
+        assert model_overrides.resolve_live_override('doc_search_strategy', 'from-env') == 'from-env'
+        overrides_file.unlink()
+        assert model_overrides.resolve_live_override('doc_search_strategy', '') == ''
+        overrides_file.write_text('not json')
+        assert model_overrides.resolve_live_override('doc_search_strategy', 'from-env') == 'from-env'
+
+    def test_default_shown_is_env_pin_else_openai_primary(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, 'config', _stub_config(**self.AZURE_CFG))
+        monkeypatch.delenv('DOC_SEARCH_STRATEGY_MODEL', raising=False)
+        assert model_overrides._read_config_defaults()['doc_search_strategy'] == 'gpt-azure'
+        monkeypatch.setenv('DOC_SEARCH_STRATEGY_MODEL', 'gpt-5.6-luna')
+        assert model_overrides._read_config_defaults()['doc_search_strategy'] == 'gpt-5.6-luna'
+
+    def test_status_reports_the_file_as_the_live_value(self, overrides_file, monkeypatch):
+        monkeypatch.setitem(sys.modules, 'config', _stub_config(**self.AZURE_CFG))
+        # Pin every non-live role to its code default so this box's machine-env
+        # model pins cannot trip the restart banner (same setup as the browser_use test).
+        for key, env_vars in model_overrides.KEY_TO_ENV_VARS.items():
+            for v in env_vars:
+                monkeypatch.delenv(v, raising=False)
+        for key, default in {'openai_primary': 'gpt-5.6-terra', 'openai_mini': 'gpt-5.6-luna',
+                             'openai_vision': 'gpt-4o', 'openai_embedding': 'text-embedding-3-small',
+                             'openai_image': 'gpt-image-2', 'anthropic_primary': 'claude-opus-4-8',
+                             'anthropic_mini': 'claude-sonnet-5'}.items():
+            for v in model_overrides.KEY_TO_ENV_VARS[key]:
+                monkeypatch.setenv(v, default)
+        overrides_file.write_text(json.dumps({'doc_search_strategy': 'gpt-5.6-luna'}))
+        status = model_overrides.get_override_status()
+        assert status['effective_values']['doc_search_strategy'] == 'gpt-5.6-luna'
+        assert status['restart_required'] is False

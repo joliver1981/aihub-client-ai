@@ -103,6 +103,21 @@ BROWSER_USE_MODELS = [
 ]
 
 
+# Document search strategy step (DocUtils super-search step 3/6) - the one search call
+# on the main model. Ordered flagship -> cheapest so a cost trial reads top-down; blank in
+# the UI follows the OpenAI primary. Read LIVE by DocUtils per search - no restart.
+DOC_SEARCH_STRATEGY_MODELS = [
+    'gpt-5.6-terra',
+    'gpt-5.6',
+    'gpt-5.6-luna',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.4-nano',
+    'gpt-4.1-mini',
+    'gpt-4o-mini',
+]
+
+
 # Map each override key (used by model_overrides.py) to its dropdown list.
 # model_overrides.get_override_status() serves this to the UI.
 DROPDOWNS = {
@@ -114,4 +129,5 @@ DROPDOWNS = {
     'anthropic_primary': ANTHROPIC_PRIMARY_MODELS,
     'anthropic_mini':    ANTHROPIC_MINI_MODELS,
     'browser_use_model': BROWSER_USE_MODELS,
+    'doc_search_strategy': DOC_SEARCH_STRATEGY_MODELS,
 }
