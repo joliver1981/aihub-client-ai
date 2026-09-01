@@ -1,6 +1,67 @@
 # Handoff: document search ships 25K tokens of field metadata on every question, and cannot be pointed at a cheaper model
 
-**Status:** researched 2026-08-31. Not fixed.
+**Status: FIXED 2026-09-01** — both parts, commit `9e43ca0` (local). Verified live; details below.
+The research that led here is kept unchanged underneath, with four corrections called out.
+
+- **Part 1 (trim):** `DocUtils._strategy_field_block` sends `{name, document_count}` as compact
+  JSON, keeping `sample_values` when non-empty and `document_types` only where a field's list is
+  narrower than the search scope (one selected type → never; no type filter → the informative
+  subset). Step 2's input is untouched. Measured on the pack-23 `lease_agreement` universe
+  (500 fields): **102,423 → 24,440 chars; 28,902 → 5,540 tokens** (tiktoken o200k). The whole
+  strategy prompt is now ~29.7K chars against ~108K before. The no-filter case (all 124 types)
+  goes 142,765 → 73,728 chars because most fields keep a narrowing type list. The trace prints
+  `[search] strategy field block: N fields, M chars` on every search.
+- **Part 2 (knob):** Option B, wired into the admin Model Overrides layer as a LIVE key.
+  `DOC_SEARCH_STRATEGY_MODEL` (.env) or Admin › API Keys › Model Overrides › "Document Search
+  Strategy Model" (`doc_search_strategy` in `data/model_overrides.json`, re-read on every search,
+  no restart) points ONLY the Step-3 strategy call at another model / Azure deployment.
+  Plumbing: `get_openai_config(model_override=)` swaps just the model/deployment name (transport
+  and reasoning-effort derivation unchanged); `azureQuickPrompt(model=)` passes it through; both
+  default to prior behaviour for all ~50 callers. A failing override (mistyped deployment) is
+  logged and retried on the system model, so the knob cannot take the lane down.
+
+**Verified** (the regression case in "How to verify" below):
+- 3× direct probe, default model (terra) with the trimmed prompt: terms carried "Summit Center
+  Boston" every run; all three Boston leases present with S350 leading; ambiguity note fired 3/3.
+  Strategy call measured at 29.6–29.7K chars on `gpt-5.6-terra`.
+- 3× direct probe with `DOC_SEARCH_STRATEGY_MODEL=gpt-5.6-luna`: the strategy call went to
+  `gpt-5.6-luna` (verified by wrapping the OpenAI call); every run produced three entity-bearing
+  terms (terra produced 2–3, one of them generic); same Boston-leading result window; ambiguity
+  note 3/3. First data point only: Luna is at least as good on this case. A broader feasibility
+  pass is the owner's call, and the knob is what makes it a one-click experiment.
+- 3× GA e2e via agent 1007 on the restarted :5001 app: **3/3 PASS** — S300 15 yrs, S350 15 yrs,
+  S400 5 yrs in a table, zero Chicago, disambiguation offered.
+- 1× facade (`/api/internal/document-search-unified`, the CC / The Agent path): 200 with the
+  ambiguity hint naming the three Boston leases.
+- Unit: 50 new/updated tests green (`tests/unit/test_strategy_prompt_trim.py`,
+  `tests/unit/test_openai_model_override.py`, `tests/unit/test_model_overrides.py`); the existing
+  search suites unchanged at 40/40.
+
+**Corrections to the research below, found while implementing:**
+- `available_field_names` is NOT dead: Fallback 4 (existence search, `DocUtils.py` ~4630) uses it
+  to pick common id fields. Left in place. The conclusion stands — nothing validates the
+  strategy's `field_filters[].field_name`.
+- The "two disagreeing caps" are `config.py:820` (200) overridden by **`user_config.py:13` (500)**
+  through `load_user_config()`; the SQL `TOP` and Step 2's slice both read the overridden value,
+  so everything is consistently 500 on this box.
+- `{name, document_count}` compact measures 24,440 chars, not 16,440 — the two key names cost
+  ~12K of it. Pairs (`["name", 185]`) would save ~2K more tokens; not worth the shape change.
+- Step 2 is even thinner than stated: with `DOC_INCLUDE_COUNTS_IN_AI_FIELD_DATA=False` it receives
+  `{field_name, type}` only (its prompt label promising "usage counts and sample values" is
+  aspirational). It is still ~41K chars because it is `indent=2` — on the mini model, and
+  deliberately left alone per the scope rule below.
+
+**Decision on the related finding (field-name validation):** left unvalidated, deliberately. The
+universe is the top 500 fields by document count, not the full field set, so a strict allow-list
+would also drop real-but-rare fields; a hallucinated name today costs one empty SQL query and
+falls into the existing relaxed-filter / fallback ladder. Revisit only if a hallucinated filter is
+ever observed producing a wrong answer rather than a wasted query.
+
+---
+
+**Original research (2026-08-31), unchanged:**
+
+**Status:** researched 2026-08-31. Fixed 2026-09-01 — see above.
 **Component:** `DocUtils.document_search_super_enhanced_debug` — Step 2 (field selection) and
 Step 3 (search strategy), plus the model plumbing in `AppUtils` / `api_keys_config`.
 **Severity:** medium-high on cost, low on risk. Nothing here is a correctness bug; it is spend.
