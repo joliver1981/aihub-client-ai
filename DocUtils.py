@@ -3890,6 +3890,92 @@ def _normalize_search_strategy(search_strategy, user_question, search_attempts):
     return search_strategy
 
 
+def _competing_documents_hint(results, search_strategy):
+    """One-line AMBIGUITY NOTE when several documents compete to answer.
+
+    The run-2 failure in docs/search-ambiguity-signal-handoff.md: six
+    near-identical Summit Center leases, and the model answered from one as
+    if it were the only match. Whether it noticed the alternatives depended
+    on what it happened to be handed. This computes the signal the engine
+    already had and threw away — but discriminating, so it stays silent on
+    normal multi-document breadth:
+
+      * every entity the user named must match ('Summit Center' + 'Boston'
+        selects the three Boston leases, not all six Summit Centers);
+      * only documents of the SAME type compete (a lease, a roof warranty
+        and a fire inspection all mentioning store S317 are context, not
+        alternatives);
+      * a count band — above DOC_AMBIGUITY_HINT_MAX_DOCS it is breadth
+        (every lease matches 'SKYLINE'), not a shortlist.
+
+    Additive only: never changes retrieval, ranking, or filtering, and never
+    suppresses an answer. Returns a SINGLE-LINE string (the wrapper
+    re-extracts it by line) or None. Every firing is printed so precision
+    can be measured before anyone trusts it.
+    """
+    if not getattr(cfg, 'DOC_AMBIGUITY_HINT_ENABLED', True):
+        return None
+    try:
+        entities = search_strategy.get("question_entities") \
+            if isinstance(search_strategy, dict) else None
+        entities = [e for e in entities if isinstance(e, str) and e.strip()][:5] \
+            if isinstance(entities, list) else []
+        folded_entities = [fe for fe in (_fold_for_match(e) for e in entities) if fe]
+        if not folded_entities or not results:
+            return None
+
+        # Distinct real documents (top-level document_id on chunk results is
+        # the CHUNK id — same fallback chain as format_search_results_for_ai).
+        docs = {}
+        for r in results:
+            if not isinstance(r, dict):
+                continue
+            md = r.get('metadata') or {}
+            doc_id = (md.get('document_id') or md.get('original_doc_id')
+                      or r.get('document_id') or '')
+            if not doc_id:
+                continue
+            doc = docs.setdefault(str(doc_id), {
+                'filename': md.get('filename') or r.get('filename') or str(doc_id),
+                'doc_type': (md.get('document_type') or r.get('document_type')
+                             or 'document'),
+                'matched': set(),
+            })
+            text = (md.get('full_text') or r.get('text') or r.get('document')
+                    or r.get('snippet') or '')
+            haystack = _fold_for_match(
+                str(doc['filename']) + ' ' + str(text)[:30000])
+            for i, fe in enumerate(folded_entities):
+                if i not in doc['matched'] and fe in haystack:
+                    doc['matched'].add(i)
+
+        want = set(range(len(folded_entities)))
+        by_type = {}
+        for d in docs.values():
+            if d['matched'] == want:
+                by_type.setdefault(d['doc_type'], []).append(d['filename'])
+
+        max_docs = int(getattr(cfg, 'DOC_AMBIGUITY_HINT_MAX_DOCS', 8))
+        candidates = [(len(names), t, sorted(names)) for t, names in by_type.items()
+                      if 2 <= len(names) <= max_docs]
+        if not candidates:
+            return None
+        n, doc_type, names = min(candidates)   # smallest competing set = sharpest
+        shown = ', '.join(names[:6]) + ('' if n <= 6 else ', ...')
+        entity_label = ' + '.join(f"'{e}'" for e in entities)
+        print(f"[search]     ambiguity hint: {n} {doc_type} document(s) all match "
+              f"{entity_label} -> hint appended")
+        return (f"AMBIGUITY NOTE: {n} distinct {doc_type} documents in these results "
+                f"all match {entity_label} ({shown}). The question may assume there is "
+                f"only one such document. Cover each matching document in the answer, "
+                f"or state which one you used and that the others exist - do not "
+                f"answer from a single document as if it were the only match.")
+    except Exception as e:
+        # The hint is an enhancement; search must never fail because of it.
+        print(f"[search]     ambiguity hint check failed ({str(e)[:80]}) - skipped")
+        return None
+
+
 def document_search_super_enhanced_debug(
         conn_string: str,
         user_question: Optional[str] = None,
@@ -4279,6 +4365,9 @@ def document_search_super_enhanced_debug(
 
             if deduped_results:
                 ai_result = format_search_results_for_ai(deduped_results)
+                hint = _competing_documents_hint(deduped_results, search_strategy)
+                if hint:
+                    ai_result = ai_result + "\n\n" + hint
                 combined_results.append(ai_result)
                 return ai_result
 
@@ -4589,9 +4678,13 @@ def document_search_super_enhanced_debug(
         "error": error_message,
         "special_instructions": special_instructions
     }
-    
+
     if note:
         response["note"] = note
+
+    ambiguity_hint = _competing_documents_hint(combined_results, search_strategy)
+    if ambiguity_hint:
+        response["ambiguity_hint"] = ambiguity_hint
 
     print('Search Attempts:')
     print(search_attempts)

@@ -1,6 +1,46 @@
 # Handoff: search knows when several documents could answer the question, and never says so
 
-**Status:** analysed 2026-08-31. Not fixed.
+**Status: BUILT 2026-08-31**, after re-measuring per the "Do item 3 first" rule.
+
+**The re-measurement:** with entity loss fixed (`293eb8b`), 3 GA runs of the ambiguity
+case gave 2 ideal answers and 1 run that answered S350 alone as definitive while all
+three Boston leases sat at the top of the window — the residual this doc predicted, so
+the signal was built.
+
+**The archaeology:** `git log -L` on the commented-out `search_execution` block shows it
+commented out since the repo's initial commit — imported that way; no in-repo reverted
+decision to respect.
+
+**The discriminator** (`DocUtils._competing_documents_hint`): fire only when several
+documents OF THE SAME TYPE match EVERY entity the user named (from `question_entities`,
+which item 3's fix added to the strategy), within a count band
+(2..`DOC_AMBIGUITY_HINT_MAX_DOCS`, default 8; `DOC_AMBIGUITY_HINT_ENABLED` gates it).
+Each rule kills a false-positive class: joint entities select the three Boston leases
+out of six Summit Centers; same-type-only keeps the S317 lease + roof warranty + fire
+inspection trio silent (this exact trio exists in the corpus — a bare shared-entity
+count would have over-fired on the control case); the band keeps breadth silent. Every
+firing prints `[search]     ambiguity hint: …` so precision is measurable. Additive
+only — retrieval, ranking and filtering untouched; the note never suppresses an answer.
+
+**Plumbing** (the records_hint shape, as prescribed): appended inline to the semantic
+blob for the direct GA lane; `document_search_wrapper` lifts it OUT of the raw blob
+before normalization (the last `[Source …]` block swallows trailing text, so extraction
+must precede parsing) and re-attaches it to `result["text"]` + `result["ambiguity_hint"]`;
+the JSON lane carries it as a response field; The Agent's renderer
+(`agent_service/document_tools.py`) appends it beside records_hint.
+
+**Verified:** engine level 3/3 fires on the Summit question (always exactly the three
+Boston files) and 3/3 silent on the S317 control; GA e2e 6/6 — Summit 3/3 with all
+three Boston leases, "there are multiple", and a which-store offer (the pre-hint
+single-store run did not recur), control 3/3 direct $18,000/month answers with zero
+hedging. Facade verified: hint in `text` and as its own field, no leakage into
+passages, coexists with records_hint. 13 unit tests in `tests/unit/test_ambiguity_hint.py`.
+
+---
+
+Original write-up follows.
+
+**Status (original):** analysed 2026-08-31. Not fixed.
 **Component:** `DocUtils.document_search_super_enhanced_debug` — Step 8.5 and the response payload
 **Severity:** medium. Not a wrong answer on its own; it is what turns a retrieval near-miss into
 a confident wrong answer instead of a useful clarifying question.

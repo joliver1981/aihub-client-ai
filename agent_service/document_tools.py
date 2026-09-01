@@ -670,6 +670,11 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
     hint = result.get("records_hint")
     if hint:
         body += f"\n\n{hint}"
+    # Several same-type documents all matched every entity the user named —
+    # answer must cover the alternatives, not pick one silently.
+    ambiguity = result.get("ambiguity_hint")
+    if ambiguity:
+        body += f"\n\n{ambiguity}"
     return _text(body)
 
 

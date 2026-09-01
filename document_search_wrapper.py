@@ -265,7 +265,36 @@ def document_search_unified(question: str, max_results: int | None = None,
     raw = document_search_super_enhanced_debug(
         cs, user_question=question, max_results=mr, check_completeness=cc,
         allowed_document_types=allowed)
+
+    # AMBIGUITY HINT — engine-computed (DocUtils._competing_documents_hint):
+    # several same-type documents all matched every entity the user named.
+    # The engine appends it inline for the direct GA lane; here it must be
+    # lifted OUT of the raw blob before normalization (the last [Source …]
+    # block's text runs to end-of-string, so a trailing note would be
+    # swallowed into that passage) and re-attached after, exactly like
+    # records_hint below. Single-line extraction — format check only.
+    ambiguity_hint = None
+    try:
+        if isinstance(raw, str) and raw.strip():
+            if raw.lstrip().startswith("{"):
+                try:
+                    ambiguity_hint = (json.loads(raw) or {}).get("ambiguity_hint")
+                except (TypeError, ValueError):
+                    ambiguity_hint = None
+            else:
+                m = re.search(r"^AMBIGUITY NOTE:.*$", raw, re.M)
+                if m:
+                    ambiguity_hint = m.group(0).strip()
+                    raw = (raw[:m.start()] + raw[m.end():]).rstrip()
+    except Exception:
+        ambiguity_hint = None   # additive only; never break search
+
     result = normalize_search_result(raw, question)
+
+    if ambiguity_hint:
+        result["ambiguity_hint"] = ambiguity_hint
+        if result.get("text"):
+            result["text"] = result["text"] + "\n\n" + ambiguity_hint
 
     # RECORDS HINT — the discovery bridge. When search returns pages from document
     # types that carry structured record sets, tell the model so at exactly the
