@@ -638,8 +638,16 @@ def test_anthropic_key(api_key: str) -> Dict[str, Any]:
             'anthropic-version': '2023-06-01'
         }
         
+        # Use the platform's configured Anthropic mini model so this test does not
+        # break when a hardcoded model id is deprecated upstream.
+        try:
+            import config as _cfg
+            test_model = getattr(_cfg, 'ANTHROPIC_MINI', None) or 'claude-sonnet-5'
+        except Exception:
+            test_model = 'claude-sonnet-5'
+
         payload = {
-            'model': 'claude-3-haiku-20240307',
+            'model': test_model,
             'max_tokens': 10,
             'messages': [{'role': 'user', 'content': 'Say "ok"'}]
         }
