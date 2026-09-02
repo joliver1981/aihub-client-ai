@@ -270,7 +270,8 @@ saved, scheduled, repeatable work. Rules:
   staged via the tool's `files` parameter.
 - Any NEW file the code writes to the working directory is delivered as a
   download link — include the returned links VERBATIM in your reply. Save
-  charts as .png.
+  charts as .png: the tool also returns an image line for each one that
+  renders INLINE in the chat — include those lines verbatim too.
 - Missing a package? Call install("package_name") inside the code (counts
   toward the execution timeout).
 - The same `import aihub_runtime as aihub` SDK works here (aihub.query,
@@ -544,6 +545,29 @@ never restate its numbers. Attach a file with attach_file (a server path, an
 /api/files link, or a chat attachment). Report exactly what the tool says:
 SENT only when it says sent, otherwise awaiting approval.
 
+RICH OUTPUT (charts, KPI cards, inline images)
+The chat renders rich blocks, not just text — use them when they make an
+answer clearer; text and tables stay the default, and one well-chosen chart
+beats three.
+- CHART: a fenced code block whose language is `aihub-chart`, containing ONE
+  JSON object: {"type":"bar|line|area|pie|doughnut|hbar","title":"…",
+  "labels":[…],"series":[{"name":"…","data":[…]}],"yLabel":"…",
+  "format":"number|currency|percent"}. Every number MUST come from a tool
+  result in this conversation or from the user's own message — never from
+  memory or estimation. When the data comes from a probe query, pass
+  chart=… to probe_connection_query and paste the block it returns VERBATIM
+  (the numbers never pass through you). Keep charts under ~60 points; put
+  detail in a table.
+- KPI CARDS: a fenced block whose language is `aihub-kpi`:
+  {"cards":[{"label":"Open orders","value":"1,204","trend":"+5% vs last
+  week","direction":"up|down|flat"}]} — for 2 to 6 headline numbers. A
+  card's value is a number you were GIVEN by a tool or the user, or one you
+  computed with run_python — never mental arithmetic over several figures
+  (a total, average or share typed from memory is how a KPI ends up wrong).
+- IMAGES: an image link ![name](/api/files/<id>) renders inline — include
+  the image lines run_python returns VERBATIM (a chart it saved as .png shows
+  up as a picture; keep the download link too).
+
 HONESTY DOCTRINE (non-negotiable)
 - Ground every claim in a tool result from this conversation. Never invent
   connection names, schema, data values, run outcomes, or schedule ids.
@@ -562,10 +586,25 @@ HONESTY DOCTRINE (non-negotiable)
 def build_options(session_id: Optional[str] = None,
                   tool_scope: str = "full",
                   cwd: Optional[str] = None,
-                  role: Optional[int] = None) -> ClaudeAgentOptions:
+                  role: Optional[int] = None,
+                  skill_names: Optional[list] = None) -> ClaudeAgentOptions:
     ensure_anthropic_key()
     allowed = (_READ_ALLOWED if tool_scope == "read" else ["mcp__aihub__*"])
     from agent_config import get_effective_model
+    # Skill scope (2026-09-02): the CLI the SDK drives ships its OWN bundled
+    # skills (e.g. "dataviz"), and skills="all" let the model reach for them —
+    # a chart request pulled in a foreign design-system skill instead of the
+    # platform's rich-output guidance. Restrict the Skill tool to the skills
+    # actually mounted for this user (product + tenant + groups + private):
+    # the SDK turns the list into Skill(name) allow rules, so a bare "Skill"
+    # must NOT also be allowed. AGENT_SKILLS_SCOPE=all restores the old posture.
+    scope_all = os.getenv("AGENT_SKILLS_SCOPE", "mounted").lower() == "all"
+    if skill_names is not None and not scope_all:
+        skills_opt = list(skill_names)
+        allowed_tools = list(allowed)
+    else:
+        skills_opt = "all"
+        allowed_tools = allowed + ["Skill"]
     return ClaudeAgentOptions(
         system_prompt=SYSTEM_PROMPT,
         # Per-role model (all-users D4): role<2 gets the role1 chain (admin
@@ -573,10 +612,10 @@ def build_options(session_id: Optional[str] = None,
         model=get_effective_model(role),
         tools=["Skill"],            # ONLY the Skill loader — no Bash/Read/Write
         mcp_servers={"aihub": aihub_server},
-        allowed_tools=allowed + ["Skill"],
+        allowed_tools=allowed_tools,
         permission_mode="dontAsk",
         setting_sources=["project"],  # load skills from the session workspace
-        skills="all",
+        skills=skills_opt,
         max_turns=AGENT_MAX_TURNS,
         cwd=cwd or WORKSPACE_DIR,
         env={"CLAUDE_CONFIG_DIR": CLAUDE_CONFIG_DIR},
@@ -615,10 +654,13 @@ async def run_turn(prompt: str, session_id: Optional[str],
         return
     # Mount this user's skills view: product + tenant + their groups + private.
     uid = int(user_ctx.get("user_id") or 0)
+    skill_names = None
     try:
         import readthrough
         import skills_mount
-        ws = skills_mount.build_user_workspace(uid, readthrough.user_group_ids(uid))
+        gids = readthrough.user_group_ids(uid)
+        ws = skills_mount.build_user_workspace(uid, gids)
+        skill_names = sorted({s["name"] for s in skills_mount.list_skills(uid, gids)})
     except Exception as e:
         logger.warning(f"skills mount failed (continuing without): {e}")
         ws = None
@@ -634,7 +676,8 @@ async def run_turn(prompt: str, session_id: Optional[str],
         async for message in query(prompt=prompt,
                                    options=build_options(session_id, tool_scope,
                                                          cwd=ws,
-                                                         role=int(user_ctx.get("role") or 0))):
+                                                         role=int(user_ctx.get("role") or 0),
+                                                         skill_names=skill_names)):
             if isinstance(message, SystemMessage):
                 if getattr(message, "subtype", "") == "init":
                     sid = (getattr(message, "data", {}) or {}).get("session_id")

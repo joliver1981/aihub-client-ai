@@ -225,6 +225,14 @@ async def run_python(args: dict[str, Any]) -> dict[str, Any]:
             reply += (("\n\n" if reply else "") +
                       "Files created — include these links VERBATIM in your reply:\n" +
                       "\n".join(links))
+            # Pass 2 (rich output): an image link renders INLINE in the chat —
+            # a chart the code saved as .png shows up as a picture, not a link.
+            import rich_blocks
+            imgs = rich_blocks.image_lines(links)
+            if imgs:
+                reply += ("\n\nImages — include these lines VERBATIM as well (they "
+                          "render inline in the chat; keep the download links too):\n"
+                          + "\n".join(imgs))
         return _text(reply)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)

@@ -254,6 +254,25 @@
     border:1px solid var(--accent-line);border-radius:9px;padding:5px 12px;
     margin:3px 0;font-size:12.5px;text-decoration:none;cursor:pointer}
   .md a.filelink:hover{background:var(--hover)}
+  /* rich output blocks (pass 2): charts, KPI cards, inline images */
+  .rblock{border:1px solid var(--line);border-radius:10px;background:var(--raised);
+          padding:10px 12px;margin:.6em 0}
+  .rblock .rtitle{font-size:12.5px;font-weight:650;color:var(--text);margin-bottom:6px}
+  .rblock .rsub{font-family:var(--mono);font-size:10.5px;color:var(--text3);margin-top:6px}
+  .rblock.rerror{border-color:rgba(255,107,107,.45)}
+  .rblock.rerror pre{margin:.3em 0 0;max-height:180px;overflow:auto;font-size:11px}
+  .rchart{position:relative;height:260px;width:100%}
+  .rchart canvas{width:100%!important;height:100%!important}
+  .rkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin:.6em 0}
+  .rkpi .kcard{border:1px solid var(--line);border-radius:10px;background:var(--raised);padding:10px 12px}
+  .rkpi .klabel{font-size:11.5px;color:var(--text2);margin-bottom:3px}
+  .rkpi .kvalue{font-size:20px;font-weight:700;color:var(--text);line-height:1.2;
+                font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+  .rkpi .ktrend{font-size:11.5px;margin-top:4px;color:var(--text2)}
+  .rkpi .ktrend.up{color:#3DD68C}.rkpi .ktrend.down{color:#FF6B6B}
+  .md img.inlineimg{max-width:100%;max-height:440px;display:block;margin:.5em 0;
+                    border:1px solid var(--line);border-radius:10px;background:var(--raised);cursor:zoom-in}
+  .md img.inlineimg.loading{min-height:60px;min-width:120px;opacity:.5}
   .histitem{display:block;width:100%;text-align:left;padding:8px 11px;border-radius:9px;
             border:1px solid transparent;color:var(--text2);font-size:12.5px}
   .histitem:hover{background:var(--hover);border-color:var(--line)}
@@ -330,6 +349,7 @@
 </style>
 <script src="/static/vendor/marked.min.js"></script>
 <script src="/static/vendor/purify.min.js"></script>
+<script src="/static/vendor/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -663,7 +683,19 @@
   }
 
   // ---------- markdown (agent output only; sanitized — table cells carry DB data) ----------
-  if (window.marked) marked.setOptions({ gfm: true, breaks: true });
+  if (window.marked) {
+    marked.setOptions({ gfm: true, breaks: true });
+    // Rich blocks (pass 2): ```aihub-chart / ```aihub-kpi fences become
+    // placeholders carrying the JSON as text; renderMd mounts them AFTER
+    // DOMPurify. Returning false falls back to marked's own code renderer.
+    marked.use({ renderer: { code(code, infostring, escaped) {
+      const lang = String(infostring || "").trim().toLowerCase();
+      if (lang !== "aihub-chart" && lang !== "aihub-kpi") return false;
+      const raw = escaped ? String(code)
+                          : String(code).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return '<div class="rblock-src" data-kind="' + lang.slice(6) + '">' + raw + '</div>\n';
+    } } });
+  }
   const md = (t) => {
     if (!window.marked || !window.DOMPurify) {
       const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML;
@@ -772,11 +804,188 @@
     });
   }
 
+  // ---------- rich output blocks (pass 2, 2026-09-02) ----------
+  // ```aihub-chart / ```aihub-kpi fences arrive from md() as .rblock-src
+  // placeholders (JSON in the text) and are mounted here after sanitizing.
+  // Images whose src is /api/files/<id> are fetched with the auth header and
+  // swapped to a blob URL — no token ever rides in a URL (same doctrine as
+  // the .filelink downloads).
+  const RB_COLORS = ["#4D9FFF","#3DD68C","#F5B94D","#B388FF","#FF6B6B","#41D1E0","#FF9F5A","#8FA3B8"];
+  const RB_IMG_CACHE = new Map();
+  function rbEl(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
+  }
+  function rbParse(text) {
+    const t = String(text || "").trim().replace(/^```[a-z-]*\s*/i, "").replace(/```\s*$/, "").trim();
+    try { return JSON.parse(t); } catch {}
+    try { return JSON.parse(t.replace(/,\s*([}\]])/g, "$1")); } catch {}
+    return null;
+  }
+  function rbFallback(kind, raw, why) {
+    const w = rbEl("div", "rblock rerror");
+    w.appendChild(rbEl("div", "rtitle", (kind === "kpi" ? "KPI cards" : "Chart")
+                                        + " could not be rendered (" + why + ")"));
+    const pre = rbEl("pre");
+    pre.appendChild(rbEl("code", "", typeof raw === "string" ? raw : JSON.stringify(raw, null, 1)));
+    w.appendChild(pre);
+    return w;
+  }
+  function rbFormat(v, fmt) {
+    if (v === null || v === undefined) return "";
+    const n = Number(v);
+    if (v === "" || !Number.isFinite(n)) return String(v);
+    if (fmt === "currency") return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+    if (fmt === "percent") return n.toLocaleString(undefined, { maximumFractionDigits: 1 }) + "%";
+    return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+  function rbNormalizeChart(spec) {
+    if (!spec || typeof spec !== "object") return null;
+    const type = String(spec.type || spec.chartType || "bar").toLowerCase().replace(/[^a-z]/g, "");
+    let labels = spec.labels, series = spec.series;
+    if (!Array.isArray(labels) && Array.isArray(spec.data)) {          // Command Center's shape
+      const xKey = spec.xKey || "label";
+      const yKeys = Array.isArray(spec.yKeys) && spec.yKeys.length ? spec.yKeys : ["value"];
+      labels = spec.data.map(d => d && d[xKey]);
+      series = yKeys.map(k => ({ name: k, data: spec.data.map(d => d && d[k]) }));
+    }
+    if (!Array.isArray(series) && Array.isArray(spec.values))
+      series = [{ name: spec.valueLabel || spec.yLabel || "value", data: spec.values }];
+    if (!Array.isArray(labels) || !Array.isArray(series) || !series.length) return null;
+    const clean = series.filter(s => s && Array.isArray(s.data)).map((s, i) => ({
+      name: String(s.name || s.label || ("series " + (i + 1))),
+      data: s.data.map(v => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v))) ? null : Number(v)) }));
+    if (!clean.length) return null;
+    return { type, title: spec.title ? String(spec.title) : "",
+             labels: labels.map(l => (l === null || l === undefined) ? "" : String(l)),
+             series: clean, yLabel: String(spec.yLabel || spec.y_label || ""),
+             xLabel: String(spec.xLabel || spec.x_label || ""),
+             format: String(spec.format || ""), stacked: !!spec.stacked };
+  }
+  function mountChart(host, spec) {
+    const n = rbNormalizeChart(spec);
+    if (!n) { host.replaceWith(rbFallback("chart", spec, "unrecognized chart shape")); return; }
+    if (!window.Chart) { host.replaceWith(rbFallback("chart", spec, "chart library not loaded")); return; }
+    const wrap = rbEl("div", "rblock");
+    if (n.title) wrap.appendChild(rbEl("div", "rtitle", n.title));
+    const area = rbEl("div", "rchart");
+    const canvas = document.createElement("canvas");
+    area.appendChild(canvas); wrap.appendChild(area);
+    const pts = n.labels.length;
+    wrap.appendChild(rbEl("div", "rsub", pts + " point" + (pts === 1 ? "" : "s")
+                                        + (n.series.length > 1 ? " · " + n.series.length + " series" : "")));
+    host.replaceWith(wrap);
+    const isPie = n.type === "pie" || n.type === "doughnut";
+    const isH = n.type === "hbar" || n.type === "horizontalbar";
+    const cjsType = isPie ? n.type : ((n.type === "line" || n.type === "area") ? "line" : "bar");
+    const datasets = n.series.map((s, i) => {
+      const c = RB_COLORS[i % RB_COLORS.length];
+      return { label: s.name, data: s.data,
+               backgroundColor: isPie ? n.labels.map((_, j) => RB_COLORS[j % RB_COLORS.length])
+                                      : (n.type === "area" ? c + "33" : c + "CC"),
+               borderColor: isPie ? "#10161D" : c,
+               borderWidth: isPie ? 1 : (cjsType === "line" ? 2 : 1),
+               fill: n.type === "area", tension: 0.3, pointRadius: pts > 40 ? 0 : 3 };
+    });
+    const css = getComputedStyle(document.documentElement);
+    const tick = (css.getPropertyValue("--text2") || "").trim() || "#9AA4B2";
+    const grid = (css.getPropertyValue("--line-soft") || "").trim() || "rgba(255,255,255,.08)";
+    const val = ctx => isPie ? ctx.parsed : (isH ? ctx.parsed.x : ctx.parsed.y);
+    try {
+      new Chart(canvas, {
+        type: cjsType,
+        data: { labels: n.labels, datasets },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
+          indexAxis: isH ? "y" : "x",
+          plugins: {
+            legend: { display: isPie || n.series.length > 1, position: isPie ? "right" : "top",
+                      labels: { color: tick, boxWidth: 10 } },
+            tooltip: { callbacks: { label: ctx =>
+              (isPie ? (ctx.label + ": ") : (ctx.dataset.label ? ctx.dataset.label + ": " : ""))
+              + rbFormat(val(ctx), n.format) } } },
+          // Only the VALUE axis gets a formatter: an explicit `callback: undefined`
+          // on the category axis overrides Chart.js's default label lookup and
+          // prints indices (0,1,2,…) instead of the labels.
+          scales: isPie ? {} : {
+            x: { stacked: n.stacked,
+                 ticks: Object.assign({ color: tick, maxRotation: 45, autoSkip: true },
+                                      isH ? { callback: v => rbFormat(v, n.format) } : {}),
+                 grid: { color: grid }, title: { display: !!n.xLabel, text: n.xLabel, color: tick } },
+            y: { stacked: n.stacked,
+                 ticks: Object.assign({ color: tick },
+                                      isH ? {} : { callback: v => rbFormat(v, n.format) }),
+                 grid: { color: grid }, title: { display: !!n.yLabel, text: n.yLabel, color: tick } } }
+        }
+      });
+    } catch (e) { wrap.replaceWith(rbFallback("chart", spec, e.message || "render error")); }
+  }
+  function mountKpi(host, spec) {
+    const cards = Array.isArray(spec) ? spec : (spec && Array.isArray(spec.cards) ? spec.cards : null);
+    if (!cards || !cards.length) { host.replaceWith(rbFallback("kpi", spec, "no cards")); return; }
+    const grid = rbEl("div", "rkpi");
+    cards.slice(0, 12).forEach(c => {
+      if (!c || typeof c !== "object") return;
+      const card = rbEl("div", "kcard");
+      card.appendChild(rbEl("div", "klabel", c.label || ""));
+      const v = c.value;
+      card.appendChild(rbEl("div", "kvalue",
+        (typeof v === "number" && Number.isFinite(v)) ? v.toLocaleString() : String(v ?? "")));
+      if (c.trend) {
+        const dir = String(c.direction || c.trendDirection || "").toLowerCase();
+        card.appendChild(rbEl("div", "ktrend " + ((dir === "up" || dir === "down") ? dir : ""), c.trend));
+      }
+      grid.appendChild(card);
+    });
+    host.replaceWith(grid);
+  }
+  function mountRichBlocks(root) {
+    root.querySelectorAll(".rblock-src").forEach(src => {
+      const kind = src.dataset.kind;
+      const spec = rbParse(src.textContent);
+      if (!spec) { src.replaceWith(rbFallback(kind, src.textContent, "invalid JSON")); return; }
+      if (kind === "chart") mountChart(src, spec); else mountKpi(src, spec);
+    });
+  }
+  function rbDestroyCharts(root) {
+    if (!window.Chart || !root.querySelectorAll) return;
+    root.querySelectorAll("canvas").forEach(c => { const ch = Chart.getChart(c); if (ch) ch.destroy(); });
+  }
+  function inlineImages(root) {
+    root.querySelectorAll('img[src^="/api/files/"]').forEach(img => {
+      const src = img.getAttribute("src");
+      img.removeAttribute("src");
+      img.classList.add("inlineimg");
+      if (!img.alt) img.alt = "image";
+      const show = url => { img.src = url; img.classList.remove("loading");
+                            img.title = "open full size"; img.onclick = () => window.open(url, "_blank"); };
+      if (RB_IMG_CACHE.has(src)) { show(RB_IMG_CACHE.get(src)); return; }
+      img.classList.add("loading");
+      fetch(src, { headers: H() }).then(async r => {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const buf = await r.arrayBuffer();
+        const ext = ((img.alt || "").match(/\.(png|jpe?g|gif|webp|svg)$/i) || [])[1];
+        const types = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+                        webp: "image/webp", svg: "image/svg+xml" };
+        const url = URL.createObjectURL(new Blob([buf], { type: ext ? types[ext.toLowerCase()] : "image/png" }));
+        RB_IMG_CACHE.set(src, url);
+        show(url);
+      }).catch(() => {
+        img.replaceWith(rbEl("span", "rsub", "(image no longer available: " + (img.alt || "image") + ")"));
+      });
+    });
+  }
+
   function renderMd(target, text) {
     target.classList.add("md");
+    rbDestroyCharts(target);
     target.innerHTML = md(text);
     enhanceTables(target);
     newTabLinks(target);
+    mountRichBlocks(target);
+    inlineImages(target);
     // File handoff links: fetch with the auth header and trigger a real
     // browser download (no token ever rides in a URL).
     target.querySelectorAll('a[href^="/api/files/"]').forEach(a => {

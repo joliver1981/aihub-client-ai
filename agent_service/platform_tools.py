@@ -210,12 +210,21 @@ async def get_connection_schema(args: dict[str, Any]) -> dict[str, Any]:
     "Run ONE small read-only SELECT against a connection to verify assumptions "
     "(row counts, filter values, joins) before answering. The server enforces "
     "read-only and caps rows (~50). Zero rows is a finding — usually a filter "
-    "value that doesn't exist; say so rather than guessing.",
+    "value that doesn't exist; say so rather than guessing. CHARTS: pass "
+    "chart='bar'|'line'|'area'|'pie'|'doughnut'|'hbar' (and chart_title) to get "
+    "a ready-made chart block built from the rows — first text column = "
+    "labels, numeric columns = series — that you paste into your reply "
+    "VERBATIM; the numbers never pass through you. Shape the SQL for the "
+    "chart (label column first, one row per bar/point, ORDER BY, under ~60 rows).",
     {
         "type": "object",
         "properties": {
             "connection": {"type": "string", "description": "Connection id or name"},
             "sql": {"type": "string", "description": "A single SELECT statement"},
+            "chart": {"type": "string",
+                      "enum": ["bar", "line", "area", "pie", "doughnut", "hbar"],
+                      "description": "Optional: also return a chart block of the rows"},
+            "chart_title": {"type": "string"},
         },
         "required": ["connection", "sql"],
         "additionalProperties": False,
@@ -254,7 +263,18 @@ async def probe_connection_query(args: dict[str, Any]) -> dict[str, Any]:
         if data.get("truncated_columns"):
             note += ", some columns truncated"
         note += ")"
-        return _text("\n".join(lines) + note)
+        chart_part = ""
+        if args.get("chart"):
+            import rich_blocks
+            block, cnote = rich_blocks.chart_from_rows(
+                cols, rows, str(args.get("chart")), str(args.get("chart_title") or ""))
+            if block:
+                chart_part = ("\n\nChart block — paste it into your reply VERBATIM "
+                              f"(it renders as a {args.get('chart')} chart; {cnote}):\n"
+                              + block)
+            else:
+                chart_part = f"\n\n(No chart block: {cnote})"
+        return _text("\n".join(lines) + note + chart_part)
     except Exception as e:
         logger.error(f"probe_connection_query failed: {e}")
         return _text(f"Probe failed: {e}", is_error=True)
