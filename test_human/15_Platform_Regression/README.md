@@ -14,8 +14,17 @@ cd C:\src\aihub-client-ai-dev\test_human\15_Platform_Regression
 C:\Users\james\miniconda3\envs\aihub2.1\python.exe runner.py
 ```
 
-Flags: `--only substr` · `--skip-wf14` (skip the engine leg) · `--skip-llm` (skip the 3 checks that
-make live LLM calls: agent chat math, artifact creation, NL→SQL probe).
+Flags: `--only substr` · `--skip-wf14` (skip the engine leg) · `--skip-llm` (skip the checks that
+make live LLM calls: agent chat math, artifact creation, NL→SQL probe, the live Data Explorer pin).
+
+**Browser lane (since 2026-09-02).** HTTP checks cannot see a front-end flow that breaks while every
+request returns 200 — the Data Explorer "Pin does nothing" bug (tile added inside the *hidden*
+dashboard panel, no toast) had no server signal at all. `de_pin_dashboard` and `de_pin_live` drive
+headless Chromium (Playwright, already in `aihub2.1`) with the runner's login and click the real
+buttons: every pin control must land a tile in the active dashboard, toast, and open the panel;
+refresh must re-run the SQL; save → reload → tiles restored. `de_pin_dashboard` serves the chat answer
+from a Playwright route (no LLM, fixed shape); `de_pin_live` asks agent 281 for real. If Playwright is
+missing the rows SKIP with the reason (`env missing: ['browser']`).
 
 **Reading the report** (`REPORT_LATEST.md` + `results_history/`): same semantics as pack 14 —
 🔴 REGRESSIONS = was PASS in the previous run, now broken (exit 2; the pre-build stop signal);

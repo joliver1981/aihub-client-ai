@@ -54,11 +54,37 @@ Ask: `How many stores do we have in Canada?`
 
 ---
 
-## B. Optional — dashboard persistence
+## B. Dashboard pinning + persistence
 
-**REG-03-B1 —** From the headcount chart (A4), use **Save to dashboard** (pin/save icon). Give it a
-name, then reload the page and reopen the dashboard.
-- ✅ The saved chart is still there after reload (persistence works). Skip → N/A if your build hides
+> Why this section is not optional any more: on 2026-09-02 the table-toolbar **Pin** silently put the
+> tile into the *hidden* dashboard panel — no toast, panel never opened — so "Pin" looked dead. Every
+> HTTP call was a 200, so the automated gate missed it. Pack 15 now drives these clicks in a headless
+> browser (`de_pin_dashboard`, `de_pin_live`); this section is the human eyes on the same flow.
+
+Pinning has **three entry points**, and every one of them must do the same three things:
+**(1)** a tile appears in the dashboard, **(2)** a toast says `… pinned to "<dashboard>"`, and
+**(3)** the dashboard panel **slides open from the left** so you can see it. Nothing visible happening
+is a ❌, even if the tile turns up later.
+
+**REG-03-B1 — Table toolbar Pin.** On the A3 result table, click the small **Pin** button in the
+table's own toolbar (next to **CSV**).
+- ✅ All three things. The tile shows the same rows. If no dashboard was selected, the sidebar now
+  lists an **Untitled Dashboard**; if a saved one was highlighted, the tile lands in *that* one.
+
+**REG-03-B2 — Chart pin.** On the A4 chart: the thumbtack icon (Chart.js chart) or the
+**Pin to Dashboard** / **Pin Chart →** button (image chart).
+- ✅ All three things, and the chart tile actually renders (not a blank card).
+
+**REG-03-B3 — Message-level "Pin Table → <name>" button** under any table answer.
+- ✅ All three things; the tile lands in the dashboard named on the button.
+
+**REG-03-B4 — Refresh keeps working for toolbar pins.** With B1's tile in the panel, click **Refresh**
+in the panel header.
+- ✅ Toast reads `Refreshed N of N widgets` and the toolbar-pinned table counts (it carries its SQL).
+
+**REG-03-B5 — Persistence.** Click **Save** in the panel header, name the dashboard, reload the page,
+then click it in the sidebar.
+- ✅ Every tile from B1–B3 comes back (table rows, chart, image). Skip → N/A only if your build hides
   dashboards.
 
 ---
@@ -73,6 +99,12 @@ name, then reload the page and reopen the dashboard.
 | A4 bar chart renders | | |
 | A5 Chicago ≈ $800K (May 2026) | | |
 | A6 zero Canada stores (no fabrication) | | |
-| B1 dashboard persists (or N/A) | | |
+| B1 toolbar Pin: tile + toast + panel opens | | |
+| B2 chart pin: tile + toast + panel opens | | |
+| B3 "Pin Table →" button: tile + toast + panel opens | | |
+| B4 Refresh counts the toolbar-pinned tile | | |
+| B5 dashboard persists across reload (or N/A) | | |
 
-**Pass:** A1–A6 ✅. A5 confidently wrong or A6 fabricated = release-blocking (grounding/honesty).
+**Pass:** A1–A6 ✅ and B1–B3 ✅. A5 confidently wrong or A6 fabricated = release-blocking
+(grounding/honesty). Any of B1–B3 with "nothing visible happened" = release-blocking (the pin flow
+is the whole point of the dashboards feature).

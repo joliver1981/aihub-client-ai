@@ -264,10 +264,17 @@
         var queryId = data.query_id || null;
         var hasRichContent = data.rich_content_enabled && data.rich_content;
 
-        // Store query for dashboard refresh
-        if (queryId && data.query) {
-            var sqlMatch = data.query.match(/=== Data Query ===\n([\s\S]*?)(?:\n===|$)/);
-            var sql = sqlMatch ? sqlMatch[1].trim() : data.query;
+        // Store the result for dashboard pins + refresh. Register on EVERY
+        // answer that carries a query id — not only when SQL came back —
+        // because the "Pin Table →" button below is rendered from table_data
+        // alone, and its handler looks the id up here (an unregistered id made
+        // that button a silent no-op).
+        if (queryId) {
+            var sql = null;
+            if (data.query) {
+                var sqlMatch = data.query.match(/=== Data Query ===\n([\s\S]*?)(?:\n===|$)/);
+                sql = sqlMatch ? sqlMatch[1].trim() : data.query;
+            }
             _queryRegistry[queryId] = {
                 sql: sql,
                 agentId: _selectedAgentId,
@@ -292,7 +299,8 @@
         else if (data.table_data) {
             html = DETableRenderer.render(data.table_data, {
                 title: 'Query Results',
-                pinnable: true
+                pinnable: true,
+                queryId: queryId
             });
         }
         // Fallback: answer string
@@ -347,7 +355,8 @@
                 case 'html_table':
                     html += DETableRenderer.render(content, {
                         title: meta.title || 'Table',
-                        pinnable: true
+                        pinnable: true,
+                        queryId: queryId
                     });
                     break;
 
@@ -355,10 +364,11 @@
                     if (typeof content === 'object' && (content.data || content.type)) {
                         html += DEChartRenderer.render(content, {
                             title: meta.title || 'Chart',
-                            pinnable: true
+                            pinnable: true,
+                            queryId: queryId
                         });
                     } else if (typeof content === 'string' && (content.indexOf('data:image') !== -1 || content.indexOf('<img') !== -1)) {
-                        html += DEChartRenderer.renderImage(content, { title: meta.title || 'Chart' });
+                        html += DEChartRenderer.renderImage(content, { title: meta.title || 'Chart', queryId: queryId });
                     }
                     break;
 
@@ -961,50 +971,104 @@
         if (area) area.classList.toggle('collapsed');
     }
 
-    /* ── Pin Result to Dashboard ───────────────────────────── */
+    /* ── Pin to Dashboard ──────────────────────────────────── */
 
-    async function pinResultToDashboard(queryId, pinType) {
-        var qr = _queryRegistry[queryId];
-        if (!qr || !window.DEDashboard) return;
+    /**
+     * Make sure the grid holds the ACTIVE dashboard before a widget is added.
+     * - nothing selected yet  -> start an unsaved "Untitled Dashboard"
+     * - a saved one selected in the sidebar but not loaded into the grid
+     *   (the sidebar auto-selects the most recent on page load) -> load it
+     * Returns false only if the dashboard subsystem is missing.
+     */
+    async function _ensureActiveDashboardLoaded() {
+        if (!window.DEDashboard) return false;
 
-        // Auto-create dashboard if none active
-        if (!_activeDashboard.title && !_activeDashboard.id) {
+        function _startUnsaved() {
             DEDashboard.clearAll();
             DEDashboard.setDashboardId(null);
             _setActiveDashboard(null, 'Untitled Dashboard');
             _loadSavedDashboards();
-            _showToast('📊 Created new dashboard with your first pin!');
         }
-        // Load existing dashboard if selected but not yet loaded into grid
-        else if (_activeDashboard.id && DEDashboard.getDashboardId() !== _activeDashboard.id) {
+
+        if (!_activeDashboard.title && !_activeDashboard.id) {
+            _startUnsaved();
+        } else if (_activeDashboard.id && DEDashboard.getDashboardId() !== _activeDashboard.id) {
             await _loadDashboard(_activeDashboard.id);
+            if (DEDashboard.getDashboardId() !== _activeDashboard.id) {
+                // Load failed (deleted elsewhere?) — don't pin into limbo
+                _startUnsaved();
+            }
+        }
+        return true;
+    }
+
+    /**
+     * THE single entry point for every "pin to dashboard" control on the page:
+     * the message-level "Pin Table/Chart →" buttons, the table toolbar Pin, and
+     * the chart/image pin icons. A pin must do three things — land in the
+     * active dashboard, tell the user, and SHOW the result — and this is the
+     * only place that does all three.
+     *
+     * 2026-09-02: the toolbar pins called DEDashboard.addWidget directly, which
+     * dropped the widget into the (hidden) slide-out panel with no toast and no
+     * panel open. To the user, "Pin" did nothing.
+     *
+     * @param {string} type - 'table' | 'chart' | 'image' | 'kpi' | 'text'
+     * @param {Object} opts - DEDashboard.addWidget opts; a queryId is enriched
+     *                        with sql/agentId/data from the query registry so
+     *                        the widget can be refreshed later.
+     * @returns {Promise<string|null>} the new widget id
+     */
+    async function pinWidget(type, opts) {
+        opts = opts || {};
+        var ready = await _ensureActiveDashboardLoaded();
+        if (!ready) return null;
+
+        var qr = opts.queryId ? _queryRegistry[opts.queryId] : null;
+        if (qr) {
+            if (!opts.sql) opts.sql = qr.sql;
+            if (!opts.agentId) opts.agentId = qr.agentId;
+            if (type === 'table' && !opts.data) opts.data = qr.data;
+            if (type === 'image' && !opts.src) opts.src = qr.chartImage;
+        }
+
+        var widgetId = DEDashboard.addWidget(type, opts);
+
+        var noun = { table: 'Table', chart: 'Chart', image: 'Chart', kpi: 'KPI', text: 'Note' }[type] || 'Widget';
+        _showToast(noun + ' pinned to "' + _getActiveDashboardLabel() + '"');
+
+        // Always show the user where the pin went
+        if (!_dashPanelOpen) toggleDashboardPanel();
+
+        return widgetId;
+    }
+
+    async function pinResultToDashboard(queryId, pinType) {
+        var qr = _queryRegistry[queryId];
+        if (!qr) {
+            _showToast('This result is no longer available to pin — please ask the question again.');
+            return null;
         }
 
         pinType = pinType || 'table';
-        var dashLabel = _getActiveDashboardLabel();
 
         if (pinType === 'chart' && qr.chartImage) {
-            DEDashboard.addWidget('image', {
+            return pinWidget('image', {
                 title: 'Chart — Query ' + queryId,
                 queryId: queryId,
-                sql: qr.sql,
-                agentId: qr.agentId,
                 src: qr.chartImage
             });
-            _showToast('Chart pinned to "' + dashLabel + '"');
-        } else if (qr.data) {
-            DEDashboard.addWidget('table', {
+        }
+        if (qr.data) {
+            return pinWidget('table', {
                 title: 'Query ' + queryId,
                 queryId: queryId,
-                sql: qr.sql,
-                agentId: qr.agentId,
                 data: qr.data
             });
-            _showToast('Table pinned to "' + dashLabel + '"');
         }
 
-        // Auto-open dashboard panel when pinning
-        if (!_dashPanelOpen) toggleDashboardPanel();
+        _showToast('Nothing in this result can be pinned.');
+        return null;
     }
 
     /* ── Session Reset ─────────────────────────────────────── */
@@ -1089,6 +1153,7 @@
         toggleDashboardEdit: toggleDashboardEdit,
         toggleDashboardPanel: toggleDashboardPanel,
         collapseDashboard: collapseDashboard,
+        pinWidget: pinWidget,
         pinResultToDashboard: pinResultToDashboard,
         resetSession: resetSession,
         askSuggestion: askSuggestion,

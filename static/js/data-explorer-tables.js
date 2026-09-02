@@ -47,7 +47,9 @@
             filteredRows: rows,
             sortCol: -1,
             sortDir: 'none',
-            page: 1
+            page: 1,
+            title: opts.title || null,
+            queryId: opts.queryId || null   // provenance for pin -> refresh
         };
 
         const totalRows = rows.length;
@@ -203,12 +205,21 @@
     function pinTable(tableId) {
         var t = _tables[tableId];
         if (!t) return;
-        if (window.DEDashboard) {
-            window.DEDashboard.addWidget('table', {
-                title: 'Table (' + t.allRows.length + ' rows)',
-                tableId: tableId,
-                data: { headers: t.headers, rows: t.allRows }
-            });
+        var opts = {
+            title: t.title || ('Table (' + t.allRows.length + ' rows)'),
+            tableId: tableId,
+            queryId: t.queryId || null,
+            data: { headers: t.headers, rows: t.allRows }
+        };
+        // Route through the page controller: it puts the pin in the ACTIVE
+        // dashboard, toasts, and opens the panel. Calling DEDashboard.addWidget
+        // directly dropped the widget into the hidden panel with no feedback
+        // ("Pin does nothing", 2026-09-02). Fallback keeps the renderer usable
+        // on a page without the controller.
+        if (window.DataExplorer && typeof window.DataExplorer.pinWidget === 'function') {
+            window.DataExplorer.pinWidget('table', opts);
+        } else if (window.DEDashboard) {
+            window.DEDashboard.addWidget('table', opts);
         }
     }
 

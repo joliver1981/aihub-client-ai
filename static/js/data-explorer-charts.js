@@ -197,7 +197,7 @@
         var html = '<div class="de-chart-container">';
         html += '<img src="' + src + '" style="max-width:100%;border-radius:8px;" alt="' + (opts.title || 'Chart') + '" />';
         if (opts.pinnable !== false) {
-            html += '<div style="margin-top:8px;"><button class="de-msg-action-btn" onclick="DEChartRenderer.pinImage(\'' + _esc(src) + '\', \'' + _esc(opts.title || 'Chart') + '\')"><i class="fas fa-thumbtack"></i> Pin to Dashboard</button></div>';
+            html += '<div style="margin-top:8px;"><button class="de-msg-action-btn" onclick="DEChartRenderer.pinImage(\'' + _esc(src) + '\', \'' + _esc(opts.title || 'Chart') + '\', \'' + _esc(opts.queryId || '') + '\')"><i class="fas fa-thumbtack"></i> Pin to Dashboard</button></div>';
         }
         html += '</div>';
         return html;
@@ -277,23 +277,31 @@
 
     /* ── Pin to dashboard ──────────────────────────────────── */
 
-    function pinChart(chartId) {
-        var stored = _chartConfigs[chartId];
-        if (!stored) return;
-
-        if (window.DEDashboard) {
-            window.DEDashboard.addWidget('chart', {
-                title: stored.opts.title || 'Chart',
-                chartId: chartId,
-                config: JSON.parse(JSON.stringify(stored.original))
-            });
+    // Every pin goes through the page controller (active dashboard + toast +
+    // panel open). A direct DEDashboard.addWidget call dropped the widget into
+    // the hidden panel with no feedback ("Pin does nothing", 2026-09-02). The
+    // fallback keeps the renderer usable on a page without the controller.
+    function _pin(type, opts) {
+        if (window.DataExplorer && typeof window.DataExplorer.pinWidget === 'function') {
+            window.DataExplorer.pinWidget(type, opts);
+        } else if (window.DEDashboard) {
+            window.DEDashboard.addWidget(type, opts);
         }
     }
 
-    function pinImage(src, title) {
-        if (window.DEDashboard) {
-            window.DEDashboard.addWidget('image', { title: title, src: src });
-        }
+    function pinChart(chartId) {
+        var stored = _chartConfigs[chartId];
+        if (!stored) return;
+        _pin('chart', {
+            title: stored.opts.title || 'Chart',
+            chartId: chartId,
+            queryId: stored.opts.queryId || null,
+            config: JSON.parse(JSON.stringify(stored.original))
+        });
+    }
+
+    function pinImage(src, title, queryId) {
+        _pin('image', { title: title, src: src, queryId: queryId || null });
     }
 
     /* ── Re-render all charts (theme change) ───────────────── */

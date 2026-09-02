@@ -21,6 +21,7 @@ REGRESSION (exit 2). Reports: REPORT_LATEST.md + results_history/.
 Namespace: everything this runner creates is prefixed REGP- and deleted.
 """
 import argparse
+import contextlib
 import datetime as dt
 import glob
 import json
@@ -1609,6 +1610,293 @@ def c_comp_nlq_honest(ctx):
                               f"reply={reply[:130]!r}")
 
 
+# ---------------------------------------------------------------- browser lane
+# Playwright-driven checks for front-end flows that leave NO server-side signal.
+#
+# Lesson (2026-09-02): Data Explorer's table-toolbar "Pin" added the tile to the
+# dashboard grid inside the HIDDEN slide-out panel — no toast, panel never
+# opened. Every HTTP request was a 200, this gate stayed green, and james found
+# it by hand ("pin does nothing"). Only a real click on the real button in a
+# real browser sees that class of bug, so these checks drive headless Chromium
+# with the runner's logged-in session. Playwright ships in aihub2.1; when it is
+# missing the rows SKIP via the "browser" env key instead of failing.
+
+DE_READY_JS = ("() => !!(window.DataExplorer && window.DEDashboard && window.DETableRenderer"
+               " && window.DEChartRenderer && window.GridStack)")
+DE_LIST_LOADED_JS = ("() => { const l = document.getElementById('savedDashboardsList');"
+                     " return !!l && (!!l.querySelector('.de-saved-item') || /yet/.test(l.textContent)); }")
+
+# The dashboard as the USER sees it: tile counts by kind, panel actually
+# visible (class + computed visibility), the toast text, the panel title.
+DE_STATE_JS = """
+() => {
+  const panel = document.getElementById('dashPanel');
+  const cs = panel ? getComputedStyle(panel) : null;
+  const toast = document.querySelector('.de-toast');
+  const grid = document.getElementById('dashboardGrid');
+  return {
+    widgets: grid ? grid.querySelectorAll('.grid-stack-item').length : -1,
+    tables: grid ? grid.querySelectorAll('.de-table').length : 0,
+    canvases: grid ? grid.querySelectorAll('canvas').length : 0,
+    images: grid ? grid.querySelectorAll('img').length : 0,
+    panelOpen: !!(panel && panel.classList.contains('open') && cs.visibility === 'visible'),
+    toast: toast ? toast.textContent : '',
+    title: (document.getElementById('dashboardTitleText') || {}).textContent || '',
+  };
+}
+"""
+
+DE_PROBE_TABLE = {"headers": ["store", "employees"],
+                  "rows": [["T&C Manhattan", 8], ["T&C Brooklyn", 8], ["T&C Chicago", 8]]}
+DE_PROBE_PNG = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+                "AAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+
+
+@contextlib.contextmanager
+def browser_page(ctx, path, ready_js, timeout_ms=30000):
+    """A headless Chromium page on `path`, logged in with the runner's session
+    cookies. Yields (page, errors); `errors` collects uncaught page exceptions.
+
+    NOTE: page.wait_for_function wants an ARROW-FUNCTION string. A bare
+    expression whose value is itself a function (window.GridStack is a class)
+    gets INVOKED by Playwright -> "Class constructor cannot be invoked without
+    'new'". Always write "() => !!(...)"."""
+    from urllib.parse import urlparse
+    from playwright.sync_api import sync_playwright
+    host = urlparse(ctx["base"]).hostname
+    cookies = [{"name": c.name, "value": c.value, "domain": host, "path": c.path or "/"}
+               for c in ctx["api"].s.cookies]
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            bctx = browser.new_context(viewport={"width": 1400, "height": 900})
+            bctx.add_cookies(cookies)
+            page = bctx.new_page()
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)[:160]))
+            page.goto(f"{ctx['base']}{path}", wait_until="load")
+            page.wait_for_function(ready_js, timeout=timeout_ms)
+            yield page, errors
+        finally:
+            browser.close()
+
+
+def _de_pick_agent(page, value=None):
+    """Select a data source in Data Explorer (fires the page's change handler).
+    Returns the selected option value, or None when nothing can be selected."""
+    try:
+        page.wait_for_function(
+            "() => document.querySelectorAll('#agentDropdown option').length > 1", timeout=20000)
+    except Exception:
+        return None
+    if value is not None:
+        if page.locator(f'#agentDropdown option[value="{value}"]').count() == 0:
+            return None
+        page.select_option("#agentDropdown", value=str(value))
+    else:
+        page.select_option("#agentDropdown", index=1)
+    return page.evaluate("() => document.getElementById('agentDropdown').value") or None
+
+
+def _de_ask(page, question):
+    page.fill("#userInput", question)
+    page.click("#sendBtn")
+
+
+def _de_close_panel(page):
+    """The open dashboard panel's overlay swallows clicks on the chat, exactly
+    as it does for a user — close it before touching a message control."""
+    if page.evaluate("() => document.getElementById('dashPanel').classList.contains('open')"):
+        page.click('#dashPanel button[title="Close"]')
+        page.wait_for_function(
+            "() => !document.getElementById('dashPanel').classList.contains('open')", timeout=5000)
+
+
+def _de_pin_and_verify(page, selector, expect_widgets):
+    """Click one pin control for real and demand the three things a pin must
+    do: the tile count reaches `expect_widgets`, the panel is VISIBLE, and a
+    'pinned to' toast is showing."""
+    _de_close_panel(page)
+    if page.locator(selector).count() == 0:
+        return False, f"control not rendered: {selector}"
+    page.locator(selector).first.click()
+    try:
+        page.wait_for_function(
+            "n => document.querySelectorAll('#dashboardGrid .grid-stack-item').length === n"
+            " && document.getElementById('dashPanel').classList.contains('open')",
+            arg=expect_widgets, timeout=8000)
+    except Exception:
+        pass
+    st = page.evaluate(DE_STATE_JS)
+    ok = st["widgets"] == expect_widgets and st["panelOpen"] and "pinned to" in st["toast"]
+    return ok, st
+
+
+def _de_canned_answer(query_id="regp0001"):
+    """A /data_explorer/chat envelope (table + Chart.js chart + matplotlib-style
+    chart image), served from a Playwright route so the check exercises the
+    REAL front-end path — sendMessage -> _renderResult -> query registry ->
+    every pin control — with no LLM and a fixed shape."""
+    return {
+        "answer": "<table></table>", "answer_type": "dataframe", "explanation": "",
+        "clarification": "", "special_message": "",
+        "query": "=== Data Query ===\nSELECT store, COUNT(*) AS employees FROM employees GROUP BY store",
+        "query_id": query_id,
+        "rich_content": {"type": "rich_content", "blocks": [
+            {"type": "table", "content": DE_PROBE_TABLE, "metadata": {"title": "Employees by store"}},
+            {"type": "chart", "content": {"type": "bar", "data": {
+                "labels": [r[0] for r in DE_PROBE_TABLE["rows"]],
+                "datasets": [{"label": "Employees", "data": [r[1] for r in DE_PROBE_TABLE["rows"]]}]}},
+             "metadata": {"title": "Headcount by store"}},
+            {"type": "chart_image", "content": DE_PROBE_PNG, "metadata": {"title": "Chart"}},
+        ]},
+        "rich_content_enabled": True, "table_data": DE_PROBE_TABLE,
+    }
+
+
+@check("de_pin_dashboard", "Data Explorer",
+       "every pin control (toolbar table Pin, chart pin, Pin Table/Chart → buttons) lands a tile "
+       "in the ACTIVE dashboard, toasts, opens the panel; refresh re-runs SQL; save → reload → restored",
+       needs=("browser",))
+def c_de_pin_dashboard(ctx):
+    api, stamp = ctx["api"], ctx["stamp"]
+    title = f"REGP-pin-{stamp}"
+    dash_id = None
+    refresh_bodies = []
+    try:
+        with browser_page(ctx, "/data_explorer", DE_READY_JS) as (page, errors):
+            try:
+                page.wait_for_function(DE_LIST_LOADED_JS, timeout=15000)
+            except Exception:
+                pass
+            if _de_pick_agent(page) is None:
+                return None, "SKIP: no data agent offered on this target (chat is mocked; any agent would do)"
+
+            page.route("**/data_explorer/chat",
+                       lambda route: route.fulfill(status=200, content_type="application/json",
+                                                   body=json.dumps(_de_canned_answer())))
+
+            def _refresh(route):
+                try:
+                    refresh_bodies.append(json.loads(route.request.post_data or "{}"))
+                except Exception:
+                    refresh_bodies.append({})
+                route.fulfill(status=200, content_type="application/json",
+                              body=json.dumps({"status": "ok", "table_data": DE_PROBE_TABLE,
+                                               "row_count": 3}))
+            page.route("**/data_explorer/refresh", _refresh)
+
+            page.click('button[title="New dashboard"]')     # empty grid -> deterministic counts
+            _de_ask(page, "REGP pin probe: employees by store")
+            page.wait_for_selector(".de-msg-ai .de-table-container", timeout=15000)
+            page.wait_for_selector(".de-msg-ai .de-chart-container canvas", timeout=15000)
+
+            steps = [
+                ('.de-msg-actions button:has-text("Pin Table")', 1, "message 'Pin Table →'"),
+                ('.de-msg-ai .de-table-container button[title="Pin to Dashboard"]', 2, "table toolbar Pin"),
+                ('.de-msg-ai .de-chart-container button[title="Pin to Dashboard"]', 3, "chart pin icon"),
+                ('.de-msg-actions button:has-text("Pin Chart")', 4, "message 'Pin Chart →'"),
+            ]
+            for sel, n, label in steps:
+                ok, st = _de_pin_and_verify(page, sel, n)
+                if not ok:
+                    return False, f"{label} -> {st}"
+            st = page.evaluate(DE_STATE_JS)
+            if not (st["tables"] >= 2 and st["canvases"] >= 1 and st["images"] >= 1):
+                return False, f"tiles rendered wrong: {st}"
+
+            # Refresh must re-run the SQL of BOTH table tiles — the toolbar pin
+            # has to carry query provenance, not just rows
+            page.click('#dashPanel button[title="Refresh data"]')
+            page.wait_for_function(
+                "() => /Refreshed \\d+ of \\d+/.test((document.querySelector('.de-toast')||{}).textContent||'')",
+                timeout=10000)
+            rtoast = page.evaluate("() => document.querySelector('.de-toast').textContent")
+            if (len(refresh_bodies) != 2 or "Refreshed 2 of 2" not in rtoast
+                    or not all(b.get("sql") and b.get("agent_id") for b in refresh_bodies)):
+                return False, f"refresh: toast={rtoast!r} bodies={refresh_bodies}"
+
+            # Save -> the API lists it
+            page.click('#dashPanel button[title="Save dashboard"]')
+            page.wait_for_selector("#saveDashboardModal", state="visible", timeout=5000)
+            page.fill("#dashboardNameInput", title)
+            page.click("#saveDashboardModal .de-btn-primary")
+            page.wait_for_function(
+                "() => /saved/i.test((document.querySelector('.de-toast')||{}).textContent||'')",
+                timeout=10000)
+            listed = (api.jbody(api.get("/data_explorer/dashboard/list")) or {}).get("dashboards", [])
+            dash_id = next((d["id"] for d in listed if d.get("title") == title), None)
+            if not dash_id:
+                return False, f"saved dashboard {title!r} missing from /data_explorer/dashboard/list"
+
+            # Reload -> open it from the sidebar -> all four tiles are back
+            page.reload(wait_until="load")
+            page.wait_for_function(DE_READY_JS, timeout=30000)
+            item = f'#savedDashboardsList .de-saved-item[data-dash-id="{dash_id}"]'
+            page.wait_for_selector(item, timeout=15000)
+            page.click(item)
+            try:
+                page.wait_for_function(
+                    "() => document.querySelectorAll('#dashboardGrid .grid-stack-item').length >= 4",
+                    timeout=15000)
+            except Exception:
+                pass
+            st2 = page.evaluate(DE_STATE_JS)
+            if not (st2["widgets"] == 4 and st2["panelOpen"] and st2["tables"] >= 2
+                    and st2["canvases"] >= 1 and st2["images"] >= 1):
+                return False, f"after reload: {st2}"
+            if errors:
+                return False, f"uncaught page errors: {errors[:3]}"
+            return True, ("4 pins via 4 controls -> panel opened + toast each time; refresh re-ran "
+                          f"2 SQL tiles; saved {title!r} -> reload -> 4 tiles restored")
+    finally:
+        if dash_id:
+            api.delete(f"/data_explorer/dashboard/{dash_id}")
+
+
+@check("de_pin_live", "Data Explorer",
+       "a REAL NL→SQL answer's table pins from the message button and the table toolbar",
+       needs=("browser",), llm=True)
+def c_de_pin_live(ctx):
+    api = ctx["api"]
+    body = api.jbody(api.get("/get/data_agents")) or []
+    rows = body.get("data") if isinstance(body, dict) else body
+    if isinstance(rows, str):
+        rows = json.loads(rows)
+    if not any(str(a.get("id") or a.get("agent_id")) == "281"
+               for a in (rows or []) if isinstance(a, dict)):
+        return None, "SKIP: NLQ oracle agent 281 not present on this target"
+    with browser_page(ctx, "/data_explorer", DE_READY_JS) as (page, errors):
+        try:
+            page.wait_for_function(DE_LIST_LOADED_JS, timeout=15000)
+        except Exception:
+            pass
+        if _de_pick_agent(page, value="281") is None:
+            return None, "SKIP: agent 281 is not offered in the Data Explorer data-source list"
+        page.click('button[title="New dashboard"]')
+        _de_ask(page, "How many employees work at each store?")
+        try:
+            page.wait_for_selector(".de-msg-ai .de-table-container", timeout=180000)
+        except Exception:
+            return None, ("SKIP: no table rendered within 180s — that is the NLQ answer, not the "
+                          "pin flow (see nlq_data_chat / de_pin_dashboard)")
+        done = []
+        for sel, label in [('.de-msg-actions button:has-text("Pin Table")', "message 'Pin Table →'"),
+                           ('.de-msg-ai .de-table-container button[title="Pin to Dashboard"]',
+                            "table toolbar Pin")]:
+            if page.locator(sel).count() == 0:
+                continue
+            ok, st = _de_pin_and_verify(page, sel, len(done) + 1)
+            if not ok:
+                return False, f"{label} -> {st}"
+            done.append(label)
+        if not done:
+            return None, "SKIP: table rendered without any pin control (nothing to click)"
+        if errors:
+            return False, f"uncaught page errors: {errors[:3]}"
+        return True, f"pinned via {done}; panel opened + toast each time"
+
+
 # ---------------------------------------------------------------- pack-14 leg
 
 def run_pack14(args, remote=False, host="localhost"):
@@ -1661,6 +1949,12 @@ def probe_env(base, host="localhost"):
         env["db"] = None
     # document pipeline: ingest requires the doc/vector/knowledge services
     env["doc_stack"] = all(port_open(pt, host=host) for pt in (5011, 5031, 5041, 5051))
+    # browser lane: headless Chromium via Playwright (ships in aihub2.1)
+    try:
+        import playwright.sync_api  # noqa: F401
+        env["browser"] = True
+    except Exception:
+        env["browser"] = None
     return env
 
 
