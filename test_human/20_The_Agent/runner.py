@@ -40,7 +40,12 @@ except Exception:
 
 import shared_auth
 
-BASE = f"http://127.0.0.1:{os.getenv('AGENT_SERVICE_PORT') or int(os.getenv('HOST_PORT', '5001')) + 110}"
+# AIHUB_TARGET_HOST lets this pack run against an INSTALLED box as well as the
+# local dev tree. Ground-truth calls below go through agent_config, so set
+# API_KEY to the TARGET box's key when pointing this elsewhere (the driver in
+# test_human/_scripts does both).
+_TARGET_HOST = os.getenv("AIHUB_TARGET_HOST", "127.0.0.1")
+BASE = f"http://{_TARGET_HOST}:{os.getenv('AGENT_SERVICE_PORT') or int(os.getenv('HOST_PORT', '5001')) + 110}"
 TURN_TIMEOUT = 420       # A0 read-only turns
 A1_TURN_TIMEOUT = 900    # authoring turns include real dry-runs (inline cap 240s)
 

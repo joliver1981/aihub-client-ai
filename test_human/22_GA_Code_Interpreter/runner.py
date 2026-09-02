@@ -26,7 +26,10 @@ sys.path.insert(0, str(REPO))
 
 import requests
 
-BASE = "http://127.0.0.1:5001"
+# REGP_BASE is the repo-wide "which app am I testing" convention (packs 15-19
+# already read it), so this pack can run against the local dev tree OR an
+# installed box without edits: REGP_BASE=http://10.0.0.6:5001
+BASE = os.environ.get("REGP_BASE", "http://127.0.0.1:5001")
 MODEL = os.environ.get("AGENT_MODEL", "gpt-5.6-terra")
 
 KEY = {
