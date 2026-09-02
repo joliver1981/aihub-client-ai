@@ -73,14 +73,25 @@ def hidden_fields(html):
     return out
 
 
+def _login_ok(r):
+    """A successful login 302s AWAY from /login (to '/' or ?next). Do NOT follow
+    the chain: on builds where the landing hands off via SSO to another service
+    (Command Center / The Agent on another port) that hop can be DOWN on a dev
+    box, and following it would make an authenticated session look failed. The
+    base-origin session cookie is already set by this 302. A failed login
+    re-renders /login (HTTP 200)."""
+    loc = r.headers.get("Location") or ""
+    return r.status_code in (301, 302, 303) and "/login" not in loc
+
+
 def login_as(base, username, password):
     """Log a fresh session in the way the browser does. Returns (session, ok)."""
     s = requests.Session()
     r = s.get(f"{base}/login", timeout=15)
     data = {"username": username, "password": password, "submit": "Login"}
     data.update(hidden_fields(r.text))
-    r = s.post(f"{base}/login", data=data, allow_redirects=True, timeout=20)
-    return s, ("/login" not in r.url)
+    r = s.post(f"{base}/login", data=data, allow_redirects=False, timeout=20)
+    return s, _login_ok(r)
 
 
 def agent_rows(api):
@@ -166,9 +177,13 @@ class Api:
         r = self.s.get(f"{self.base}/login", timeout=20)
         data = {"username": username, "password": password, "submit": "Login"}
         data.update(hidden_fields(r.text))
-        r = self.s.post(f"{self.base}/login", data=data, allow_redirects=True, timeout=30)
-        if "/login" in r.url:
-            raise RuntimeError(f"admin login failed (landed on {r.url})")
+        # allow_redirects=False: the session cookie is set on the login 302;
+        # following it can chase a post-login SSO handoff to another service
+        # (e.g. The Agent on :5111) that may be down on a dev box. See _login_ok.
+        r = self.s.post(f"{self.base}/login", data=data, allow_redirects=False, timeout=30)
+        if not _login_ok(r):
+            raise RuntimeError(f"admin login failed (status={r.status_code}, "
+                               f"location={r.headers.get('Location')!r})")
 
     def get(self, path, **kw):
         return self.s.get(f"{self.base}{path}", timeout=kw.pop("timeout", 90), **kw)
@@ -1732,6 +1747,39 @@ def _de_pin_and_verify(page, selector, expect_widgets):
     return ok, st
 
 
+def _de_open_panel(page):
+    """Open the dashboard panel the way a user does: click the active unsaved
+    item in the sidebar (falls back to the controller when there is none)."""
+    if page.evaluate("() => document.getElementById('dashPanel').classList.contains('open')"):
+        return
+    unsaved = page.locator('#savedDashboardsList .de-saved-item[data-dash-id="__unsaved__"]')
+    if unsaved.count():
+        unsaved.first.click()
+    else:
+        page.evaluate("() => DataExplorer.toggleDashboardPanel()")
+    page.wait_for_function(
+        "() => document.getElementById('dashPanel').classList.contains('open')", timeout=5000)
+
+
+def _de_unload_armed(page):
+    """Is the leave-page guard armed? Dispatch a synthetic cancelable
+    beforeunload: the page's handler calls preventDefault() only when the
+    dashboard has unsaved changes. No native dialog is involved."""
+    return bool(page.evaluate(
+        "() => { const e = new Event('beforeunload', {cancelable: true});"
+        " window.dispatchEvent(e); return e.defaultPrevented; }"))
+
+
+def _de_wait_widgets(page, n, timeout=10000):
+    try:
+        page.wait_for_function(
+            "n => document.querySelectorAll('#dashboardGrid .grid-stack-item').length === n",
+            arg=n, timeout=timeout)
+    except Exception:
+        pass
+    return page.evaluate(DE_STATE_JS)
+
+
 def _de_canned_answer(query_id="regp0001"):
     """A /data_explorer/chat envelope (table + Chart.js chart + matplotlib-style
     chart image), served from a Playwright route so the check exercises the
@@ -1756,7 +1804,8 @@ def _de_canned_answer(query_id="regp0001"):
 
 @check("de_pin_dashboard", "Data Explorer",
        "every pin control (toolbar table Pin, chart pin, Pin Table/Chart → buttons) lands a tile "
-       "in the ACTIVE dashboard, toasts, opens the panel; refresh re-runs SQL; save → reload → restored",
+       "in the ACTIVE dashboard, toasts, opens the panel; refresh re-runs SQL; unsaved pins are "
+       "never dropped without asking; save → reload → restored",
        needs=("browser",))
 def c_de_pin_dashboard(ctx):
     api, stamp = ctx["api"], ctx["stamp"]
@@ -1816,7 +1865,21 @@ def c_de_pin_dashboard(ctx):
                     or not all(b.get("sql") and b.get("agent_id") for b in refresh_bodies)):
                 return False, f"refresh: toast={rtoast!r} bodies={refresh_bodies}"
 
-            # Save -> the API lists it
+            # Unsaved-changes guard: with 4 unsaved pins the leave-page prompt is
+            # armed, and "+" (new dashboard) must ASK; "Keep editing" keeps all 4
+            if not _de_unload_armed(page):
+                return False, "leave-page guard NOT armed with 4 unsaved pins"
+            _de_close_panel(page)
+            page.click('button[title="New dashboard"]')
+            page.wait_for_selector("#discardChangesModal", state="visible", timeout=5000)
+            page.click("#discardChangesKeepBtn")
+            page.wait_for_selector("#discardChangesModal", state="hidden", timeout=5000)
+            st = page.evaluate(DE_STATE_JS)
+            if st["widgets"] != 4:
+                return False, f"'Keep editing' lost tiles: {st}"
+
+            # Save -> the API lists it, and the guard disarms
+            _de_open_panel(page)
             page.click('#dashPanel button[title="Save dashboard"]')
             page.wait_for_selector("#saveDashboardModal", state="visible", timeout=5000)
             page.fill("#dashboardNameInput", title)
@@ -1828,27 +1891,47 @@ def c_de_pin_dashboard(ctx):
             dash_id = next((d["id"] for d in listed if d.get("title") == title), None)
             if not dash_id:
                 return False, f"saved dashboard {title!r} missing from /data_explorer/dashboard/list"
+            if _de_unload_armed(page):
+                return False, "leave-page guard still armed right after a successful save"
+            item = f'#savedDashboardsList .de-saved-item[data-dash-id="{dash_id}"]'
+            page.wait_for_selector(item, timeout=15000)
+
+            # Dirty again (a 5th pin) -> re-opening the saved dashboard from the
+            # sidebar must ASK; "Discard changes" proceeds and restores the 4
+            ok, st = _de_pin_and_verify(
+                page, '.de-msg-ai .de-table-container button[title="Pin to Dashboard"]', 5)
+            if not ok:
+                return False, f"5th pin -> {st}"
+            _de_close_panel(page)
+            page.click(item)
+            page.wait_for_selector("#discardChangesModal", state="visible", timeout=5000)
+            page.click("#discardChangesDiscardBtn")
+            st = _de_wait_widgets(page, 4)
+            if not (st["widgets"] == 4 and st["panelOpen"]) or _de_unload_armed(page):
+                return False, f"'Discard changes' -> {st}, armed={_de_unload_armed(page)}"
+
+            # Clean grid -> "+" must NOT ask, and just empties the grid
+            _de_close_panel(page)
+            page.click('button[title="New dashboard"]')
+            st = _de_wait_widgets(page, 0, timeout=5000)
+            if page.is_visible("#discardChangesModal") or st["widgets"] != 0:
+                return False, f"'+' on a clean grid asked or kept tiles: {st}"
 
             # Reload -> open it from the sidebar -> all four tiles are back
             page.reload(wait_until="load")
             page.wait_for_function(DE_READY_JS, timeout=30000)
-            item = f'#savedDashboardsList .de-saved-item[data-dash-id="{dash_id}"]'
             page.wait_for_selector(item, timeout=15000)
             page.click(item)
-            try:
-                page.wait_for_function(
-                    "() => document.querySelectorAll('#dashboardGrid .grid-stack-item').length >= 4",
-                    timeout=15000)
-            except Exception:
-                pass
-            st2 = page.evaluate(DE_STATE_JS)
+            st2 = _de_wait_widgets(page, 4, timeout=15000)
             if not (st2["widgets"] == 4 and st2["panelOpen"] and st2["tables"] >= 2
                     and st2["canvases"] >= 1 and st2["images"] >= 1):
                 return False, f"after reload: {st2}"
             if errors:
                 return False, f"uncaught page errors: {errors[:3]}"
             return True, ("4 pins via 4 controls -> panel opened + toast each time; refresh re-ran "
-                          f"2 SQL tiles; saved {title!r} -> reload -> 4 tiles restored")
+                          "2 SQL tiles; unsaved-changes guard asked on '+' and on sidebar switch "
+                          f"(keep/discard both honoured), silent when clean; saved {title!r} -> "
+                          "reload -> 4 tiles restored")
     finally:
         if dash_id:
             api.delete(f"/data_explorer/dashboard/{dash_id}")

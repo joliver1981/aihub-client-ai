@@ -28,6 +28,14 @@
         // Init dashboard grid
         if (window.DEDashboard) DEDashboard.init();
 
+        // Refresh/close with unsaved pins -> the browser's own leave-page prompt
+        window.addEventListener('beforeunload', function (e) {
+            if (_hasUnsavedDashboardChanges()) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
+
         // Load agents
         _loadAgents();
 
@@ -713,7 +721,55 @@
         // No longer needed — panel opens from sidebar
     }
 
-    function newDashboard() {
+    function _hasUnsavedDashboardChanges() {
+        return !!(window.DEDashboard && DEDashboard.isDirty());
+    }
+
+    /**
+     * Ask before anything that would throw away unsaved pins, removals or
+     * layout moves. Resolves true when it is safe to go ahead: nothing unsaved,
+     * or the user chose "Discard changes". Uses the page's own modal and falls
+     * back to window.confirm if the markup is missing.
+     */
+    function _confirmDiscardChanges(actionText) {
+        if (!_hasUnsavedDashboardChanges()) return Promise.resolve(true);
+
+        var modal = document.getElementById('discardChangesModal');
+        var textEl = document.getElementById('discardChangesText');
+        var keepBtn = document.getElementById('discardChangesKeepBtn');
+        var discardBtn = document.getElementById('discardChangesDiscardBtn');
+        var tiles = Object.keys(DEDashboard.getWidgets()).length;
+        var message = '"' + (_activeDashboard.title || 'Dashboard') + '" has unsaved changes (' +
+            tiles + ' tile' + (tiles === 1 ? '' : 's') + '). ' + actionText + ' and discard them?';
+
+        if (!modal || !textEl || !keepBtn || !discardBtn) {
+            return Promise.resolve(window.confirm(message));
+        }
+
+        return new Promise(function (resolve) {
+            textEl.textContent = message;
+            modal.style.display = 'flex';
+            discardBtn.focus();
+
+            function done(result) {
+                modal.style.display = 'none';
+                keepBtn.removeEventListener('click', onKeep);
+                discardBtn.removeEventListener('click', onDiscard);
+                document.removeEventListener('keydown', onKey);
+                resolve(result);
+            }
+            function onKeep() { done(false); }
+            function onDiscard() { done(true); }
+            function onKey(ev) { if (ev.key === 'Escape') done(false); }
+
+            keepBtn.addEventListener('click', onKeep);
+            discardBtn.addEventListener('click', onDiscard);
+            document.addEventListener('keydown', onKey);
+        });
+    }
+
+    async function newDashboard() {
+        if (!(await _confirmDiscardChanges('Start a new dashboard'))) return;
         if (window.DEDashboard) {
             DEDashboard.clearAll();
             DEDashboard.setDashboardId(null);
@@ -774,6 +830,7 @@
             });
             var data = await resp.json();
             if (data.dashboard_id) {
+                DEDashboard.markClean();
                 _showToast('Dashboard saved!');
                 _loadSavedDashboards();
             }
@@ -809,6 +866,7 @@
             var data = await resp.json();
             if (data.dashboard_id) {
                 DEDashboard.setDashboardId(data.dashboard_id);
+                DEDashboard.markClean();
                 _setActiveDashboard(data.dashboard_id, title);
                 _showToast('Dashboard saved!');
                 _loadSavedDashboards();
@@ -860,7 +918,7 @@
                     '<span class="de-saved-item-name" title="' + _esc(db.title) + '">' + _esc(db.title) + '</span>' +
                     '<span class="de-saved-item-open"><i class="fas fa-external-link-alt"></i></span>' +
                     '<button class="de-btn-icon de-saved-item-delete" onclick="event.stopPropagation(); DataExplorer.deleteDashboard(\'' + db.id + '\')" title="Delete"><i class="fas fa-trash-alt"></i></button>';
-                item.onclick = function () { _loadDashboard(db.id); };
+                item.onclick = function () { _loadDashboard(db.id, db.title); };
                 _attachRenameBehavior(item, db.id, db.title);
                 list.appendChild(item);
             });
@@ -930,7 +988,14 @@
         });
     }
 
-    async function _loadDashboard(dashboardId) {
+    async function _loadDashboard(dashboardId, title, opts) {
+        opts = opts || {};
+        // Loading replaces the grid — never silently over unsaved pins.
+        // opts.force: the pin flow loads the sidebar-selected dashboard into an
+        // empty grid before the first pin; there is nothing to lose there.
+        if (!opts.force && !(await _confirmDiscardChanges('Open "' + (title || 'that dashboard') + '"'))) {
+            return false;
+        }
         try {
             var resp = await fetch('/data_explorer/dashboard/' + dashboardId);
             var data = await resp.json();
@@ -993,7 +1058,7 @@
         if (!_activeDashboard.title && !_activeDashboard.id) {
             _startUnsaved();
         } else if (_activeDashboard.id && DEDashboard.getDashboardId() !== _activeDashboard.id) {
-            await _loadDashboard(_activeDashboard.id);
+            await _loadDashboard(_activeDashboard.id, _activeDashboard.title, { force: true });
             if (DEDashboard.getDashboardId() !== _activeDashboard.id) {
                 // Load failed (deleted elsewhere?) — don't pin into limbo
                 _startUnsaved();

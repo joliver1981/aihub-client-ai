@@ -1429,3 +1429,11 @@
 }
 
 /* Resize handles always visible (drag/resize always enabled) */
+
+/* Destructive confirm button (the unsaved-changes dialog) */
+.de-btn-danger {
+    background: var(--de-red, #fb7185);
+    color: #fff;
+    border-color: transparent;
+}
+.de-btn-danger:hover { filter: brightness(1.08); }

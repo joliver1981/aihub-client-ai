@@ -12,6 +12,8 @@
     var _widgetCounter = 0;
     var _editMode = false;
     var _dashboardId = null; // Set when loading a saved dashboard
+    var _dirty = false;      // unsaved pins / removals / layout moves since the last save or load
+    var _suspendDirty = 0;   // > 0 while the grid is being loaded or cleared programmatically
 
     /* ── Initialize Gridstack ──────────────────────────────── */
 
@@ -34,9 +36,10 @@
             resizable: { handles: 'se,sw,e,w' },
         }, el);
 
-        // When widgets move/resize, we could auto-save state here
-        _grid.on('change', function () {
-            // Could trigger auto-save in the future
+        // A moved/resized tile is an unsaved change too. Gridstack also fires
+        // 'change' for programmatic adds/removes/loads — those are suspended.
+        _grid.on('change', function (event, items) {
+            if (!_suspendDirty && items && items.length) _dirty = true;
         });
     }
 
@@ -104,6 +107,8 @@
 
         // Show the dashboard toolbar
         _showToolbar();
+
+        if (!_suspendDirty) _dirty = true;
 
         return widgetId;
     }
@@ -187,6 +192,7 @@
             _grid.removeWidget(el);
         }
         delete _widgets[widgetId];
+        _dirty = true;
 
         // Hide toolbar if no widgets
         if (Object.keys(_widgets).length === 0) {
@@ -261,12 +267,16 @@
     /* ── Clear all widgets ─────────────────────────────────── */
 
     function clearAll() {
-        if (_grid) {
-            _grid.removeAll();
+        _suspendDirty++;
+        try {
+            if (_grid) _grid.removeAll();
+        } finally {
+            _suspendDirty--;
         }
         _widgets = {};
         _widgetCounter = 0;
         _dashboardId = null;
+        _dirty = false;
         _hideToolbar();
     }
 
@@ -308,28 +318,34 @@
 
         _dashboardId = layoutData.dashboardId || null;
 
-        layoutData.widgets.forEach(function (w) {
-            var widgetId = addWidget(w.type, {
-                title: w.title,
-                queryId: w.queryId,
-                sql: w.sql,
-                agentId: w.agentId,
-                config: w.config,
-                data: w.data,
-                src: w.src,
-            });
-
-            // Set position if grid supports it
-            var el = document.getElementById(widgetId);
-            if (el && _grid && w.position) {
-                _grid.update(el, {
-                    x: w.position.x,
-                    y: w.position.y,
-                    w: w.position.w,
-                    h: w.position.h
+        _suspendDirty++;
+        try {
+            layoutData.widgets.forEach(function (w) {
+                var widgetId = addWidget(w.type, {
+                    title: w.title,
+                    queryId: w.queryId,
+                    sql: w.sql,
+                    agentId: w.agentId,
+                    config: w.config,
+                    data: w.data,
+                    src: w.src,
                 });
-            }
-        });
+
+                // Set position if grid supports it
+                var el = document.getElementById(widgetId);
+                if (el && _grid && w.position) {
+                    _grid.update(el, {
+                        x: w.position.x,
+                        y: w.position.y,
+                        w: w.position.w,
+                        h: w.position.h
+                    });
+                }
+            });
+        } finally {
+            _suspendDirty--;
+        }
+        _dirty = false;   // what is on screen now matches what is saved
     }
 
     /* ── Refresh all queries ───────────────────────────────── */
@@ -406,6 +422,8 @@
     function getDashboardId() { return _dashboardId; }
     function setDashboardId(id) { _dashboardId = id; }
     function isEditMode() { return _editMode; }
+    function isDirty() { return _dirty; }
+    function markClean() { _dirty = false; }   // call after a successful save
 
     /* ── Expose ────────────────────────────────────────────── */
 
@@ -423,5 +441,7 @@
         getDashboardId: getDashboardId,
         setDashboardId: setDashboardId,
         isEditMode: isEditMode,
+        isDirty: isDirty,
+        markClean: markClean,
     };
 })();

@@ -87,6 +87,12 @@ then click it in the sidebar.
 - ✅ Every tile from B1–B3 comes back (table rows, chart, image). Skip → N/A only if your build hides
   dashboards.
 
+**REG-03-B6 — Unsaved tiles are never dropped silently.** Pin something, do **not** save, then click a
+different dashboard in the sidebar (or the **+** button).
+- ✅ An **Unsaved changes** dialog appears first. **Keep editing** leaves everything as it was;
+  **Discard changes** proceeds. Reloading the tab with unsaved tiles triggers the browser's
+  leave-page prompt; right after **Save** it does not, and switching no longer asks.
+
 ---
 
 ## Scorecard
@@ -104,6 +110,7 @@ then click it in the sidebar.
 | B3 "Pin Table →" button: tile + toast + panel opens | | |
 | B4 Refresh counts the toolbar-pinned tile | | |
 | B5 dashboard persists across reload (or N/A) | | |
+| B6 switching/new/reload with unsaved tiles asks first | | |
 
 **Pass:** A1–A6 ✅ and B1–B3 ✅. A5 confidently wrong or A6 fabricated = release-blocking
 (grounding/honesty). Any of B1–B3 with "nothing visible happened" = release-blocking (the pin flow
