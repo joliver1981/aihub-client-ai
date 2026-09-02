@@ -1268,6 +1268,50 @@ begin
                mbError, MB_OK);
       end;
 
+      // --- AGENT_ANTHROPIC_RELAY / AGENT_RELAY_URL (v2.0) ---
+      // The Agent resolves its Anthropic credential in this order:
+      //   BYOK -> RELAY -> ANTHROPIC_API_KEY -> encrypted.
+      // A client who has not entered their own key in Settings -> API Keys has
+      // ONLY the relay. Without these two keys the chain ends at "none" and
+      // every Agent turn dies with an opaque error, so an upgraded install
+      // (which keeps its original .env) silently loses The Agent entirely.
+      // The code default for AGENT_ANTHROPIC_RELAY is false, so the key must
+      // exist as true in every install's .env.
+      if not EnsureEnvKeyExists(EnvConfigFile, 'AGENT_ANTHROPIC_RELAY', 'true') then
+      begin
+        MsgBox('Warning: Failed to write AGENT_ANTHROPIC_RELAY to .env.' + #13#10 +
+               'The Agent will not work without an Anthropic key or the relay.',
+               mbError, MB_OK);
+      end;
+
+      if not EnsureEnvKeyExists(EnvConfigFile, 'AGENT_RELAY_URL', 'https://ai-hub-api.azurewebsites.net') then
+      begin
+        MsgBox('Warning: Failed to write AGENT_RELAY_URL to .env.' + #13#10 +
+               'You may need to add it manually',
+               mbError, MB_OK);
+      end;
+
+      // --- NLQ_ENGINE_DEFAULT (v2.0) ---
+      // Code default is 'legacy'. Without this key an UPGRADED install keeps
+      // running the old NL->SQL engine while fresh installs get the agentic
+      // one — two clients on the same build behaving differently.
+      if not EnsureEnvKeyExists(EnvConfigFile, 'NLQ_ENGINE_DEFAULT', 'agentic') then
+      begin
+        MsgBox('Warning: Failed to write NLQ_ENGINE_DEFAULT to .env.' + #13#10 +
+               'You may need to add it manually',
+               mbError, MB_OK);
+      end;
+
+      // --- DOC_SEARCH_ENGINE_DEFAULT (v2.0) ---
+      // Same divergence as NLQ: code default is 'legacy', so upgraded installs
+      // stay on the old document-search path unless the key is seeded.
+      if not EnsureEnvKeyExists(EnvConfigFile, 'DOC_SEARCH_ENGINE_DEFAULT', 'v2') then
+      begin
+        MsgBox('Warning: Failed to write DOC_SEARCH_ENGINE_DEFAULT to .env.' + #13#10 +
+               'You may need to add it manually',
+               mbError, MB_OK);
+      end;
+
     end
     else
     begin
@@ -1310,7 +1354,16 @@ begin
           // EnsureEnvKeyExists — keep both lists in sync.
           'CC_ROUTE_MEMORY=false' + #13#10 +
           'CC_INSPECT_ENVIRONMENT=true' + #13#10 +
-          'CC_PICKER_CONNECTIONS=true' + #13#10;
+          'CC_PICKER_CONNECTIONS=true' + #13#10 +
+          // v2.0: same defaults the upgrade path seeds via EnsureEnvKeyExists
+          // above — keep both lists in sync. The relay is the only Anthropic
+          // path for a non-BYOK client; the two *_DEFAULT keys both have a
+          // code default of 'legacy', so omitting them silently downgrades
+          // the engine a client actually runs.
+          'AGENT_ANTHROPIC_RELAY=true' + #13#10 +
+          'AGENT_RELAY_URL=https://ai-hub-api.azurewebsites.net' + #13#10 +
+          'NLQ_ENGINE_DEFAULT=agentic' + #13#10 +
+          'DOC_SEARCH_ENGINE_DEFAULT=v2' + #13#10;
 
         // Only write service account credentials if not using Local System
         if not ReadOnlyCheckBox.Checked then
