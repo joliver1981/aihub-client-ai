@@ -33,6 +33,7 @@ from document_tools import DOCUMENT_TOOLS
 from portal_tools import PORTAL_TOOLS
 from email_tools import EMAIL_TOOLS
 from agent_builder_tools import AGENT_BUILDER_TOOLS
+from web_tools import WEB_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -136,15 +137,20 @@ _CODE_TOOLS_ON = os.getenv("AGENT_RUN_PYTHON_TOOL", "true").lower() == "true"
 # ships without them and The Agent honestly reports it cannot build agents.
 _BUILDER_TOOLS_ON = os.getenv("AGENT_BUILDER_TOOLS", "true").lower() == "true"
 
+# Web search (gap G3, 2026-09-02): Tavily when a key is configured, keyless
+# DuckDuckGo otherwise. AGENT_WEB_TOOLS=false ships without it.
+_WEB_TOOLS_ON = os.getenv("AGENT_WEB_TOOLS", "true").lower() == "true"
+
 aihub_server = create_sdk_mcp_server(
-    name="aihub", version="0.7.0",
+    name="aihub", version="0.8.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
           + INTEGRATION_TOOLS + FILE_TOOLS
           + (CODE_TOOLS if _CODE_TOOLS_ON else [])
           + (DOCUMENT_TOOLS if _DOCUMENT_TOOLS_ON else [])
           + (PORTAL_TOOLS if _PORTAL_TOOLS_ON else [])
           + (EMAIL_TOOLS if _EMAIL_TOOLS_ON else [])
-          + (AGENT_BUILDER_TOOLS if _BUILDER_TOOLS_ON else []))
+          + (AGENT_BUILDER_TOOLS if _BUILDER_TOOLS_ON else [])
+          + (WEB_TOOLS if _WEB_TOOLS_ON else []))
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -168,6 +174,8 @@ MUTATING_TOOLS = frozenset({
     "create_general_agent", "update_general_agent", "delete_general_agent",
     "set_agent_tools", "set_agent_document_types",
     "add_agent_knowledge", "delete_agent_knowledge", "assign_agent_groups",
+    "send_email", "unwire_steps", "remove_code_step", "update_step_code",
+    "delete_code_flow",
 })
 
 # Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise
@@ -181,10 +189,10 @@ SENSITIVE_TOOL_FIELDS = {
 }
 
 MUTATION_CLAIM_RE = re.compile(
-    r"(✅\s*(created|saved|scheduled|promoted|deleted|inserted|added|updated|wired))"
+    r"(✅\s*(created|saved|scheduled|promoted|deleted|inserted|added|updated|wired|sent|emailed))"
     r"|(\bI(?:'|’)?ve\s+(?:now\s+)?(created|saved|scheduled|promoted|deleted|"
-    r"added|updated|wired)\b[^.\n]{0,80}\b(automation|code\s*flow|workflow|"
-    r"schedule|job|skill|work\s*item|playbook|step|checkpoint|view|secret|agent)\b)"
+    r"added|updated|wired|sent|emailed)\b[^.\n]{0,80}\b(automation|code\s*flow|workflow|"
+    r"schedule|job|skill|work\s*item|playbook|step|checkpoint|view|secret|agent|email)\b)"
     r"|(\b(?:is|are)\s+now\s+(?:live|scheduled|promoted|running\s+on\s+a\s+schedule)\b)",
     re.I)
 
@@ -198,7 +206,8 @@ def claims_completed_mutation(text: str) -> bool:
 # own action buttons or the main Assistant.
 _READ_TOOL_NAMES = [
     "list_data_connections", "get_connection_schema", "probe_connection_query",
-    "ask_data_agent", "list_playbooks", "list_recent_runs",
+    "ask_agent", "get_my_contact_info", "list_playbooks", "list_recent_runs",
+    "search_web", "list_mcp_servers",
     "check_automation_run", "get_automation", "list_code_flows",
     "get_code_flow", "list_my_work", "list_skills",
     "list_saved_views", "get_view", "list_secret_names",
@@ -218,7 +227,10 @@ deterministically on schedules with humans in the loop.
 
 WHAT YOU CAN DO
 - Explore: list connections, inspect schemas, run read-only probe queries, ask
-  data agents questions, list playbooks and run history.
+  AI Hub's agents questions (list_agents, then ask_agent), list playbooks and
+  run history.
+- Search the web for current information (search_web) and send email
+  (send_email) — see the sections below.
 - Sign into web portals with a real browser (RPA) to download or upload files —
   ad-hoc, from saved portals, or as recorded portal workflows.
 - Build AUTOMATIONS (single Python scripts) and CODE FLOWS (multi-step Python
@@ -227,6 +239,11 @@ WHAT YOU CAN DO
     -> PROMOTE (pin the proven version) -> SCHEDULE (runs the pinned version).
   Never schedule or promote something that has not dry-run successfully in this
   conversation unless the user explicitly insists.
+  A code flow is EDITABLE IN PLACE: update_step_code fixes a failing step,
+  remove_code_step / unwire_steps take a step or an edge out (to insert a step
+  between two others: wire A->NEW and NEW->B, then unwire the old A->B), and
+  delete_code_flow removes a flow (two-step confirm). Never rebuild a flow from
+  scratch to fix one step.
 
 WRITING AUTOMATION CODE
 Code runs in a sandboxed subprocess. START EVERY SCRIPT WITH THE EXPLICIT IMPORT
@@ -385,7 +402,17 @@ then execute_integration_operation — the platform owns all auth and runs
 operations server-side. Instances and their credentials are configured on
 the Integrations page, never through chat. delete_* operations need the
 user's explicit confirmation. Admins can share an integration with a group
-via assign_integration_groups (ask which groups first).
+via assign_integration_groups (ask which groups first). list_mcp_servers
+shows the MCP servers (external tool integrations) configured on the
+platform — with list_integrations it answers "what integrations are set up".
+
+WEB SEARCH
+YES — you can search the internet: search_web returns a short summary plus
+titled sources with links. Use it for anything current or time-sensitive
+(news, weather, prices, releases, documentation, company facts) and whenever
+you are not confident a fact is still true — never guess at live facts and
+never say you lack internet access. Cite the sources you relied on. If the
+tool reports a failure, say the search failed rather than inventing results.
 
 WEB PORTALS (browser RPA — sign in, download / upload files)
 YES — you can log into vendor/customer web portals with a real browser and
@@ -489,6 +516,16 @@ nothing sends until they approve; auto-send ON sends immediately and the tool
 says so. Report exactly what the tool result says — "sent" only when it says
 sent, otherwise "awaiting approval". Outbound can be disabled entirely; if
 the tool refuses, say so and point to the Email screen.
+To send a NEW email ("email this to X", "send the report to the team",
+"email me the summary") use send_email. Developer+ users' mail is SENT
+immediately — from their personal agent address when they have one,
+otherwise from the platform's sender. Regular users send through their
+personal agent address and the message is filed in My Work for their own
+approval first (offer setup_agent_email if they have no address yet).
+"Email me" means get_my_contact_info FIRST for the address on file — never
+guess it. Attach a file with attach_file (a server path, an /api/files link,
+or a chat attachment). Report exactly what the tool says: SENT only when it
+says sent, otherwise awaiting approval.
 
 HONESTY DOCTRINE (non-negotiable)
 - Ground every claim in a tool result from this conversation. Never invent

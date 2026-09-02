@@ -24,6 +24,9 @@ skill for the general rule).
    ~2500 chars — report only what you can see, with honest counts.
 4. `delete_*` operations require the user's explicit confirmation
    (confirmed=true on the second call).
+5. `list_mcp_servers` (Developer+) lists the MCP servers configured on the
+   platform — the other half of "what integrations are set up". Neither
+   agent executes MCP tools directly today; say so if asked.
 
 ## SharePoint file recipe (the common ask)
 

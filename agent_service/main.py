@@ -609,6 +609,17 @@ async def work_respond(request: Request):
                 raise HTTPException(502, f"The embedded View could not be "
                                          f"refreshed, so nothing was sent — the "
                                          f"item remains open to retry: {verr}")
+        # Attachments (send_email's approval path, 2026-09-02): the draft
+        # stores server paths, the bytes are read at SEND time. A missing file
+        # fails closed with the item left open — never a mail with a silently
+        # dropped attachment.
+        atts = None
+        if payload.get("attachments"):
+            from work_tools import build_email_attachments
+            atts, aerr = build_email_attachments(payload.get("attachments") or [])
+            if aerr:
+                raise HTTPException(502, f"Attachment problem — nothing was sent, "
+                                         f"the item remains open: {aerr}")
         result = await email_client.send_reply(
             payload.get("to") or [], str(payload.get("subject") or ""),
             final_body + (("\n\n" + view_text) if view_text else ""),
@@ -616,7 +627,8 @@ async def work_respond(request: Request):
             f"{payload.get('from_address', '').split('@')[0]} via The Agent",
             html_body=email_render.render_email_with_view(
                 final_body, view_html, title=str(payload.get("subject") or ""))
-            if rich else None)
+            if rich else None,
+            attachments=atts)
         if not result.get("success"):
             logger.error(f"agent email send failed (item left open): {result}")
             raise HTTPException(502, f"Send failed — the item remains open to "

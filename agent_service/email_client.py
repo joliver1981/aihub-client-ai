@@ -165,7 +165,8 @@ async def extract_attachment_text(attachment_id: int,
 
 
 async def send_reply(to: list, subject: str, body: str, from_address: str,
-                     from_name: str, html_body: Optional[str] = None) -> dict:
+                     from_name: str, html_body: Optional[str] = None,
+                     attachments: Optional[list] = None) -> dict:
     """Outbound via the cloud notifications API — the SAME transport every
     legacy send path uses (notification_client payload shape, provider
     mailgun so the from address is honored). Returns the cloud's result
@@ -176,10 +177,19 @@ async def send_reply(to: list, subject: str, body: str, from_address: str,
     data["html"]), this client just never sent it. `body` stays the plain-text
     alternative and is never dropped — multipart, never HTML-only."""
     payload = {"to": [str(a) for a in to], "subject": subject, "body": body,
-               "provider": "mailgun", "from_address": from_address,
-               "from_name": from_name}
+               "provider": "mailgun"}
+    # An empty from_address means "the platform's default sender" (send_email
+    # from a user with no personal agent address); the cloud route applies its
+    # own default when the keys are absent — never send an empty string.
+    if from_address:
+        payload["from_address"] = from_address
+        payload["from_name"] = from_name
     if html_body:
         payload["html_body"] = html_body
+    # attachments: [{filename, content (base64), content_type}] — the same shape
+    # Command Center's send_email posts to this route.
+    if attachments:
+        payload["attachments"] = attachments
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=60.0)) as client:
             r = await client.post(f"{_cloud_base()}/api/notifications/email",

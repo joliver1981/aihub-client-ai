@@ -36,6 +36,7 @@ try:
     from portal_tools import PORTAL_TOOLS           # noqa: E402
     from email_tools import EMAIL_TOOLS             # noqa: E402
     from agent_builder_tools import AGENT_BUILDER_TOOLS  # noqa: E402
+    from web_tools import WEB_TOOLS                 # noqa: E402
     HAVE_SDK = True
 except ImportError as e:
     HAVE_SDK = False
@@ -54,7 +55,7 @@ else:
     # AGENT_PORTAL_TOOLS settings on the box running the suite.
     ALL_TOOLS = (AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
                  + INTEGRATION_TOOLS + FILE_TOOLS + DOCUMENT_TOOLS
-                 + PORTAL_TOOLS + EMAIL_TOOLS + AGENT_BUILDER_TOOLS)
+                 + PORTAL_TOOLS + EMAIL_TOOLS + AGENT_BUILDER_TOOLS + WEB_TOOLS)
     ALL_NAMES = {getattr(t, "name", "") for t in ALL_TOOLS}
 
 # Read-shaped name prefixes. A registered tool matching one of these, not in
@@ -73,7 +74,8 @@ _READ_EXCLUSIONS = {
 _MUTATING_PREFIXES = ("create_", "save_", "delete_", "schedule_", "promote_",
                       "run_", "dry_run_", "wire_", "add_", "import_",
                       "execute_", "assign_", "store_", "rename_", "decide_",
-                      "raise_", "setup_", "draft_", "set_", "update_")
+                      "raise_", "setup_", "draft_", "set_", "update_",
+                      "send_", "unwire_", "remove_")
 _MUTATING_EXCLUSIONS = set()  # none today; add with a reason, never loosen
 
 
@@ -143,6 +145,16 @@ def test_known_drift_regressions_pinned():
     # claim so an unbacked one is flagged like any other.
     assert brain.claims_completed_mutation("I've created the agent Gen Agent 1005")
     assert not brain.claims_completed_mutation("The agent list shows 3 agents.")
+    # Pass 1 (2026-09-02): web search / agent delegation / contact info / MCP
+    # list are reads; send_email + the code-flow editors are writes; an
+    # unbacked "I've sent the email" claim is caught.
+    for n in ("search_web", "ask_agent", "get_my_contact_info", "list_mcp_servers"):
+        assert n in brain._READ_TOOL_NAMES, n
+    assert "ask_data_agent" not in ALL_NAMES          # renamed to ask_agent
+    for n in ("send_email", "unwire_steps", "remove_code_step",
+              "update_step_code", "delete_code_flow"):
+        assert n in brain.MUTATING_TOOLS, n
+    assert brain.claims_completed_mutation("I've sent the email to the team.")
 
 
 def test_sensitive_fields_map_to_real_tools():

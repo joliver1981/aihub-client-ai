@@ -185,8 +185,19 @@ def _q_agents(cur) -> list:
     by_agent: dict = {}
     for aid, gid in cur.fetchall():
         by_agent.setdefault(int(aid), []).append(int(gid))
+    # Data agents: the connection(s) they query — what lets "the ERPDB agent"
+    # resolve to an id for ask_agent.
+    conns: dict = {}
+    try:
+        cur.execute("SELECT t.agent_id, c.connection_name FROM [dbo].[AgentConnections] t "
+                    "JOIN [dbo].[Connections] c ON c.id = t.connection_id")
+        for aid, cname in cur.fetchall():
+            conns.setdefault(int(aid), []).append(str(cname))
+    except Exception:
+        pass
     for a in rows:
         a["group_ids"] = by_agent.get(a["id"], [])
+        a["connections"] = conns.get(a["id"], [])
     return rows
 
 
@@ -466,9 +477,10 @@ async def _email_status(agent_id: int) -> dict:
 
 @tool(
     "list_agents",
-    "List AI Hub's chat agents — the General Agents built on the Agent Builder "
-    "page (and, with kind='data' or 'all', the SQL-bound data agents). Shows id, "
-    "name, enabled state and which groups each is shared with. Call this before "
+    "List AI Hub's agents: the General Agents built on the Agent Builder page "
+    "and, with kind='data' or 'all', the SQL-bound data agents (shown with the "
+    "connections they query, e.g. 'data: ERPDB'). Shows id, name, enabled state "
+    "and the groups each is shared with. Call this BEFORE ask_agent or before "
     "referring to an agent by name — never assume an id. Developers/admins see "
     "every agent; regular users see only agents shared with their groups.",
     {
@@ -516,7 +528,9 @@ async def list_agents(args: dict[str, Any]) -> dict[str, Any]:
         rows.sort(key=lambda a: a["id"], reverse=True)
         lines = []
         for a in rows[:_LIST_CAP]:
-            tag = "data" if a["is_data_agent"] else "general"
+            tag = "general"
+            if a["is_data_agent"]:
+                tag = "data" + (f": {', '.join(a['connections'])}" if a.get("connections") else "")
             st = "" if a["enabled"] else ", DISABLED"
             shared = (f", groups {a['group_ids']}" if a.get("group_ids") else "")
             lines.append(f"- id {a['id']} — {a['name']} ({tag}{st}{shared})")

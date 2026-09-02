@@ -253,5 +253,79 @@ async def assign_integration_groups(args: dict[str, Any]) -> dict[str, Any]:
         return _text(f"Assignment failed: {e}", is_error=True)
 
 
+@tool(
+    "list_mcp_servers",
+    "List the MCP servers (external tool integrations wired through the "
+    "platform's MCP gateway) configured on this install: name, type, enabled "
+    "state, tool count, connection status and how many agents use each. Pass "
+    "server=<name or id> for one server's details. Together with "
+    "list_integrations this answers 'what integrations are set up'. Read-only; "
+    "Developer+ (the MCP admin page's audience).",
+    {
+        "type": "object",
+        "properties": {"server": {"type": "string",
+                                  "description": "Optional name or numeric id"}},
+        "additionalProperties": False,
+    },
+)
+async def list_mcp_servers(args: dict[str, Any]) -> dict[str, Any]:
+    user = CURRENT_USER.get() or {}
+    if int(user.get("role") or 0) < 2:
+        return _text("MCP server inspection is available to Developer/Admin users "
+                     "only.", is_error=True)
+    try:
+        data = await _get("/api/mcp/servers")
+    except Exception as e:
+        return _text(f"Could not list MCP servers: {e}", is_error=True)
+    servers = (data.get("servers") if isinstance(data, dict) else data) or []
+    if not isinstance(servers, list):
+        return _text(f"Could not list MCP servers: unexpected response "
+                     f"{str(data)[:200]}", is_error=True)
+    if not servers:
+        return _text("No MCP servers are configured on this platform (they are "
+                     "added on the MCP Servers page).")
+    ref = str(args.get("server") or "").strip()
+    if ref:
+        hit = next((s for s in servers
+                    if str(s.get("server_id")) == ref
+                    or str(s.get("server_name") or "").lower() == ref.lower()), None)
+        if not hit:
+            names = ", ".join(str(s.get("server_name")) for s in servers[:15])
+            return _text(f"No MCP server named '{ref}'. Existing servers: {names}",
+                         is_error=True)
+        lines = [f"MCP server [{hit.get('server_id')}] {hit.get('server_name')}",
+                 f"- type: {hit.get('server_type') or 'local'}"
+                 + (f", url {hit.get('server_url')}" if hit.get("server_url") else "")
+                 + (f", command {hit.get('command')} {' '.join(hit.get('args') or [])}"
+                    if hit.get("command") else ""),
+                 f"- enabled: {'yes' if hit.get('enabled', True) else 'NO'}; "
+                 f"status: {hit.get('status') or 'unknown'}; last test: "
+                 f"{hit.get('last_test_status') or '—'} "
+                 f"({hit.get('last_tested_date') or 'never'})",
+                 f"- tools: {hit.get('tool_count') if hit.get('tool_count') is not None else '?'}; "
+                 f"agents using it: {hit.get('agent_count', 0)}"]
+        if hit.get("description"):
+            lines.append(f"- description: {str(hit['description'])[:300]}")
+        if hit.get("category"):
+            lines.append(f"- category: {hit['category']}")
+        return _text("\n".join(lines))
+    lines = []
+    for s in servers:
+        line = (f"- [{s.get('server_id')}] {s.get('server_name')} "
+                f"({s.get('server_type') or 'local'})")
+        if not s.get("enabled", True):
+            line += " (DISABLED)"
+        if s.get("tool_count") is not None:
+            line += f" — {s.get('tool_count')} tools"
+        if s.get("status"):
+            line += f" — {s.get('status')}"
+        if s.get("agent_count"):
+            line += f" — used by {s.get('agent_count')} agent(s)"
+        lines.append(line)
+    return _text(f"MCP servers ({len(servers)}; pass server=<name or id> for details):\n"
+                 + "\n".join(lines))
+
+
 INTEGRATION_TOOLS = [list_integrations, get_integration_operations,
-                     execute_integration_operation, assign_integration_groups]
+                     execute_integration_operation, assign_integration_groups,
+                     list_mcp_servers]

@@ -732,6 +732,175 @@ async def wire_steps(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
+    "unwire_steps",
+    "Remove an edge between two steps of a code flow. Use it when INSERTING a "
+    "step between two existing ones: after wiring A->NEW and NEW->B, unwire the "
+    "old direct A->B edge — otherwise two competing 'pass' edges make the "
+    "dry-run reject the flow. Leave `on` empty to remove every edge between the "
+    "pair, or 'pass'/'fail' for just that type. Verified by read-back.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Code flow name"},
+            "from_step": {"type": "string"},
+            "to_step": {"type": "string"},
+            "on": {"type": "string", "enum": ["pass", "fail"]},
+        },
+        "required": ["name", "from_step", "to_step"],
+        "additionalProperties": False,
+    },
+)
+async def unwire_steps(args: dict[str, Any]) -> dict[str, Any]:
+    if not _authoring_allowed():
+        return _text(_DENIED, is_error=True)
+    name = str(args["name"])
+    src, dst = str(args["from_step"]), str(args["to_step"])
+    on = str(args.get("on") or "").strip()
+    payload = {"name": name, "from_step": src, "to_step": dst}
+    if on:
+        payload["on"] = on
+    data, status = await _manage_cf("unwire", payload, timeout=30)
+    if status >= 400:
+        return _text(f"Unwire failed (HTTP {status}): {data.get('error', data)}",
+                     is_error=True)
+    got, gstat = await _manage_cf("get", {"name": name}, timeout=30)
+    if gstat < 400:
+        left = [e for e in ((got.get("code_flow") or {}).get("connections") or [])
+                if e.get("source") == src and e.get("target") == dst
+                and (not on or e.get("type") == on)]
+        if left:
+            return _text(f"Unwire reported success but read-back still shows "
+                         f"{len(left)} edge(s) {src} -> {dst} — report as "
+                         "UNVERIFIED.", is_error=True)
+    return _text(f"Removed edge {src} → {dst}" + (f" [{on}]" if on else " (all types)")
+                 + f" in '{name}' (verified by read-back). Dry-run again before "
+                 "promoting or scheduling.")
+
+
+@tool(
+    "remove_code_step",
+    "Remove a step from a code flow together with every edge touching it. If it "
+    "was the start step, the start moves to the first remaining step — re-wire "
+    "around the gap afterwards if needed. Step ids come from get_code_flow / "
+    "add_code_step. Verified by read-back.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Code flow name"},
+            "step_id": {"type": "string"},
+        },
+        "required": ["name", "step_id"],
+        "additionalProperties": False,
+    },
+)
+async def remove_code_step(args: dict[str, Any]) -> dict[str, Any]:
+    if not _authoring_allowed():
+        return _text(_DENIED, is_error=True)
+    name, step_id = str(args["name"]), str(args["step_id"])
+    data, status = await _manage_cf("remove_step", {"name": name, "step_id": step_id},
+                                    timeout=30)
+    if status >= 400:
+        return _text(f"Remove step failed (HTTP {status}): {data.get('error', data)}",
+                     is_error=True)
+    got, gstat = await _manage_cf("get", {"name": name}, timeout=30)
+    if gstat < 400:
+        nodes = (got.get("code_flow") or {}).get("nodes") or []
+        if any(str(n.get("id")) == step_id for n in nodes):
+            return _text(f"Remove reported success but step {step_id} is still in "
+                         f"'{name}' on read-back — report as UNVERIFIED.", is_error=True)
+        return _text(f"Removed step {step_id} (and its edges) from '{name}' — "
+                     f"{len(nodes)} step(s) remain (verified by read-back). Check "
+                     "the wiring with get_code_flow, then dry-run again.")
+    return _text(f"Removed step {step_id} (and its edges) from '{name}'. "
+                 "(Read-back unavailable — verify with get_code_flow.)")
+
+
+@tool(
+    "update_step_code",
+    "Replace the Python code of an EXISTING step in a code flow — the way to "
+    "fix a step after a dry-run shows it failing, instead of adding a duplicate "
+    "step. Pass the complete new source. The server re-runs its credential "
+    "scan and rejects hard-coded secrets. Dry-run again afterwards; promoted / "
+    "scheduled runs keep using the pinned version until you promote.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Code flow name"},
+            "step_id": {"type": "string"},
+            "code": {"type": "string", "description": "Complete new Python source"},
+        },
+        "required": ["name", "step_id", "code"],
+        "additionalProperties": False,
+    },
+)
+async def update_step_code(args: dict[str, Any]) -> dict[str, Any]:
+    if not _authoring_allowed():
+        return _text(_DENIED, is_error=True)
+    name, step_id = str(args["name"]), str(args["step_id"])
+    code = str(args.get("code") or "")
+    if not code.strip():
+        return _text("The new code is empty — nothing changed.", is_error=True)
+    data, status = await _manage_cf("update_step_code",
+                                    {"name": name, "step_id": step_id, "code": code},
+                                    timeout=60)
+    if status >= 400:
+        return _text(f"Update failed (HTTP {status}): {data.get('error', data)} — "
+                     "the step's previous code is unchanged.", is_error=True)
+    got, gstat = await _manage_cf("get", {"name": name}, timeout=30)
+    if gstat < 400:
+        nodes = (got.get("code_flow") or {}).get("nodes") or []
+        if not any(str(n.get("id")) == step_id for n in nodes):
+            return _text(f"Update reported success but step {step_id} is not in "
+                         f"'{name}' on read-back — report as UNVERIFIED.", is_error=True)
+    return _text(f"Updated the code of step {step_id} in '{name}' ({len(code)} chars). "
+                 "Dry-run the flow again before promoting or scheduling.")
+
+
+@tool(
+    "delete_code_flow",
+    "Delete a code flow (its steps, wiring and schedules). TWO-STEP: first call "
+    "without confirmed to get a summary of what would be deleted; call again "
+    "with confirmed=true only after the user explicitly confirms. Verified by "
+    "read-back.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Code flow name"},
+            "confirmed": {"type": "boolean"},
+        },
+        "required": ["name"],
+        "additionalProperties": False,
+    },
+)
+async def delete_code_flow(args: dict[str, Any]) -> dict[str, Any]:
+    if not _authoring_allowed():
+        return _text(_DENIED, is_error=True)
+    name = str(args["name"]).strip()
+    got, gstat = await _manage_cf("get", {"name": name}, timeout=30)
+    if gstat >= 400:
+        return _text(f"No code flow named '{name}' (HTTP {gstat}): "
+                     f"{got.get('error', got)}", is_error=True)
+    cf = got.get("code_flow") or {}
+    if not args.get("confirmed"):
+        return _text("⚠️ CONFIRMATION REQUIRED — nothing was deleted.\n"
+                     f"Target: code flow '{cf.get('name', name)}' (workflow id "
+                     f"{cf.get('workflow_id')}), {len(cf.get('nodes') or [])} step(s). "
+                     "Deleting removes the flow and its schedules; run history is "
+                     "retained. Ask the user to confirm, then call again with "
+                     "confirmed=true.")
+    data, status = await _manage_cf("delete", {"name": name}, timeout=60)
+    if status >= 400:
+        return _text(f"Delete failed (HTTP {status}): {data.get('error', data)} — "
+                     "the code flow still exists.", is_error=True)
+    again, astat = await _manage_cf("get", {"name": name}, timeout=30)
+    if astat < 400 and (again.get("code_flow") or {}):
+        return _text(f"Delete reported success but '{name}' can still be read back — "
+                     "report as UNVERIFIED.", is_error=True)
+    return _text(f"Deleted code flow '{name}' (verified by read-back: it no longer "
+                 "exists).")
+
+
+@tool(
     "get_code_flow",
     "Fetch a code flow's structure: steps, wiring, and per-step config.",
     {
@@ -855,6 +1024,6 @@ AUTHORING_TOOLS = [
     dry_run_automation, run_automation, check_automation_run,
     promote_automation, schedule_automation, decide_automation_checkpoint,
     delete_automation,
-    list_code_flows, create_code_flow, add_code_step, wire_steps,
+    list_code_flows, create_code_flow, add_code_step, wire_steps, unwire_steps, remove_code_step, update_step_code, delete_code_flow,
     get_code_flow, dry_run_code_flow, run_code_flow, schedule_code_flow,
 ]

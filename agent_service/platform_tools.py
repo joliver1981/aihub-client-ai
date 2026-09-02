@@ -261,25 +261,30 @@ async def probe_connection_query(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "ask_data_agent",
-    "Ask one of AI Hub's configured data agents a natural-language question about "
-    "its database; it writes and runs the SQL itself and answers with data. Use "
-    "when the user wants an answer from data rather than schema exploration. "
-    "Requires the numeric agent id.",
+    "ask_agent",
+    "Ask one of AI Hub's configured agents a question and get its answer — a "
+    "DATA agent (it writes and runs the SQL against its database itself) or a "
+    "GENERAL agent (a chat agent with its own tools, knowledge documents and "
+    "objective). Use it to delegate: 'ask the ERPDB agent for last month's "
+    "revenue', 'what does the HR Policy agent say about PTO'. Needs the numeric "
+    "agent id — call list_agents FIRST if you don't know it (it shows each data "
+    "agent's connections). The answer comes back verbatim; attribute it to the "
+    "agent.",
     {
         "type": "object",
         "properties": {
-            "agent_id": {"type": "integer", "description": "The data agent's id"},
+            "agent_id": {"type": "integer", "description": "The agent's id (list_agents)"},
             "question": {"type": "string", "description": "The question to ask"},
         },
         "required": ["agent_id", "question"],
         "additionalProperties": False,
     },
 )
-async def ask_data_agent(args: dict[str, Any]) -> dict[str, Any]:
+async def ask_agent(args: dict[str, Any]) -> dict[str, Any]:
     try:
         data, status = await _post(f"/api/agents/{int(args['agent_id'])}/chat",
-                                   {"prompt": str(args["question"]), "history": "[]"})
+                                   {"prompt": str(args["question"]), "history": "[]"},
+                                   timeout=300)
         if status >= 400:
             return _text(f"Agent chat failed (HTTP {status}): {data.get('error', data)}",
                          is_error=True)
@@ -287,10 +292,63 @@ async def ask_data_agent(args: dict[str, Any]) -> dict[str, Any]:
         if not answer:
             return _text(f"Agent returned no answer (raw: {json.dumps(data)[:400]})",
                          is_error=True)
-        return _text(str(answer))
+        return _text(f"Agent {int(args['agent_id'])} answered:\n{answer}")
     except Exception as e:
-        logger.error(f"ask_data_agent failed: {e}")
+        logger.error(f"ask_agent failed: {e}")
         return _text(f"Agent chat failed: {e}", is_error=True)
+
+
+def _q_contact(uid: int):
+    def fn(cur):
+        cur.execute("SELECT name, email, phone, user_name FROM [dbo].[User] WHERE id = ?",
+                    int(uid))
+        r = cur.fetchone()
+        if not r:
+            return None
+        return {"name": str(r[0] or "").strip(), "email": str(r[1] or "").strip(),
+                "phone": str(r[2] or "").strip(), "username": str(r[3] or "").strip()}
+    return fn
+
+
+@tool(
+    "get_my_contact_info",
+    "Look up the SIGNED-IN user's own contact details on file (name, email, "
+    "phone). Use it to resolve 'me' / 'my email' — e.g. BEFORE emailing the user "
+    "themselves ('email me the summary') — instead of guessing an address. "
+    "Returns only the current user's info, never anyone else's.",
+    {},
+)
+async def get_my_contact_info(args: dict[str, Any]) -> dict[str, Any]:
+    user = CURRENT_USER.get() or {}
+    uid = int(user.get("user_id") or 0)
+    if not uid:
+        return _text("There is no signed-in user in this context.", is_error=True)
+    try:
+        import asyncio
+        import readthrough
+
+        def _read():
+            conn = readthrough._db()
+            try:
+                return _q_contact(uid)(conn.cursor())
+            finally:
+                conn.close()
+        row = await asyncio.to_thread(_read)
+    except Exception as e:
+        logger.warning(f"get_my_contact_info lookup failed: {e}")
+        row = None
+    if not row:
+        # Fall back to what the session envelope carries.
+        name = str(user.get("name") or "").strip()
+        if not name:
+            return _text("I couldn't look up your contact info right now (user "
+                         "directory unavailable).", is_error=True)
+        return _text(f"Your contact info on file — name: {name}; email and phone "
+                     "could not be read from the user directory right now.")
+    return _text("Your contact info on file — "
+                 f"name: {row['name'] or '—'}; email: {row['email'] or '(none on file)'}; "
+                 f"phone: {row['phone'] or '(none on file)'}; username: "
+                 f"{row['username'] or '—'}.")
 
 
 @tool(
@@ -478,7 +536,8 @@ AIHUB_TOOLS = [
     list_data_connections,
     get_connection_schema,
     probe_connection_query,
-    ask_data_agent,
+    ask_agent,
+    get_my_contact_info,
     list_playbooks,
     list_recent_runs,
     list_secret_names,

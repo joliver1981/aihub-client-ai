@@ -17,6 +17,7 @@ result to that conversation (main.py /api/run resume, AGENT_DEFER_TO_CHAT).
 
 import json
 import os
+import re
 from typing import Any
 
 from platform_tools import CURRENT_USER, _text
@@ -1199,6 +1200,185 @@ async def get_agent_email_status(args: dict[str, Any]) -> dict[str, Any]:
     return _text("\n".join(lines))
 
 
+
+# ---------------------------------------------------------------------------
+# send_email (gap G4, 2026-09-02) — compose a NEW outbound email.
+#
+# Policy (James, 2026-09-02, denylist-over-allowlist): Developer+ sends
+# immediately — from their personal agent address when they have one,
+# otherwise from the platform's default sender — because they can already
+# send unapproved mail through automations and scheduled View emails. Regular
+# users (role < 2) send through their personal agent address and the message
+# is filed in My Work for their approval first (the A6 consent model; the
+# approval handler in main.py sends what they approve). The per-address
+# outbound kill switch is honored on both paths.
+# ---------------------------------------------------------------------------
+
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+_ATTACH_CAP_BYTES = int(os.getenv("AGENT_EMAIL_ATTACH_CAP_MB", "15")) * 1024 * 1024
+
+
+def build_email_attachments(specs: list) -> tuple:
+    """[{path, filename}] -> ([{filename, content(b64), content_type}], err).
+    Reads the bytes NOW (the approval path calls this at send time)."""
+    import base64
+    import mimetypes
+    out = []
+    total = 0
+    for spec in specs or []:
+        path = str((spec or {}).get("path") or "")
+        name = str((spec or {}).get("filename") or os.path.basename(path))
+        if not path or not os.path.isfile(path):
+            return None, f"attachment '{name}' no longer exists on the server"
+        with open(path, "rb") as fh:
+            data = fh.read()
+        total += len(data)
+        if total > _ATTACH_CAP_BYTES:
+            return None, (f"attachments exceed the {_ATTACH_CAP_BYTES // (1024*1024)} MB "
+                          "cap")
+        ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        out.append({"filename": name,
+                    "content": base64.b64encode(data).decode("ascii"),
+                    "content_type": ctype})
+    return out, None
+
+
+@tool(
+    "send_email",
+    "Send a NEW email (not a reply to inbound agent mail — that is "
+    "draft_email_reply). Use for 'email this to X', 'send the report to the "
+    "team', 'email me the summary' (call get_my_contact_info first for the "
+    "user's own address — never guess it). Developer+ users: the mail is SENT "
+    "immediately, from their personal agent address if they have one, otherwise "
+    "from the platform's sender. Regular users: the mail is filed in My Work "
+    "for their own approval and sends when they approve (they need a personal "
+    "agent address — offer setup_agent_email if they have none). attach_file "
+    "takes a server path, an /api/files link from this chat, or a chat "
+    "attachment. FORMATTING: write body as plain text with light markdown "
+    "(headings, bullets, **bold**, | tables |); it is rendered to HTML with the "
+    "text as the plain alternative — no raw HTML. Report EXACTLY what the tool "
+    "says: 'sent' only when it says SENT, otherwise 'awaiting approval'.",
+    {
+        "type": "object",
+        "properties": {
+            "to": {"type": "array", "items": {"type": "string"},
+                   "description": "Recipient addresses"},
+            "subject": {"type": "string"},
+            "body": {"type": "string",
+                     "description": "Plain text with light markdown; never raw HTML"},
+            "attach_file": {"type": "string",
+                            "description": "Optional: server path, /api/files/<id> "
+                                           "link, or chat attachment to attach"},
+            "rich": {"type": "boolean",
+                     "description": "Default true — also send a formatted HTML version"},
+        },
+        "required": ["to", "subject", "body"],
+        "additionalProperties": False,
+    },
+)
+async def send_email(args: dict[str, Any]) -> dict[str, Any]:
+    import email_store
+    from agent_config import logger
+    user = CURRENT_USER.get() or {}
+    uid = int(user.get("user_id") or 0)
+    role = int(user.get("role") or 0)
+    to = [str(a).strip() for a in (args.get("to") or []) if str(a).strip()]
+    if not to:
+        return _text("At least one recipient is required.", is_error=True)
+    bad = [a for a in to if not _EMAIL_RE.match(a)]
+    if bad:
+        return _text(f"Not a valid email address: {', '.join(bad)} — nothing sent.",
+                     is_error=True)
+    subject = str(args.get("subject") or "").strip()[:300]
+    body = str(args.get("body") or "")
+    if not subject or not body.strip():
+        return _text("Both a subject and a body are required — nothing sent.",
+                     is_error=True)
+
+    # Attachment: resolved through the same owner-scoped resolver read_file uses
+    # (server path for Developer+, delivered links / chat attachments for all).
+    attach_specs = []
+    attach_note = ""
+    if str(args.get("attach_file") or "").strip():
+        from document_tools import _resolve_read_path
+        path, perr = _resolve_read_path(str(args["attach_file"]))
+        if perr:
+            return _text(f"Attachment not found — nothing sent. {perr}", is_error=True)
+        attach_specs = [{"path": path, "filename": os.path.basename(path)}]
+        attach_note = f" Attachment: {os.path.basename(path)}."
+
+    addr = email_store.get_address(uid)
+    active_addr = addr if (addr and addr.get("is_active")) else None
+    if active_addr and not active_addr.get("outbound_enabled", 1):
+        return _text("Outbound email is DISABLED for this user's agent address "
+                     "(Email screen setting) — nothing was sent or drafted.",
+                     is_error=True)
+
+    import email_render
+    rich = bool(args.get("rich", True)) and email_render.html_enabled()
+
+    if role < 2:
+        # Regular users: file for their own approval through their agent address.
+        if not active_addr:
+            return _text("Regular users send email through their personal agent "
+                         "address, and this user has none yet — nothing was sent. "
+                         "Offer to set one up (setup_agent_email); after that the "
+                         "message will be filed in My Work for their approval.",
+                         is_error=True)
+        item = workitem_store.create_item(
+            "edit_and_return", f"Send: {subject}",
+            summary=(f"To: {', '.join(to)}\nFrom: {active_addr['email_address']}\n"
+                     + (f"Attachment: {attach_specs[0]['filename']}\n" if attach_specs else "")
+                     + "\nEdit the body if needed — what you approve is what sends."),
+            payload={"kind": "agent_email_reply", "to": to, "subject": subject,
+                     "body": body, "from_address": active_addr["email_address"],
+                     "from_user": uid, "rich": rich, "view": None,
+                     "attachments": attach_specs, "context": "send_email"},
+            addressed_user=uid, from_kind="agent_email",
+            from_ref=active_addr["email_address"],
+            created_by=str(user.get("username") or "agent"))
+        return _text(f"Filed for approval (work item {item['work_item_id']}) — it is "
+                     f"in My Work now; NOTHING has been sent. The user approves (and "
+                     f"may edit) the message first.{attach_note}")
+
+    # Developer+: send now.
+    atts, aerr = build_email_attachments(attach_specs) if attach_specs else (None, None)
+    if aerr:
+        return _text(f"Attachment problem — nothing sent: {aerr}", is_error=True)
+    if active_addr:
+        from_address = active_addr["email_address"]
+        from_name = f"{active_addr.get('prefix', 'agent')} via The Agent"
+    else:
+        from_address, from_name = "", ""
+    import email_client
+    result = await email_client.send_reply(
+        to, subject, body, from_address, from_name,
+        html_body=email_render.render_email_with_view(body, "", title=subject)
+        if rich else None,
+        attachments=atts)
+    if not result.get("success"):
+        logger.error(f"send_email failed for user {uid}: {result}")
+        return _text(f"Email NOT sent — the platform's mail service reported: "
+                     f"{result.get('error') or result.get('message') or result}. "
+                     "Say so; do not retry in a loop.", is_error=True)
+    try:
+        workitem_store.create_item(
+            "acknowledge", f"✉ Sent: {subject}",
+            summary=(f"To: {', '.join(to)}\nFrom: {from_address or 'platform sender'}"
+                     + (f"\nAttachment: {attach_specs[0]['filename']}" if attach_specs else "")
+                     + f"\n\n{body[:1500]}"),
+            payload={"kind": "agent_email_sent", "to": to, "subject": subject,
+                     "from_user": uid},
+            addressed_user=uid, from_kind="agent_email",
+            from_ref=from_address or "platform",
+            created_by=str(user.get("username") or "agent"))
+    except Exception as e:
+        logger.warning(f"send_email audit item failed (mail was sent): {e}")
+    sender = from_address or "the platform's default sender"
+    return _text(f"Email SENT to {', '.join(to)} from {sender} — subject "
+                 f"'{subject}'.{attach_note} (An FYI audit item was added to My Work.)")
+
+
 WORK_TOOLS = [raise_work_item, list_my_work, schedule_agent_task,
-              save_skill, list_skills_tool, draft_email_reply,
+              save_skill, list_skills_tool, draft_email_reply, send_email,
               get_agent_email_status, setup_agent_email]

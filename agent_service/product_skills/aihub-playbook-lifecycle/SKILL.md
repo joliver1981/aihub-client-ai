@@ -28,6 +28,22 @@ Start every script with the explicit import (`aihub` is not pre-bound):
 - Declare every connection/secret in the manifest; hard-coded credentials are
   rejected at save time.
 
+## Editing a code flow in place
+
+A code flow is not build-forward-only. After a dry-run shows a step failing:
+
+- `update_step_code(name, step_id, code)` replaces that step's source
+  (credential scan re-runs; hard-coded secrets are rejected).
+- `remove_code_step(name, step_id)` drops a step and every edge touching it;
+  if it was the start, the start moves to the first remaining step.
+- `unwire_steps(name, from_step, to_step, on?)` removes an edge. To INSERT a
+  step between A and B: add NEW, wire A->NEW and NEW->B, then unwire A->B —
+  two competing `pass` edges are rejected at dry-run.
+- `delete_code_flow(name, confirmed)` is two-step (confirm first).
+
+Every edit is verified by read-back (`get_code_flow`). Dry-run again after
+editing; scheduled runs keep the pinned version until you promote.
+
 ## Building a View tile from an automation
 
 A View tile can render an automation's output (scrapes, web APIs with
