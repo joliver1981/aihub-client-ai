@@ -475,11 +475,12 @@ def test_every_registered_tool_is_actually_decorated():
     from platform_tools import AIHUB_TOOLS
     from views_tools import VIEWS_TOOLS
     from work_tools import WORK_TOOLS
+    from agent_builder_tools import AGENT_BUILDER_TOOLS
 
     registries = {"AIHUB": AIHUB_TOOLS, "AUTHORING": AUTHORING_TOOLS,
                   "WORK": WORK_TOOLS, "VIEWS": VIEWS_TOOLS,
                   "INTEGRATION": INTEGRATION_TOOLS, "FILE": FILE_TOOLS,
-                  "DOCUMENT": DOCUMENT_TOOLS}
+                  "DOCUMENT": DOCUMENT_TOOLS, "AGENT_BUILDER": AGENT_BUILDER_TOOLS}
     for label, tools in registries.items():
         for t in tools:
             assert hasattr(t, "name"), (

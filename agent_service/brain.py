@@ -32,6 +32,7 @@ from file_tools import FILE_TOOLS
 from document_tools import DOCUMENT_TOOLS
 from portal_tools import PORTAL_TOOLS
 from email_tools import EMAIL_TOOLS
+from agent_builder_tools import AGENT_BUILDER_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -129,14 +130,21 @@ _EMAIL_TOOLS_ON = email_tools_enabled()
 # docs/code-interpreter-unification-plan.md.
 _CODE_TOOLS_ON = os.getenv("AGENT_RUN_PYTHON_TOOL", "true").lower() == "true"
 
+# Agent Builder tools (2026-09-02): the General Agent creation page
+# (create / configure tools / document access / knowledge / group sharing)
+# as conversation. Same additive/reversible doctrine — AGENT_BUILDER_TOOLS=false
+# ships without them and The Agent honestly reports it cannot build agents.
+_BUILDER_TOOLS_ON = os.getenv("AGENT_BUILDER_TOOLS", "true").lower() == "true"
+
 aihub_server = create_sdk_mcp_server(
-    name="aihub", version="0.6.0",
+    name="aihub", version="0.7.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
           + INTEGRATION_TOOLS + FILE_TOOLS
           + (CODE_TOOLS if _CODE_TOOLS_ON else [])
           + (DOCUMENT_TOOLS if _DOCUMENT_TOOLS_ON else [])
           + (PORTAL_TOOLS if _PORTAL_TOOLS_ON else [])
-          + (EMAIL_TOOLS if _EMAIL_TOOLS_ON else []))
+          + (EMAIL_TOOLS if _EMAIL_TOOLS_ON else [])
+          + (AGENT_BUILDER_TOOLS if _BUILDER_TOOLS_ON else []))
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -157,6 +165,9 @@ MUTATING_TOOLS = frozenset({
     "import_documents",
     "portal_fetch", "save_portal", "run_portal_workflow",
     "schedule_portal_workflow", "cancel_portal_workflow_schedule",
+    "create_general_agent", "update_general_agent", "delete_general_agent",
+    "set_agent_tools", "set_agent_document_types",
+    "add_agent_knowledge", "delete_agent_knowledge", "assign_agent_groups",
 })
 
 # Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise
@@ -173,7 +184,7 @@ MUTATION_CLAIM_RE = re.compile(
     r"(✅\s*(created|saved|scheduled|promoted|deleted|inserted|added|updated|wired))"
     r"|(\bI(?:'|’)?ve\s+(?:now\s+)?(created|saved|scheduled|promoted|deleted|"
     r"added|updated|wired)\b[^.\n]{0,80}\b(automation|code\s*flow|workflow|"
-    r"schedule|job|skill|work\s*item|playbook|step|checkpoint|view|secret)\b)"
+    r"schedule|job|skill|work\s*item|playbook|step|checkpoint|view|secret|agent)\b)"
     r"|(\b(?:is|are)\s+now\s+(?:live|scheduled|promoted|running\s+on\s+a\s+schedule)\b)",
     re.I)
 
@@ -197,6 +208,7 @@ _READ_TOOL_NAMES = [
     "list_server_files", "search_documents", "list_documents", "get_document",
     "query_document_records", "read_file",
     "lookup_portal", "list_portal_workflows", "describe_portal_workflow",
+    "list_agents", "get_agent_config", "get_agent_builder_options",
 ]
 _READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
 
@@ -405,6 +417,38 @@ just call check_portal_run). A run that hasn't finished is NOT a delivered
 file; repeat exactly what the tools said (the run_id lines matter — keep them).
 Downloads arrive as /api/files/ links — include them VERBATIM (FILES rules).
 Uploads: pass upload_file with a server path (list_server_files helps find it).
+
+AGENT BUILDER (General Agents — the chat agents on the Assistants screen)
+YES — you can create and configure AI Hub's General Agents, exactly like the
+Agent Builder page: call the tools, never say agents aren't exposed to you.
+- list_agents / get_agent_config show what exists and how an agent is set up
+  (objective, tools, document-type access, knowledge documents, groups, email).
+  Resolve names to ids with list_agents before acting — never guess an id.
+- create_general_agent(name, ...) creates one. A NAME ALONE IS ENOUGH: create
+  it right away with the platform's default objective, say which objective
+  you used, and offer to refine it and add tools — do not stall asking what
+  the agent is for. If the name already exists, say so and ask before making
+  a second one.
+- Tools: get_agent_builder_options lists the selectable core tools (by
+  category) and installed custom tools — use EXACT names, never invent one.
+  set_agent_tools adds / removes / replaces. The platform auto-adds the
+  mandatory tools and required dependencies, so report the READ-BACK tool
+  set the tool returns, not the list you asked for.
+- Document access: set_agent_document_types restricts the agent's document
+  tools to certain document TYPES (an empty list = unrestricted);
+  add_agent_knowledge uploads ONE specific file (a server path, an
+  /api/files link, or a chat attachment) as the agent's own knowledge;
+  delete_agent_knowledge removes one (knowledge_ids come from get_agent_config).
+- Who can use it: a new agent is visible to developers/admins only until an
+  ADMIN shares it with groups via assign_agent_groups (ask which groups
+  first; pass the full list — it replaces). Regular users only ever see
+  agents shared with one of their groups.
+- update_general_agent renames, rewrites the objective, enables/disables,
+  toggles personal connections. delete_general_agent is destructive — two
+  steps, confirmed=true only after the user says yes.
+These General Agents are DIFFERENT from automations/code flows (deterministic
+scripts you build with the authoring tools) and from DATA agents (SQL-bound
+assistants configured on the Data Assistants page — not editable here).
 
 SECRETS AND CREDENTIALS
 When a user hands you an API key, password, or token in chat, store it

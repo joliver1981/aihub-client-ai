@@ -35,6 +35,7 @@ try:
     from document_tools import DOCUMENT_TOOLS       # noqa: E402
     from portal_tools import PORTAL_TOOLS           # noqa: E402
     from email_tools import EMAIL_TOOLS             # noqa: E402
+    from agent_builder_tools import AGENT_BUILDER_TOOLS  # noqa: E402
     HAVE_SDK = True
 except ImportError as e:
     HAVE_SDK = False
@@ -53,7 +54,7 @@ else:
     # AGENT_PORTAL_TOOLS settings on the box running the suite.
     ALL_TOOLS = (AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
                  + INTEGRATION_TOOLS + FILE_TOOLS + DOCUMENT_TOOLS
-                 + PORTAL_TOOLS + EMAIL_TOOLS)
+                 + PORTAL_TOOLS + EMAIL_TOOLS + AGENT_BUILDER_TOOLS)
     ALL_NAMES = {getattr(t, "name", "") for t in ALL_TOOLS}
 
 # Read-shaped name prefixes. A registered tool matching one of these, not in
@@ -72,7 +73,7 @@ _READ_EXCLUSIONS = {
 _MUTATING_PREFIXES = ("create_", "save_", "delete_", "schedule_", "promote_",
                       "run_", "dry_run_", "wire_", "add_", "import_",
                       "execute_", "assign_", "store_", "rename_", "decide_",
-                      "raise_", "setup_", "draft_")
+                      "raise_", "setup_", "draft_", "set_", "update_")
 _MUTATING_EXCLUSIONS = set()  # none today; add with a reason, never loosen
 
 
@@ -129,6 +130,19 @@ def test_known_drift_regressions_pinned():
               "read_attachment"):
         assert n in brain._READ_TOOL_NAMES, n
     assert "save_attachment" in brain.MUTATING_TOOLS
+    # Agent Builder family (2026-09-02): the page-parity tools. Reads are
+    # side-thread-visible; every write is mutation-guarded.
+    for n in ("list_agents", "get_agent_config", "get_agent_builder_options"):
+        assert n in brain._READ_TOOL_NAMES, n
+    for n in ("create_general_agent", "update_general_agent",
+              "delete_general_agent", "set_agent_tools",
+              "set_agent_document_types", "add_agent_knowledge",
+              "delete_agent_knowledge", "assign_agent_groups"):
+        assert n in brain.MUTATING_TOOLS, n
+    # The mutation-claim guard must recognise an "I've created the agent"
+    # claim so an unbacked one is flagged like any other.
+    assert brain.claims_completed_mutation("I've created the agent Gen Agent 1005")
+    assert not brain.claims_completed_mutation("The agent list shows 3 agents.")
 
 
 def test_sensitive_fields_map_to_real_tools():
