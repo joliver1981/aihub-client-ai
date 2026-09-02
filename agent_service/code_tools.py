@@ -11,6 +11,10 @@ draft -> dry-run -> promote -> schedule lifecycle; run_python is immediate,
 conversational analysis over the user's uploaded files.
 
 docs/code-interpreter-unification-plan.md §4.2
+
+Pass 3 (2026-09-02): the execution pipeline is factored into execute_python()
+so export_data and manipulate_pdf (export_tools.py) run through the SAME
+sandbox, policy files, SDK token and file delivery — one lane, three tools.
 """
 
 import json
@@ -19,7 +23,7 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from claude_agent_sdk import tool
 
@@ -61,38 +65,28 @@ async def _connection_names() -> list:
         return []
 
 
-@tool(
-    "run_python",
-    "Execute Python NOW in the platform's sandboxed code interpreter and get "
-    "its output back. THE tool for any computation over files the user "
-    "uploaded in chat (CSV/Excel/JSON/text): row counts, totals, averages, "
-    "group-bys, joins, dedup, reformatting, and chart generation — never "
-    "count or total from a preview; compute here. The user's chat uploads are "
-    "copied into the working directory under their ORIGINAL filenames (e.g. "
-    "pd.read_csv('sales.csv')). pandas/numpy/matplotlib/openpyxl are "
-    "preinstalled; call install('pkg') inside the code for anything else. Any "
-    "NEW file the code writes to the working directory is delivered to the "
-    "user as a download link — include the returned links VERBATIM in your "
-    "reply. The aihub_runtime SDK works here too (import aihub_runtime as "
-    "aihub; aihub.query/help/...). This runs code IMMEDIATELY — for saved, "
-    "scheduled, repeatable work use the automations lifecycle instead.",
-    {
-        "type": "object",
-        "properties": {
-            "code": {"type": "string",
-                     "description": "Python source to run. print() everything "
-                                    "you want to see."},
-            "files": {"type": "array", "items": {"type": "string"},
-                      "description": "Optional extra server-side files (paths "
-                                     "under the AI Hub root, e.g. a portal "
-                                     "download) to stage into the working "
-                                     "directory by filename."},
-        },
-        "required": ["code"],
-        "additionalProperties": False,
-    },
-)
-async def run_python(args: dict[str, Any]) -> dict[str, Any]:
+def _default_timeout() -> int:
+    try:
+        return int(os.getenv(_TIMEOUT_ENV, "120"))
+    except (TypeError, ValueError):
+        return 120
+
+
+async def execute_python(uid: int, code: str, *, extra_files: Optional[list] = None,
+                         trusted_files: Optional[list] = None,
+                         stage_uploads: bool = True, timeout: Optional[int] = None,
+                         lane: str = "run_python") -> dict:
+    """Run `code` in the shared code-interpreter sandbox as user `uid`.
+
+    extra_files:   model-supplied server paths — must live under APP_ROOT
+                   (same containment rule as stage_offer).
+    trusted_files: [(src_path, staged_name)] the CALLER already authorized
+                   (e.g. through document_tools._resolve_read_path); staged
+                   as given, no containment check.
+    Returns a dict: configured, ok, timed_out, returncode, output, links
+    (chat download links for produced files), produced (names), manifest
+    (hidden-sheet note or ""), error (text or None). Never raises.
+    """
     from code_exec import (
         NOT_CONFIGURED_MSG,
         adhoc_package_dir,
@@ -106,21 +100,15 @@ async def run_python(args: dict[str, Any]) -> dict[str, Any]:
     )
     from code_exec import sdkwire
 
-    user = CURRENT_USER.get() or {}
-    uid = int(user.get("user_id") or 0)
-
-    try:
-        timeout = int(os.getenv(_TIMEOUT_ENV, "120"))
-    except (TypeError, ValueError):
-        timeout = 120
-
+    timeout = int(timeout or _default_timeout())
     python_exe = resolve_interpreter()
     if not python_exe:
-        return _text(NOT_CONFIGURED_MSG, is_error=True)
+        return {"configured": False, "ok": False, "timed_out": False, "returncode": None,
+                "output": "", "links": [], "produced": [], "manifest": "",
+                "error": NOT_CONFIGURED_MSG}
 
     workdir = tempfile.mkdtemp(prefix="run_", dir=_workdir_root())
     try:
-        # -- stage this user's chat uploads by original filename
         staged_names = []
 
         def _stage(src, name):
@@ -130,24 +118,31 @@ async def run_python(args: dict[str, Any]) -> dict[str, Any]:
                     shutil.copyfile(src, dest)
                     staged_names.append(dest.name)
             except Exception as e:
-                logger.warning(f"run_python: could not stage {name}: {e}")
+                logger.warning(f"{lane}: could not stage {name}: {e}")
 
-        try:
-            for meta in list_uploads(uid):
-                hit = resolve_upload(uid, meta.get("file_id"))
-                if hit:
-                    _stage(hit[0], hit[1])
-        except Exception as e:
-            logger.warning(f"run_python: upload staging unavailable: {e}")
+        # -- this user's chat uploads by original filename
+        if stage_uploads:
+            try:
+                for meta in list_uploads(uid):
+                    hit = resolve_upload(uid, meta.get("file_id"))
+                    if hit:
+                        _stage(hit[0], hit[1])
+            except Exception as e:
+                logger.warning(f"{lane}: upload staging unavailable: {e}")
 
-        # optional extra server files — same containment rule as stage_offer
+        # -- optional extra server files — same containment rule as stage_offer
         root = os.path.abspath(APP_ROOT)
-        for extra in (args.get("files") or []):
+        for extra in (extra_files or []):
             src = os.path.abspath(str(extra).strip().strip('"'))
             if src.startswith(root + os.sep) and os.path.isfile(src):
                 _stage(src, os.path.basename(src))
             else:
-                logger.warning(f"run_python: refused extra file outside root: {extra}")
+                logger.warning(f"{lane}: refused extra file outside root: {extra}")
+
+        # -- caller-authorized inputs (export/PDF tools resolve them role-scoped)
+        for src, name in (trusted_files or []):
+            if src and os.path.isfile(src):
+                _stage(src, name)
 
         # Sheet-visibility manifest — computed NOW, before the user's code can
         # rewrite the staged files.
@@ -174,12 +169,14 @@ async def run_python(args: dict[str, Any]) -> dict[str, Any]:
 
         baseline = snapshot(workdir)
         started = time.time()
-        res = run_script(args.get("code") or "", workdir, python_exe,
+        res = run_script(code or "", workdir, python_exe,
                          timeout=timeout, env=env, preamble=preamble)
 
         if res["timed_out"]:
-            return _text(f"Execution timed out after {timeout} seconds.",
-                         is_error=True)
+            return {"configured": True, "ok": False, "timed_out": True, "returncode": None,
+                    "output": res.get("stdout") or "", "links": [], "produced": [],
+                    "manifest": visibility_manifest,
+                    "error": f"Execution timed out after {timeout} seconds."}
 
         out = res["stdout"] or ""
         if res["returncode"] != 0:
@@ -197,16 +194,16 @@ async def run_python(args: dict[str, Any]) -> dict[str, Any]:
                     links.append(msg)
                     produced_names.append(produced.name)
                 else:
-                    logger.warning(f"run_python: could not offer {produced.name}: {msg}")
+                    logger.warning(f"{lane}: could not offer {produced.name}: {msg}")
             except Exception as e:
-                logger.warning(f"run_python: offer failed for {produced.name}: {e}")
+                logger.warning(f"{lane}: offer failed for {produced.name}: {e}")
 
         # invocation ledger — shared with GA's lane so packs/forensics can
         # attribute WHICH lane answered (surface marks this one)
         try:
             from CommonUtils import get_log_path
             rec = {"ts": time.time(), "surface": "the-agent",
-                   "lane": "run_python", "agent": None,
+                   "lane": lane, "agent": None,
                    "user": uid, "staged": staged_names,
                    "rc": res["returncode"], "timed_out": res["timed_out"],
                    "duration_s": round(time.time() - started, 1),
@@ -215,27 +212,73 @@ async def run_python(args: dict[str, Any]) -> dict[str, Any]:
                       "a", encoding="utf-8") as ledger:
                 ledger.write(json.dumps(rec) + "\n")
         except Exception as e:
-            logger.debug(f"run_python: ledger write failed: {e}")
+            logger.debug(f"{lane}: ledger write failed: {e}")
 
-        reply = out.strip() or ("(no output)" if not links else "")
-        reply = reply[:18000]
-        if visibility_manifest:
-            reply += visibility_manifest
-        if links:
-            reply += (("\n\n" if reply else "") +
-                      "Files created — include these links VERBATIM in your reply:\n" +
-                      "\n".join(links))
-            # Pass 2 (rich output): an image link renders INLINE in the chat —
-            # a chart the code saved as .png shows up as a picture, not a link.
-            import rich_blocks
-            imgs = rich_blocks.image_lines(links)
-            if imgs:
-                reply += ("\n\nImages — include these lines VERBATIM as well (they "
-                          "render inline in the chat; keep the download links too):\n"
-                          + "\n".join(imgs))
-        return _text(reply)
+        return {"configured": True, "ok": res["returncode"] == 0, "timed_out": False,
+                "returncode": res["returncode"], "output": out, "links": links,
+                "produced": produced_names, "manifest": visibility_manifest,
+                "error": None}
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+@tool(
+    "run_python",
+    "Execute Python NOW in the platform's sandboxed code interpreter and get "
+    "its output back. THE tool for any computation over files the user "
+    "uploaded in chat (CSV/Excel/JSON/text): row counts, totals, averages, "
+    "group-bys, joins, dedup, reformatting, and chart generation — never "
+    "count or total from a preview; compute here. The user's chat uploads are "
+    "copied into the working directory under their ORIGINAL filenames (e.g. "
+    "pd.read_csv('sales.csv')). pandas/numpy/matplotlib/openpyxl are "
+    "preinstalled; call install('pkg') inside the code for anything else. Any "
+    "NEW file the code writes to the working directory is delivered to the "
+    "user as a download link — include the returned links VERBATIM in your "
+    "reply (a .png also comes back as an inline image line). The aihub_runtime "
+    "SDK works here too (import aihub_runtime as aihub; aihub.query/help/...). "
+    "This runs code IMMEDIATELY — for saved, scheduled, repeatable work use "
+    "the automations lifecycle instead. For 'give me this as Excel/CSV/PDF' "
+    "prefer export_data; for split/rotate/merge of a PDF prefer manipulate_pdf.",
+    {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string",
+                     "description": "Python source to run. print() everything "
+                                    "you want to see."},
+            "files": {"type": "array", "items": {"type": "string"},
+                      "description": "Optional extra server-side files (paths "
+                                     "under the AI Hub root, e.g. a portal "
+                                     "download) to stage into the working "
+                                     "directory by filename."},
+        },
+        "required": ["code"],
+        "additionalProperties": False,
+    },
+)
+async def run_python(args: dict[str, Any]) -> dict[str, Any]:
+    user = CURRENT_USER.get() or {}
+    uid = int(user.get("user_id") or 0)
+    r = await execute_python(uid, args.get("code") or "",
+                             extra_files=args.get("files") or [], lane="run_python")
+    if not r["configured"] or r["timed_out"]:
+        return _text(r["error"], is_error=True)
+    reply = r["output"].strip() or ("(no output)" if not r["links"] else "")
+    reply = reply[:18000]
+    if r["manifest"]:
+        reply += r["manifest"]
+    if r["links"]:
+        reply += (("\n\n" if reply else "") +
+                  "Files created — include these links VERBATIM in your reply:\n" +
+                  "\n".join(r["links"]))
+        # Pass 2 (rich output): an image link renders INLINE in the chat —
+        # a chart the code saved as .png shows up as a picture, not a link.
+        import rich_blocks
+        imgs = rich_blocks.image_lines(r["links"])
+        if imgs:
+            reply += ("\n\nImages — include these lines VERBATIM as well (they "
+                      "render inline in the chat; keep the download links too):\n"
+                      + "\n".join(imgs))
+    return _text(reply)
 
 
 CODE_TOOLS = [run_python]

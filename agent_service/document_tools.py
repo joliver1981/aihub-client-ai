@@ -70,6 +70,29 @@ _TEXT_READ_EXTS = {
 }
 _DOC_EXTRACT_EXTS = {"pdf", "docx", "doc", "xlsx", "xls",
                      "jpg", "jpeg", "png", "gif", "webp"}
+# Vision (pass 3, 2026-09-02): images are returned to the model as an IMAGE
+# content block — the brain is Claude and sees the picture itself (the SDK
+# forwards {"type":"image","data","mimeType"} tool-result items). ocr=true
+# keeps the old text-extraction path for "transcribe this document photo".
+_IMAGE_EXTS = {"png", "jpg", "jpeg", "gif", "webp"}
+_IMAGE_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+               "gif": "image/gif", "webp": "image/webp"}
+_IMAGE_INLINE_MAX_MB = float(os.getenv("AGENT_IMAGE_INLINE_MAX_MB", "4"))
+
+
+def image_block(path: str, ext: str, size: int):
+    """The image content item for read_file, or None when the file is over the
+    inline cap (the model API rejects very large images; fall back to text)."""
+    if ext not in _IMAGE_EXTS or size > _IMAGE_INLINE_MAX_MB * 1024 * 1024:
+        return None
+    import base64
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    return {"type": "image", "data": base64.b64encode(data).decode("ascii"),
+            "mimeType": _IMAGE_MIME[ext]}
 # Whole-file read; no truncation. This is only a backstop against a pathological
 # file (a multi-GB export) that would compound in the SDK transcript every turn.
 # Generous by default; raise AGENT_READ_FILE_MAX_MB any time.
@@ -901,15 +924,18 @@ def _resolve_read_path(raw: str):
 
 @tool(
     "read_file",
-    "Read the CONTENTS of a single file on the AI Hub server and return its text "
-    "— plainly, for ANY common type: TXT, CSV, JSON, Markdown, code/config, and "
-    "documents (PDF, Word, Excel, images). Use this when the user wants you to "
-    "LOOK AT or answer from one specific file (a file they attached in chat, a "
-    "file you just downloaded, or a path they gave). It does NOT store or index "
-    "the file — it's a one-off read, the fast path for 'what's in this file?'. "
-    "(To make many files SEARCHABLE later, use import_documents instead; to list "
-    "a folder, list_server_files.) Accepts a server path, an /api/files link you "
-    "delivered, or a chat-attachment id.",
+    "Read the CONTENTS of a single file on the AI Hub server — plainly, for ANY "
+    "common type: TXT, CSV, JSON, Markdown, code/config, and documents (PDF, "
+    "Word, Excel). IMAGES (png/jpg/gif/webp — a screenshot, a photo, a chart) "
+    "come back as the PICTURE ITSELF: you can see it, so describe it, read the "
+    "chart or screenshot, answer what is in it; pass ocr=true instead when the "
+    "user wants the TEXT transcribed from a document photo. Use this when the "
+    "user wants you to LOOK AT or answer from one specific file (a file they "
+    "attached in chat, a file you just downloaded, or a path they gave). It does "
+    "NOT store or index the file — it's a one-off read, the fast path for "
+    "'what's in this file?'. (To make many files SEARCHABLE later, use "
+    "import_documents instead; to list a folder, list_server_files.) Accepts a "
+    "server path, an /api/files link you delivered, or a chat-attachment id.",
     {
         "type": "object",
         "properties": {
@@ -951,6 +977,18 @@ async def read_file(args: dict[str, Any]) -> dict[str, Any]:
 
     ocr = bool(args.get("ocr"))
     is_doc = ext in _DOC_EXTRACT_EXTS
+
+    # Images: hand the model the picture (vision), unless a transcription was
+    # asked for. Over the inline cap -> the extraction path below, with a note.
+    if ext in _IMAGE_EXTS and not ocr:
+        block = image_block(path, ext, size)
+        if block:
+            return {"content": [block, {"type": "text", "text":
+                    f"Image '{name}' ({_fmt_size(size)}) is attached above — you can "
+                    "SEE it. Describe it, read any chart, table or screenshot in it, "
+                    "and answer from what is visible. For a text transcription of a "
+                    "document photo, call read_file again with ocr=true."}]}
+        ocr = True     # too large to show inline — extract text instead
 
     # Plain-text path: read locally — instant, zero LLM, nothing stored. Covers
     # the widest set (any text/code/config), which is why a 44-byte CSV no longer

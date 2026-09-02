@@ -37,6 +37,7 @@ try:
     from email_tools import EMAIL_TOOLS             # noqa: E402
     from agent_builder_tools import AGENT_BUILDER_TOOLS  # noqa: E402
     from web_tools import WEB_TOOLS                 # noqa: E402
+    from export_tools import EXPORT_TOOLS           # noqa: E402
     HAVE_SDK = True
 except ImportError as e:
     HAVE_SDK = False
@@ -55,7 +56,8 @@ else:
     # AGENT_PORTAL_TOOLS settings on the box running the suite.
     ALL_TOOLS = (AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
                  + INTEGRATION_TOOLS + FILE_TOOLS + DOCUMENT_TOOLS
-                 + PORTAL_TOOLS + EMAIL_TOOLS + AGENT_BUILDER_TOOLS + WEB_TOOLS)
+                 + PORTAL_TOOLS + EMAIL_TOOLS + AGENT_BUILDER_TOOLS + WEB_TOOLS
+                 + EXPORT_TOOLS)
     ALL_NAMES = {getattr(t, "name", "") for t in ALL_TOOLS}
 
 # Read-shaped name prefixes. A registered tool matching one of these, not in
@@ -75,7 +77,8 @@ _MUTATING_PREFIXES = ("create_", "save_", "delete_", "schedule_", "promote_",
                       "run_", "dry_run_", "wire_", "add_", "import_",
                       "execute_", "assign_", "store_", "rename_", "decide_",
                       "raise_", "setup_", "draft_", "set_", "update_",
-                      "send_", "unwire_", "remove_", "remember_", "forget_")
+                      "send_", "unwire_", "remove_", "remember_", "forget_",
+                      "export_", "manipulate_")
 _MUTATING_EXCLUSIONS = set()  # none today; add with a reason, never loosen
 
 
@@ -161,6 +164,10 @@ def test_known_drift_regressions_pinned():
         assert n in brain.MUTATING_TOOLS, n
     assert "find_user_contact" in brain._READ_TOOL_NAMES
     assert brain.claims_completed_mutation("I've saved that preference for you.")
+    # Pass 3 (2026-09-02): exports and PDF operations produce files — writes.
+    for n in ("export_data", "manipulate_pdf"):
+        assert n in brain.MUTATING_TOOLS, n
+    assert brain.claims_completed_mutation("I've created the Excel file with the vendors.")
 
 
 def test_sensitive_fields_map_to_real_tools():

@@ -34,6 +34,7 @@ from portal_tools import PORTAL_TOOLS
 from email_tools import EMAIL_TOOLS
 from agent_builder_tools import AGENT_BUILDER_TOOLS
 from web_tools import WEB_TOOLS
+from export_tools import EXPORT_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -141,8 +142,14 @@ _BUILDER_TOOLS_ON = os.getenv("AGENT_BUILDER_TOOLS", "true").lower() == "true"
 # DuckDuckGo otherwise. AGENT_WEB_TOOLS=false ships without it.
 _WEB_TOOLS_ON = os.getenv("AGENT_WEB_TOOLS", "true").lower() == "true"
 
+# Exports + PDF manipulation (pass 3): run through the code-interpreter lane,
+# so they need the same interpreter run_python needs. AGENT_EXPORT_TOOLS=false
+# ships without them.
+_EXPORT_TOOLS_ON = (os.getenv("AGENT_EXPORT_TOOLS", "true").lower() == "true"
+                    and _CODE_TOOLS_ON)
+
 aihub_server = create_sdk_mcp_server(
-    name="aihub", version="0.8.0",
+    name="aihub", version="0.9.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
           + INTEGRATION_TOOLS + FILE_TOOLS
           + (CODE_TOOLS if _CODE_TOOLS_ON else [])
@@ -150,7 +157,8 @@ aihub_server = create_sdk_mcp_server(
           + (PORTAL_TOOLS if _PORTAL_TOOLS_ON else [])
           + (EMAIL_TOOLS if _EMAIL_TOOLS_ON else [])
           + (AGENT_BUILDER_TOOLS if _BUILDER_TOOLS_ON else [])
-          + (WEB_TOOLS if _WEB_TOOLS_ON else []))
+          + (WEB_TOOLS if _WEB_TOOLS_ON else [])
+          + (EXPORT_TOOLS if _EXPORT_TOOLS_ON else []))
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -176,6 +184,7 @@ MUTATING_TOOLS = frozenset({
     "add_agent_knowledge", "delete_agent_knowledge", "assign_agent_groups",
     "send_email", "unwire_steps", "remove_code_step", "update_step_code",
     "delete_code_flow", "remember_preference", "forget_preference",
+    "export_data", "manipulate_pdf",
 })
 
 # Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise
@@ -192,7 +201,8 @@ MUTATION_CLAIM_RE = re.compile(
     r"(✅\s*(created|saved|scheduled|promoted|deleted|inserted|added|updated|wired|sent|emailed))"
     r"|(\bI(?:'|’)?ve\s+(?:now\s+)?(created|saved|scheduled|promoted|deleted|"
     r"added|updated|wired|sent|emailed)\b[^.\n]{0,80}\b(automation|code\s*flow|workflow|"
-    r"schedule|job|skill|work\s*item|playbook|step|checkpoint|view|secret|agent|email|preference)\b)"
+    r"schedule|job|skill|work\s*item|playbook|step|checkpoint|view|secret|agent|email|preference|"
+    r"file|export|spreadsheet|pdf)\b)"
     r"|(\b(?:is|are)\s+now\s+(?:live|scheduled|promoted|running\s+on\s+a\s+schedule)\b)",
     re.I)
 
@@ -342,6 +352,12 @@ or integration download, an automation output, an export), call
 offer_file_download with the server path and include the returned markdown
 link VERBATIM in your reply — the chat renders it as a working download
 button. Never tell a user to fetch a file from a server path.
+EXPORTS: "give me this as Excel / a CSV / a PDF" -> export_data. Data from
+a database goes through connection+sql (one SELECT, every row, nothing
+retyped by you); small data already in the conversation goes through
+rows_json copied EXACTLY. Split, extract, rotate or merge a PDF with
+manipulate_pdf (info gives the page count). Both return download links —
+include them VERBATIM.
 Those /api/files/ links ALSO work as inputs for YOUR OWN tools:
 import_documents and the portal upload_file argument accept an /api/files/
 link (or the "Server copies" path a portal tool returned) and resolve it to
@@ -379,9 +395,13 @@ or probe endpoints just to import or search files, and never mention API keys.
   import landed or to answer "what documents do I have?".
 - To just LOOK AT one specific file — a chat attachment, a file you downloaded,
   or a path the user gives — call read_file. It returns the text of ANY common
-  type (TXT/CSV/JSON/Markdown/code and PDF/Word/Excel/images) without storing or
+  type (TXT/CSV/JSON/Markdown/code and PDF/Word/Excel) without storing or
   indexing it — the fast path for "what's in this file?". Do NOT import a file
   just to read it once; import is for making many files searchable later.
+  IMAGES: read_file on a png/jpg/gif/webp gives you the PICTURE — you can see
+  it. A pasted screenshot, a photo, a chart: read_file it and answer from what
+  you see (what the chart shows, what the error dialog says, what is in the
+  photo). Use ocr=true only when the user wants the text transcribed.
 - For ANY computation over a file — row counts, sums, means, min/max,
   group-bys, filtered slices, joins, reshaping, cleaning/dedup, custom logic,
   producing a file or a chart — run_python IS the lane: load the actual file
