@@ -17,6 +17,15 @@ PARENT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PARENT_DIR not in sys.path:
     sys.path.insert(0, PARENT_DIR)
 
+# Pin the BUNDLED command_center package before anything below (CommonUtils -> config.py)
+# puts the install root at sys.path[0]. command_center_service.exe is built with a PyInstaller
+# whose frozen finder is a path hook (>= 6.10), so a stray {app}\command_center folder on a
+# client (the partial copy installers before 2026-09-01 shipped loose) would otherwise win and
+# every chat died with "No module named 'command_center.orchestration'". Importing it here,
+# while sys.path is still [service dir, _internal...], binds the bundled package; later sys.path
+# edits cannot replace what is already in sys.modules. No-op in dev (PARENT_DIR = repo root).
+import command_center  # noqa: F401,E402
+
 # Load .env from the main app directory FIRST
 from dotenv import load_dotenv
 _env_path = os.path.join(PARENT_DIR, '.env')

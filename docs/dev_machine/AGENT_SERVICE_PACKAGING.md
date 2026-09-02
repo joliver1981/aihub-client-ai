@@ -16,6 +16,18 @@ No new loose modules are needed: The Agent imports `shared_auth`, `encrypt`,
 `secure_config`, `local_secrets` from `APP_ROOT`, and the installer already
 ships those loose to `{app}` for Browser Use.
 
+The `command_center.tools.*` modules the portal tools import (`portal_registry`,
+`portal_fetch`, `portal_workflows`, `portal_workflow_run`) are staged as a
+**private copy inside** `dist\agent_service\command_center\` by
+`scripts\stage_cc_tools_subset.ps1` (called from `build_agent_service.ps1`; the
+same helper stages Browser Use's copy from the `.bat`). Never ship them loose to
+`{app}`: a partial `{app}\command_center` package shadows the Command Center
+exe's bundled package (PyInstaller path-based finder) and kills every CC chat
+with `No module named 'command_center.orchestration'` (2026-09-01). The helper
+fails the build if a new `command_center.*` import escapes the shipped set, and
+`portal_fetch.browser_use_base_url()` resolves the Browser Use URL without
+`CommonUtils` (not shipped to source-run services).
+
 ## Build steps
 
 ```powershell

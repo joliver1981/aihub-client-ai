@@ -40,6 +40,13 @@ $dataDir = Join-Path $svcDst "data"
 if (Test-Path $dataDir) { Remove-Item $dataDir -Recurse -Force }
 Write-Host "  staged $(Get-ChildItem $svcDst -Recurse -File | Measure-Object | Select-Object -ExpandProperty Count) files" -ForegroundColor Green
 
+# Private copy of the command_center.tools modules The Agent imports (portal registry /
+# fetch / workflows / run). Service-local ON PURPOSE: a partial copy shipped loose to
+# {app} shadowed the Command Center exe's bundled package and killed every CC chat
+# ("No module named 'command_center.orchestration'", 2026-09-01). The helper also fails
+# the build if a new command_center.* import escapes the shipped set.
+& (Join-Path $PSScriptRoot "stage_cc_tools_subset.ps1") -Dest $svcDst -Repo $Repo
+
 if ($SkipEnv) {
     Write-Host "=== -SkipEnv: leaving $envDst as-is ===" -ForegroundColor Yellow
     return

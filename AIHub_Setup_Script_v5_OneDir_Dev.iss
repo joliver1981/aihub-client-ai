@@ -112,13 +112,29 @@ Source: "C:\src\aihub-client-ai-dev\_build_config_client.py"; DestDir: "{app}"; 
 ; (main.py _verify_cobrowse). Without it every co-browse endpoint on a client 403s with
 ; "auth unavailable: No module named 'shared_auth'". PyJWT ships inside browser_use_env.
 Source: "C:\src\aihub-client-ai-dev\shared_auth.py"; DestDir: "{app}"; Flags: ignoreversion
-; command_center.tools.portal_workflows (stdlib-only, plus its two trivial __init__.py
-; parents): the co-browse "save recorded steps as a workflow" endpoint
-; (/runs/{id}/save_workflow) imports it; without these a client 500s with
-; "No module named 'command_center'". Same loose-module pattern as above.
-Source: "C:\src\aihub-client-ai-dev\command_center\__init__.py"; DestDir: "{app}\command_center"; Flags: ignoreversion
-Source: "C:\src\aihub-client-ai-dev\command_center\tools\__init__.py"; DestDir: "{app}\command_center\tools"; Flags: ignoreversion
-Source: "C:\src\aihub-client-ai-dev\command_center\tools\portal_workflows.py"; DestDir: "{app}\command_center\tools"; Flags: ignoreversion
+; command_center.tools.* for the SOURCE-RUN services (browser_use_service: the portal_workflows
+; store behind co-browse /runs/{id}/save_workflow; agent_service: portal registry/fetch/
+; workflows/run) are deliberately NOT shipped loose to {app}. They ride INSIDE each staged
+; service tree (dist\<service>\command_center\..., produced by scripts\stage_cc_tools_subset.ps1
+; from build_agent_service.ps1 and the .bat's browser-use step), which the wildcard Source
+; lines above already install. A partial loose {app}\command_center package shadowed
+; command_center_service.exe's bundled package (PyInstaller path-based finder; config.py puts
+; {app} at sys.path[0]) and every Command Center chat died with
+; "No module named 'command_center.orchestration'" (2026-09-01). [InstallDelete] removes the
+; stray package earlier installs left behind.
+
+[InstallDelete]
+; Stray partial command_center package that v4/v5 builds up to 2026-09-01 (and the 08-07
+; co-browse hot-fix zip) shipped loose to {app}. Left in place it shadows the Command Center
+; exe's bundled package (see the [Files] note). Precise entries on purpose: delete only what
+; we planted, then drop the directories if that emptied them.
+Type: files; Name: "{app}\command_center\tools\portal_workflows.py"
+Type: files; Name: "{app}\command_center\tools\__init__.py"
+Type: files; Name: "{app}\command_center\__init__.py"
+Type: filesandordirs; Name: "{app}\command_center\tools\__pycache__"
+Type: filesandordirs; Name: "{app}\command_center\__pycache__"
+Type: dirifempty; Name: "{app}\command_center\tools"
+Type: dirifempty; Name: "{app}\command_center"
 
 [Registry]
 ; Store API key securely in the registry (ACL restricted to Administrators + SYSTEM)

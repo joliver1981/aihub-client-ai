@@ -124,12 +124,27 @@ def _patch_base(monkeypatch, base="http://127.0.0.1:5101"):
     monkeypatch.setattr(CommonUtils, "get_browser_use_api_base_url", lambda: base)
 
 
-def test_fetch_portal_service_url_unavailable(monkeypatch):
+def test_fetch_portal_falls_back_to_env_url_when_commonutils_unavailable(monkeypatch):
+    """The source-run services (The Agent, Browser Use) ship portal_fetch WITHOUT CommonUtils
+    (it drags in config.py), so a failing/missing CommonUtils must NOT abort the call: the same
+    env rules resolve the URL (PROTOCOL://INTERNAL_HOST:BROWSER_USE_PORT | HOST_PORT+100) and the
+    request proceeds. Before 2026-09-01 this returned "service URL unavailable" instead."""
     import CommonUtils
     monkeypatch.setattr(CommonUtils, "get_browser_use_api_base_url", _raise)
+    for var in ("PROTOCOL", "INTERNAL_HOST", "BROWSER_USE_PORT"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("HOST_PORT", "5001")
+    captured = {}
+
+    def _post(url, json=None, headers=None, timeout=None):
+        captured["url"] = url
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(pf.requests, "post", _post)
     res = pf.fetch_portal("acme", "https://acme.com", "do it")
+    assert captured["url"] == "http://127.0.0.1:5101/portal/fetch"
     assert res["status"] == "error"
-    assert "service URL unavailable" in res["error"]
+    assert "could not reach Browser Use service at http://127.0.0.1:5101" in res["error"]
     assert res["blocks"] == [] and res["file_count"] == 0
 
 

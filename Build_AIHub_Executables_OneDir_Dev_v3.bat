@@ -266,6 +266,17 @@ echo [14] Copying browser_use_service source...
 robocopy "%PROJECT_PATH%\browser_use_service" "%PROJECT_PATH%\dist\browser_use_service" /MIR /XD _scratch __pycache__ .pytest_cache /XF *.log /NFL /NDL /NJH /NJS /NP
 if %ERRORLEVEL% GEQ 8 ( echo ERROR: browser_use_service source copy failed! & pause & exit /b 1 )
 
+:: Private copy of the command_center.tools modules the service imports (the portal_workflows
+:: store behind co-browse "save recorded steps as a workflow"). Staged INSIDE the service
+:: folder on purpose: shipping them loose to {app} shadowed command_center_service.exe's
+:: bundled package (PyInstaller path-based finder) -> every Command Center chat died with
+:: "No module named 'command_center.orchestration'" (2026-09-01). The /MIR above purges the
+:: previous copy; this re-creates it every build. Same helper stages The Agent's copy
+:: (scripts\build_agent_service.ps1).
+echo [14] Staging command_center.tools subset -^> dist\browser_use_service\command_center...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJECT_PATH%\scripts\stage_cc_tools_subset.ps1" -Dest "%PROJECT_PATH%\dist\browser_use_service" -Repo "%PROJECT_PATH%"
+if %ERRORLEVEL% NEQ 0 ( echo ERROR: command_center.tools staging failed! & pause & exit /b 1 )
+
 echo [14] Copying isolated env (aihub-browseruse) -^> dist\browser_use_env...
 robocopy "%CONDA_PATH%\envs\aihub-browseruse" "%PROJECT_PATH%\dist\browser_use_env" /MIR /NFL /NDL /NJH /NJS /NP
 if %ERRORLEVEL% GEQ 8 ( echo ERROR: browser_use_env copy failed! & pause & exit /b 1 )

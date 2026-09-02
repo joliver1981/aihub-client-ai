@@ -3,7 +3,9 @@ portal_fetch.py - CC tool core: call the isolated Browser Use service to log int
 portal and download files, then register the downloads as CC artifacts (download chips).
 
 The service runs in its own conda env (aihub-browseruse) and is reached over HTTP via
-CommonUtils.get_browser_use_api_base_url(). Credentials never pass through here or the LLM:
+browser_use_base_url() below (CommonUtils.get_browser_use_api_base_url when importable, else the
+same env rules - the source-run services ship this module WITHOUT CommonUtils, which drags in
+config.py). Credentials never pass through here or the LLM:
 the tool sends only the secret KEY NAMES (derived from portal_name), which the service
 resolves from the encrypted LocalSecretsManager. Artifact registration mirrors
 code_interpreter.harvest_outputs so downloads render as download chips with no frontend change.
@@ -112,13 +114,69 @@ def _internal_headers() -> Dict[str, str]:
     return h
 
 
+def _local_ip() -> str:
+    """Mirror CommonUtils.get_local_ip (only consulted when a host is configured as 0.0.0.0)."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+def browser_use_base_url() -> str:
+    """Base URL of the Browser Use service.
+
+    Prefers CommonUtils.get_browser_use_api_base_url() (main app / Command Center service).
+    The source-run services (The Agent, Browser Use itself) get a private copy of this module
+    but NOT CommonUtils (it imports config.py), so fall back to the SAME rules it applies:
+    PROTOCOL (http) :// INTERNAL_HOST (127.0.0.1) : BROWSER_USE_PORT, else HOST_PORT + 100.
+    """
+    try:
+        from CommonUtils import get_browser_use_api_base_url
+        return get_browser_use_api_base_url()
+    except Exception:
+        pass
+    protocol = os.getenv("PROTOCOL", "http")
+    host = os.getenv("INTERNAL_HOST", "127.0.0.1")
+    if host == "0.0.0.0":
+        host = _local_ip()
+    override = os.getenv("BROWSER_USE_PORT")
+    try:
+        port = int(override) if override else int(os.getenv("HOST_PORT", "5001")) + 100
+    except ValueError:
+        port = 5101
+    return f"{protocol}://{host}:{port}"
+
+
+def main_app_base_url() -> str:
+    """Main-app base URL for user-facing links: CommonUtils.get_base_url() when importable,
+    else the same rules - PROTOCOL :// HOST (localhost; 0.0.0.0 -> local IP) : HOST_PORT."""
+    try:
+        from CommonUtils import get_base_url
+        return get_base_url()
+    except Exception:
+        pass
+    protocol = os.getenv("PROTOCOL", "http")
+    host = os.getenv("HOST", "localhost")
+    if host == "0.0.0.0":
+        host = _local_ip()
+    try:
+        port = int(os.getenv("HOST_PORT", "5001"))
+    except ValueError:
+        port = 5001
+    return f"{protocol}://{host}:{port}"
+
+
 def cobrowse_link(run_id: str) -> str:
     """Main-app 'take over' link. Ownership is checked + a token minted when the user clicks it."""
     base = os.getenv("APP_PUBLIC_BASE_URL")
     if not base:
         try:
-            from CommonUtils import get_base_url
-            base = get_base_url()
+            base = main_app_base_url()
         except Exception:
             base = ""
     return f"{(base or '').rstrip('/')}/portal-workflows/cobrowse/{run_id}"
@@ -135,8 +193,7 @@ def start_portal_fetch(portal_name: str, start_url: str, task: str,
     `upload_files` (server-side paths) are forwarded to the run as available file paths so an
     upload task can attach them via the browser's file input."""
     try:
-        from CommonUtils import get_browser_use_api_base_url
-        base = get_browser_use_api_base_url()
+        base = browser_use_base_url()
     except Exception as e:
         return {"error": f"service URL unavailable: {e}"}
     payload = _portal_payload(portal_name, start_url, task, session_id, user_context,
@@ -160,8 +217,7 @@ def get_portal_result(run_id: str, timeout: int = 15) -> Dict[str, Any]:
     """Poll an async run: {done, status, needs_human, reason} while live; {done:True, ...manifest}
     once finished."""
     try:
-        from CommonUtils import get_browser_use_api_base_url
-        base = get_browser_use_api_base_url()
+        base = browser_use_base_url()
     except Exception as e:
         return {"error": str(e), "done": False}
     try:
@@ -192,8 +248,7 @@ def fetch_portal(portal_name: str, start_url: str, task: str,
       * otherwise _secret_keys(portal_name) - the legacy global PORTAL_<SLUG>_* convention.
     Only the inline path puts raw creds on the wire; saved/legacy send key names only."""
     try:
-        from CommonUtils import get_browser_use_api_base_url
-        base = get_browser_use_api_base_url()
+        base = browser_use_base_url()
     except Exception as e:
         return {"status": "error", "error": f"service URL unavailable: {e}",
                 "blocks": [], "file_count": 0, "final_result": None}

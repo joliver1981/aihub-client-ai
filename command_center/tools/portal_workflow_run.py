@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional
 import requests
 
 from command_center.tools import portal_registry, portal_workflows
-from command_center.tools.portal_fetch import _register_artifacts
+from command_center.tools.portal_fetch import _register_artifacts, browser_use_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +52,7 @@ def run_workflow_by_name(name: str, session_id: str = "",
         return {"status": "error", "error": f"no saved workflow named {name!r}",
                 "blocks": [], "file_count": 0, "final_result": None, "steps": []}
     try:
-        from CommonUtils import get_browser_use_api_base_url
-        base = get_browser_use_api_base_url()
+        base = browser_use_base_url()
     except Exception as e:
         return {"status": "error", "error": f"service URL unavailable: {e}",
                 "blocks": [], "file_count": 0, "final_result": None, "steps": []}
