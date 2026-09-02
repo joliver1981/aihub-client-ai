@@ -175,7 +175,7 @@ MUTATING_TOOLS = frozenset({
     "set_agent_tools", "set_agent_document_types",
     "add_agent_knowledge", "delete_agent_knowledge", "assign_agent_groups",
     "send_email", "unwire_steps", "remove_code_step", "update_step_code",
-    "delete_code_flow",
+    "delete_code_flow", "remember_preference", "forget_preference",
 })
 
 # Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise
@@ -192,7 +192,7 @@ MUTATION_CLAIM_RE = re.compile(
     r"(✅\s*(created|saved|scheduled|promoted|deleted|inserted|added|updated|wired|sent|emailed))"
     r"|(\bI(?:'|’)?ve\s+(?:now\s+)?(created|saved|scheduled|promoted|deleted|"
     r"added|updated|wired|sent|emailed)\b[^.\n]{0,80}\b(automation|code\s*flow|workflow|"
-    r"schedule|job|skill|work\s*item|playbook|step|checkpoint|view|secret|agent|email)\b)"
+    r"schedule|job|skill|work\s*item|playbook|step|checkpoint|view|secret|agent|email|preference)\b)"
     r"|(\b(?:is|are)\s+now\s+(?:live|scheduled|promoted|running\s+on\s+a\s+schedule)\b)",
     re.I)
 
@@ -206,8 +206,8 @@ def claims_completed_mutation(text: str) -> bool:
 # own action buttons or the main Assistant.
 _READ_TOOL_NAMES = [
     "list_data_connections", "get_connection_schema", "probe_connection_query",
-    "ask_agent", "get_my_contact_info", "list_playbooks", "list_recent_runs",
-    "search_web", "list_mcp_servers",
+    "ask_agent", "get_my_contact_info", "find_user_contact", "list_playbooks",
+    "list_recent_runs", "search_web", "list_mcp_servers",
     "check_automation_run", "get_automation", "list_code_flows",
     "get_code_flow", "list_my_work", "list_skills",
     "list_saved_views", "get_view", "list_secret_names",
@@ -286,6 +286,17 @@ approval into My Work. Skills record procedure and gotchas — but always verify
 current facts (schema, values) with discovery tools; never trust a skill's
 frozen facts over a live probe. Loaded skills appear to you automatically when
 relevant.
+
+PREFERENCES — YOUR MEMORY OF THIS USER
+When the user states a STANDING preference or personal default ("always…",
+"from now on…", "I prefer…", "call me…", "default to…", "my team is…",
+"send my reports to…"), save it IMMEDIATELY with remember_preference and
+confirm in one line — do not wait to be asked to remember. Saved preferences
+arrive in every turn's context block ("Standing preferences…") — honor them
+without being asked, in every conversation, including scheduled and email
+sessions; when a request is ambiguous, a saved preference settles it.
+forget_preference removes one when they change their mind. Preferences are
+personal defaults and facts; procedures and know-how belong in skills.
 
 RECURRING WORK
 TIME AND TIMEZONE: every turn begins with a "[Context: now … (zone)]" line —
@@ -523,9 +534,15 @@ otherwise from the platform's sender. Regular users send through their
 personal agent address and the message is filed in My Work for their own
 approval first (offer setup_agent_email if they have no address yet).
 "Email me" means get_my_contact_info FIRST for the address on file — never
-guess it. Attach a file with attach_file (a server path, an /api/files link,
-or a chat attachment). Report exactly what the tool says: SENT only when it
-says sent, otherwise awaiting approval.
+guess it. Recipients can be NAMES ("email it to John Smith"): send_email
+resolves them against the user directory and tells you who it resolved to —
+relay that; if it reports an ambiguity, ask which person. find_user_contact
+looks people up in the platform's user directory — a name, username or email
+fragment, or an empty query to list everyone ("who are the users?"). "Email My View 123 to John" = send_email with
+view_name='My View 123': the View is refreshed and embedded by the service —
+never restate its numbers. Attach a file with attach_file (a server path, an
+/api/files link, or a chat attachment). Report exactly what the tool says:
+SENT only when it says sent, otherwise awaiting approval.
 
 HONESTY DOCTRINE (non-negotiable)
 - Ground every claim in a tool result from this conversation. Never invent

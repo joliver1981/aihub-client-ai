@@ -351,6 +351,72 @@ async def get_my_contact_info(args: dict[str, Any]) -> dict[str, Any]:
                  f"{row['username'] or '—'}.")
 
 
+def _q_find_users(query: str):
+    def fn(cur):
+        cur.execute("SELECT id, name, user_name, email, phone FROM [dbo].[User]")
+        rows = [{"id": int(r[0]), "name": str(r[1] or "").strip(),
+                 "username": str(r[2] or "").strip(), "email": str(r[3] or "").strip(),
+                 "phone": str(r[4] or "").strip()} for r in cur.fetchall()]
+        q = " ".join(str(query or "").lower().split())
+        if not q:
+            return sorted(rows, key=lambda u: (u["name"] or u["username"]).lower())
+        toks = q.split()
+        return [u for u in rows
+                if q in u["name"].lower() or q == u["username"].lower()
+                or q in u["email"].lower()
+                or all(t in u["name"].lower() for t in toks)]
+    return fn
+
+
+@tool(
+    "find_user_contact",
+    "Look up platform USERS and their contact details (name, username, email, "
+    "phone) — the user directory behind 'email this to John Smith', 'what is "
+    "Ann's phone number' or 'who are the users on the platform'. Pass a name, "
+    "username or email fragment to search, or an EMPTY query to list everyone. "
+    "Returns every match; when a name matches more than one person, ask which "
+    "they meant rather than guessing. send_email resolves names on its own, so "
+    "call this to confirm, disambiguate, or answer directory questions.",
+    {
+        "type": "object",
+        "properties": {"query": {"type": "string",
+                                 "description": "Name, username or email fragment; "
+                                                "empty = list all users"}},
+        "additionalProperties": False,
+    },
+)
+async def find_user_contact(args: dict[str, Any]) -> dict[str, Any]:
+    q = str(args.get("query") or "").strip()
+    try:
+        import asyncio
+        import readthrough
+
+        def _read():
+            conn = readthrough._db()
+            try:
+                return _q_find_users(q)(conn.cursor())
+            finally:
+                conn.close()
+        rows = await asyncio.to_thread(_read)
+    except Exception as e:
+        return _text(f"Could not read the user directory: {e}", is_error=True)
+    if not rows:
+        return _text(f"No user matches '{q}' in the directory." if q
+                     else "The user directory is empty.")
+    cap = 50 if not q else 15
+    lines = [f"- {u['name'] or '(no name)'} (username {u['username'] or '—'}): "
+             f"email {u['email'] or '(none)'}; phone {u['phone'] or '(none)'}"
+             for u in rows[:cap]]
+    if not q:
+        head = f"All {len(rows)} platform users:"
+    else:
+        head = (f"{len(rows)} users match '{q}'"
+                + (" — ask which one they mean:" if len(rows) > 1 else ":"))
+    return _text(head + "\n" + "\n".join(lines)
+                 + (f"\n… {len(rows) - cap} more not shown — search by name to narrow"
+                    if len(rows) > cap else ""))
+
+
 @tool(
     "list_playbooks",
     "List the deterministic artifacts that exist in AI Hub: visual workflows and "
@@ -538,6 +604,7 @@ AIHUB_TOOLS = [
     probe_connection_query,
     ask_agent,
     get_my_contact_info,
+    find_user_contact,
     list_playbooks,
     list_recent_runs,
     list_secret_names,

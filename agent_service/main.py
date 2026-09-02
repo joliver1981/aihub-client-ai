@@ -127,7 +127,17 @@ def _turn_envelope(user: dict, body: dict) -> str:
         else:
             logger.info(f"ignoring unusable browser timezone {tz!r}")
     zone, _src = work_tools.default_zone_label(user)
-    return work_tools.now_line(zone)
+    line = work_tools.now_line(zone)
+    # Standing preferences (2026-09-02): stamped into EVERY turn — chat,
+    # scheduled runs, inbound-email sessions — so a saved default is honored
+    # without anything having to "trigger" it (skills load on demand; this
+    # block does not).
+    try:
+        import preferences
+        line += preferences.envelope_block(int(user.get("user_id") or 0))
+    except Exception as e:
+        logger.warning(f"preferences block skipped: {e}")
+    return line
 
 
 @app.get("/")

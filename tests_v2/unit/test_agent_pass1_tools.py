@@ -261,6 +261,39 @@ def test_get_my_contact_info_reads_only_the_signed_in_user():
         CURRENT_USER.reset(tok)
 
 
+def test_find_user_contact_searches_and_lists_the_directory():
+    rows = [(1, "John Smith", "jsmith", "john@x.co", "555-1"),
+            (2, "John Smithers", "jsmithers", "smithers@x.co", ""),
+            (3, "Ann Lee", "alee", "ann@x.co", "")]
+
+    class _Cur:
+        def execute(self, sql):
+            pass
+
+        def fetchall(self):
+            return rows
+
+    class _Conn:
+        def cursor(self):
+            return _Cur()
+
+        def close(self):
+            pass
+
+    fake_rt = types.SimpleNamespace(_db=lambda: _Conn())
+    with mock.patch.dict(sys.modules, {"readthrough": fake_rt}):
+        res = _run(P.find_user_contact.handler({"query": "smith"}))
+        out = _txt(res)
+        assert "2 users match" in out and "ask which one" in out and "555-1" in out
+        res = _run(P.find_user_contact.handler({"query": "alee"}))
+        assert "1 users match" in _txt(res) and "ann@x.co" in _txt(res)
+        res = _run(P.find_user_contact.handler({}))                  # empty = everyone
+        out = _txt(res)
+        assert out.startswith("All 3 platform users:") and out.index("Ann Lee") < out.index("John Smith")
+        res = _run(P.find_user_contact.handler({"query": "zzz"}))
+        assert "No user matches" in _txt(res)
+
+
 def test_list_mcp_servers_formats_and_gates():
     servers = [{"server_id": 1, "server_name": "Filesystem", "server_type": "local",
                 "enabled": True, "tool_count": 5, "status": "active", "agent_count": 2},
@@ -314,9 +347,13 @@ def _patch_email(sends, items, addr):
         items.append({"kind": kind, "title": title, "payload": payload, **kw})
         return {"work_item_id": "wi-1"}
 
+    async def empty_directory():
+        return []
+
     return [mock.patch.dict(sys.modules, {"email_store": fake_store,
                                           "email_client": fake_client,
                                           "email_render": fake_render}),
+            mock.patch.object(WK, "_user_directory", empty_directory),
             mock.patch.object(WK.workitem_store, "create_item", create_item)]
 
 
@@ -338,7 +375,7 @@ def test_send_email_validates_and_honors_outbound_kill_switch():
     _enter(ps)
     try:
         res = _run(WK.send_email.handler({"to": ["not-an-address"], "subject": "s", "body": "b"}))
-        assert res.get("is_error") and "Not a valid email" in _txt(res)
+        assert res.get("is_error") and "not an email address" in _txt(res) and "Nothing sent" in _txt(res)
         res = _run(WK.send_email.handler({"to": ["a@b.co"], "subject": "", "body": "b"}))
         assert res.get("is_error")
         res = _run(WK.send_email.handler({"to": ["a@b.co"], "subject": "s", "body": "b"}))

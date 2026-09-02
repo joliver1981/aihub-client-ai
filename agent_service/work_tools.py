@@ -1243,29 +1243,101 @@ def build_email_attachments(specs: list) -> tuple:
     return out, None
 
 
+def resolve_recipients(to: list, directory: list) -> tuple:
+    """Turn a mixed list of addresses and PEOPLE'S NAMES into addresses using the
+    platform user directory ([{name, username, email}]). A name resolves only
+    when it matches exactly one user (exact name/username, else a unique
+    substring / all-words match) who has an email on file — anything else is
+    an honest error, never a guess. Returns (emails, resolved_map, err)."""
+    emails, resolved = [], {}
+    for raw in to or []:
+        t = str(raw or "").strip()
+        if not t:
+            continue
+        if _EMAIL_RE.match(t):
+            if t not in emails:
+                emails.append(t)
+            continue
+        key = " ".join(t.lower().split())
+        exact = [u for u in directory
+                 if str(u.get("name") or "").strip().lower() == key
+                 or str(u.get("username") or "").strip().lower() == key]
+        cands = exact or [u for u in directory if key in str(u.get("name") or "").lower()]
+        if not cands:
+            toks = key.split()
+            cands = [u for u in directory
+                     if toks and all(tok in str(u.get("name") or "").lower() for tok in toks)]
+        with_mail = [u for u in cands if str(u.get("email") or "").strip()]
+        if len(cands) == 1 and not with_mail:
+            return None, None, (f"'{t}' matches {cands[0].get('name')} but they have no "
+                                "email on file — ask for the address.")
+        if len(with_mail) == 1:
+            u = with_mail[0]
+            addr = str(u["email"]).strip()
+            if addr not in emails:
+                emails.append(addr)
+            resolved[t] = {"name": str(u.get("name") or ""), "email": addr}
+            continue
+        if len(with_mail) > 1:
+            return None, None, (f"'{t}' matches {len(with_mail)} users: "
+                                + "; ".join(f"{u.get('name')} <{u.get('email')}>"
+                                            for u in with_mail[:6])
+                                + " — ask which one.")
+        return None, None, (f"'{t}' is not an email address and no user in the "
+                            "directory matches it — ask for the address.")
+    return emails, resolved, None
+
+
+async def _user_directory() -> list:
+    import asyncio
+    import readthrough
+
+    def _read():
+        conn = readthrough._db()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id, name, user_name, email FROM [dbo].[User]")
+            return [{"id": int(r[0]), "name": str(r[1] or ""), "username": str(r[2] or ""),
+                     "email": str(r[3] or "")} for r in cur.fetchall()]
+        finally:
+            conn.close()
+    return await asyncio.to_thread(_read)
+
+
 @tool(
     "send_email",
-    "Send a NEW email (not a reply to inbound agent mail — that is "
-    "draft_email_reply). Use for 'email this to X', 'send the report to the "
-    "team', 'email me the summary' (call get_my_contact_info first for the "
-    "user's own address — never guess it). Developer+ users: the mail is SENT "
-    "immediately, from their personal agent address if they have one, otherwise "
-    "from the platform's sender. Regular users: the mail is filed in My Work "
-    "for their own approval and sends when they approve (they need a personal "
-    "agent address — offer setup_agent_email if they have none). attach_file "
-    "takes a server path, an /api/files link from this chat, or a chat "
-    "attachment. FORMATTING: write body as plain text with light markdown "
-    "(headings, bullets, **bold**, | tables |); it is rendered to HTML with the "
-    "text as the plain alternative — no raw HTML. Report EXACTLY what the tool "
-    "says: 'sent' only when it says SENT, otherwise 'awaiting approval'.",
+    "Send an email — 'email this to X', 'send the report to the team', 'email "
+    "My View 123 to John Smith', 'email me the summary'. RECIPIENTS may be "
+    "addresses OR people's names: a name is resolved against the platform's "
+    "user directory and must match exactly one user (the result shows who it "
+    "resolved to; ambiguity comes back as an error to relay). 'Me' = "
+    "get_my_contact_info first — never guess an address. EMBED A DASHBOARD: "
+    "pass view_name to append a saved View's live tiles — the View is "
+    "refreshed and rendered BY THE SERVICE, you never see or retype its "
+    "numbers, so never restate them in `body`; write the covering note and let "
+    "the tiles carry the data. Developer+ users: SENT immediately, from their "
+    "personal agent address if they have one, otherwise the platform's sender. "
+    "Regular users: filed in My Work for their own approval and sent when they "
+    "approve (they need a personal agent address — offer setup_agent_email if "
+    "none). attach_file takes a server path, an /api/files link from this chat, "
+    "or a chat attachment. FORMATTING: plain text with light markdown (headings, "
+    "bullets, **bold**, | tables |), rendered to HTML with the text as the "
+    "plain alternative — no raw HTML. Report EXACTLY what the tool says: 'sent' "
+    "only when it says SENT, otherwise 'awaiting approval'.",
     {
         "type": "object",
         "properties": {
             "to": {"type": "array", "items": {"type": "string"},
-                   "description": "Recipient addresses"},
+                   "description": "Recipient email addresses and/or people's names"},
             "subject": {"type": "string"},
             "body": {"type": "string",
                      "description": "Plain text with light markdown; never raw HTML"},
+            "view_name": {"type": "string",
+                          "description": "Optional: a saved View to refresh and embed "
+                                         "as a dashboard in the email"},
+            "view_scope": {"type": "string", "enum": ["user", "group", "tenant"],
+                           "description": "Only when View names collide across scopes"},
+            "view_group_id": {"type": "integer"},
             "attach_file": {"type": "string",
                             "description": "Optional: server path, /api/files/<id> "
                                            "link, or chat attachment to attach"},
@@ -1282,13 +1354,23 @@ async def send_email(args: dict[str, Any]) -> dict[str, Any]:
     user = CURRENT_USER.get() or {}
     uid = int(user.get("user_id") or 0)
     role = int(user.get("role") or 0)
-    to = [str(a).strip() for a in (args.get("to") or []) if str(a).strip()]
-    if not to:
+    raw_to = [str(a).strip() for a in (args.get("to") or []) if str(a).strip()]
+    if not raw_to:
         return _text("At least one recipient is required.", is_error=True)
-    bad = [a for a in to if not _EMAIL_RE.match(a)]
-    if bad:
-        return _text(f"Not a valid email address: {', '.join(bad)} — nothing sent.",
-                     is_error=True)
+    directory = []
+    if any(not _EMAIL_RE.match(a) for a in raw_to):
+        try:
+            directory = await _user_directory()
+        except Exception as e:
+            return _text(f"Could not read the user directory to resolve a recipient "
+                         f"name ({e}) — give me the email address instead. Nothing sent.",
+                         is_error=True)
+    to, resolved, rerr = resolve_recipients(raw_to, directory)
+    if rerr:
+        return _text(f"Nothing sent — {rerr}", is_error=True)
+    resolved_note = ("" if not resolved else
+                     " Resolved: " + "; ".join(f"'{k}' -> {v['name']} <{v['email']}>"
+                                              for k, v in resolved.items()) + ".")
     subject = str(args.get("subject") or "").strip()[:300]
     body = str(args.get("body") or "")
     if not subject or not body.strip():
@@ -1317,6 +1399,30 @@ async def send_email(args: dict[str, Any]) -> dict[str, Any]:
     import email_render
     rich = bool(args.get("rich", True)) and email_render.html_enabled()
 
+    # Optional embedded dashboard — same contract as draft_email_reply: rendered
+    # NOW for the direct path; the approval path stores the reference and the
+    # approval sender re-renders it at send time (current numbers, not stale).
+    view_html = view_text = view_status = ""
+    view_ref = None
+    view_note = ""
+    if str(args.get("view_name") or "").strip():
+        principal = {"user_id": uid, "role": role or 2,
+                     "username": str(user.get("username") or ""),
+                     "name": str(user.get("name") or "")}
+        view_html, view_text, view_err, view_status = await render_view_for_email(
+            str(args["view_name"]), str(args.get("view_scope") or ""),
+            int(args.get("view_group_id") or 0), principal)
+        if view_err:
+            return _text(view_err, is_error=True)
+        view_ref = {"name": str(args["view_name"]).strip(),
+                    "scope": str(args.get("view_scope") or ""),
+                    "group_id": int(args.get("view_group_id") or 0),
+                    "as_user": principal}
+        view_note = (f" The View '{view_ref['name']}' was embedded as a dashboard: "
+                     f"{view_status}. You did not see its numbers, so do not describe "
+                     "them — and if any tile did not refresh, say that plainly rather "
+                     "than calling the figures current.")
+
     if role < 2:
         # Regular users: file for their own approval through their agent address.
         if not active_addr:
@@ -1329,17 +1435,21 @@ async def send_email(args: dict[str, Any]) -> dict[str, Any]:
             "edit_and_return", f"Send: {subject}",
             summary=(f"To: {', '.join(to)}\nFrom: {active_addr['email_address']}\n"
                      + (f"Attachment: {attach_specs[0]['filename']}\n" if attach_specs else "")
+                     + (f"Embedded View: {view_ref['name']} (refreshed when you approve)\n"
+                        if view_ref else "")
                      + "\nEdit the body if needed — what you approve is what sends."),
             payload={"kind": "agent_email_reply", "to": to, "subject": subject,
                      "body": body, "from_address": active_addr["email_address"],
-                     "from_user": uid, "rich": rich, "view": None,
+                     "from_user": uid, "rich": rich, "view": view_ref,
                      "attachments": attach_specs, "context": "send_email"},
             addressed_user=uid, from_kind="agent_email",
             from_ref=active_addr["email_address"],
             created_by=str(user.get("username") or "agent"))
         return _text(f"Filed for approval (work item {item['work_item_id']}) — it is "
                      f"in My Work now; NOTHING has been sent. The user approves (and "
-                     f"may edit) the message first.{attach_note}")
+                     f"may edit) the message first.{attach_note}{resolved_note}"
+                     + (f" The View '{view_ref['name']}' will be refreshed and embedded "
+                        "when they approve." if view_ref else ""))
 
     # Developer+: send now.
     atts, aerr = build_email_attachments(attach_specs) if attach_specs else (None, None)
@@ -1351,9 +1461,10 @@ async def send_email(args: dict[str, Any]) -> dict[str, Any]:
     else:
         from_address, from_name = "", ""
     import email_client
+    plain_body = body + (("\n\n" + view_text) if view_text else "")
     result = await email_client.send_reply(
-        to, subject, body, from_address, from_name,
-        html_body=email_render.render_email_with_view(body, "", title=subject)
+        to, subject, plain_body, from_address, from_name,
+        html_body=email_render.render_email_with_view(body, view_html, title=subject)
         if rich else None,
         attachments=atts)
     if not result.get("success"):
@@ -1366,6 +1477,7 @@ async def send_email(args: dict[str, Any]) -> dict[str, Any]:
             "acknowledge", f"✉ Sent: {subject}",
             summary=(f"To: {', '.join(to)}\nFrom: {from_address or 'platform sender'}"
                      + (f"\nAttachment: {attach_specs[0]['filename']}" if attach_specs else "")
+                     + (f"\nEmbedded View: {view_ref['name']}" if view_ref else "")
                      + f"\n\n{body[:1500]}"),
             payload={"kind": "agent_email_sent", "to": to, "subject": subject,
                      "from_user": uid},
@@ -1376,9 +1488,83 @@ async def send_email(args: dict[str, Any]) -> dict[str, Any]:
         logger.warning(f"send_email audit item failed (mail was sent): {e}")
     sender = from_address or "the platform's default sender"
     return _text(f"Email SENT to {', '.join(to)} from {sender} — subject "
-                 f"'{subject}'.{attach_note} (An FYI audit item was added to My Work.)")
+                 f"'{subject}'.{attach_note}{resolved_note} (An FYI audit item was added "
+                 f"to My Work.){view_note}")
+
+
+@tool(
+    "remember_preference",
+    "Save a STANDING preference or personal default the user states — 'always "
+    "answer in Eastern time', 'call me Jim', 'default to bar charts', 'my team's "
+    "group is Analysts', 'send my reports to ops@…' — so EVERY future "
+    "conversation honors it (it is injected into each turn's context, including "
+    "scheduled and email sessions). Save it the moment they say it, then confirm "
+    "in one line. One short sentence per preference; procedures and know-how "
+    "belong in save_skill instead. Returns the full current list.",
+    {
+        "type": "object",
+        "properties": {"preference": {"type": "string",
+                                      "description": "One short sentence"}},
+        "required": ["preference"],
+        "additionalProperties": False,
+    },
+)
+async def remember_preference(args: dict[str, Any]) -> dict[str, Any]:
+    import preferences
+    user = CURRENT_USER.get() or {}
+    uid = int(user.get("user_id") or 0)
+    if not uid:
+        return _text("There is no signed-in user to remember this for.", is_error=True)
+    items, added, err = preferences.remember(uid, str(args.get("preference") or ""))
+    if err:
+        return _text(err, is_error=True)
+    listing = "\n".join(f"- {it}" for it in items)
+    if not added:
+        return _text(f"Already saved — nothing changed. Current preferences "
+                     f"({len(items)}):\n{listing}")
+    return _text(f"Saved. It will be honored in every future conversation. Current "
+                 f"preferences ({len(items)}):\n{listing}")
+
+
+@tool(
+    "forget_preference",
+    "Remove a saved standing preference when the user changes their mind ('stop "
+    "calling me Jim', 'forget the Eastern time thing'). Matches one preference "
+    "exactly or by a UNIQUE fragment — an ambiguous fragment comes back as an "
+    "error listing the candidates. clear_all=true with confirmed=true wipes the "
+    "list (ask first).",
+    {
+        "type": "object",
+        "properties": {
+            "preference": {"type": "string", "description": "The preference or a unique fragment"},
+            "clear_all": {"type": "boolean"},
+            "confirmed": {"type": "boolean"},
+        },
+        "additionalProperties": False,
+    },
+)
+async def forget_preference(args: dict[str, Any]) -> dict[str, Any]:
+    import preferences
+    user = CURRENT_USER.get() or {}
+    uid = int(user.get("user_id") or 0)
+    if not uid:
+        return _text("There is no signed-in user.", is_error=True)
+    if args.get("clear_all"):
+        if not args.get("confirmed"):
+            items = preferences.get(uid)
+            return _text(f"CONFIRMATION REQUIRED to forget all {len(items)} saved "
+                         "preference(s). Ask the user, then call again with "
+                         "clear_all=true and confirmed=true.")
+        _items, removed, _err = preferences.forget(uid, "", clear_all=True)
+        return _text(f"Forgot all {len(removed)} preference(s).")
+    items, removed, err = preferences.forget(uid, str(args.get("preference") or ""))
+    if err:
+        return _text(err, is_error=True)
+    listing = "\n".join(f"- {it}" for it in items) or "(none)"
+    return _text(f"Forgot: {removed[0]}. Remaining preferences ({len(items)}):\n{listing}")
 
 
 WORK_TOOLS = [raise_work_item, list_my_work, schedule_agent_task,
               save_skill, list_skills_tool, draft_email_reply, send_email,
+              remember_preference, forget_preference,
               get_agent_email_status, setup_agent_email]

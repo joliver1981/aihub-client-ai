@@ -75,7 +75,7 @@ _MUTATING_PREFIXES = ("create_", "save_", "delete_", "schedule_", "promote_",
                       "run_", "dry_run_", "wire_", "add_", "import_",
                       "execute_", "assign_", "store_", "rename_", "decide_",
                       "raise_", "setup_", "draft_", "set_", "update_",
-                      "send_", "unwire_", "remove_")
+                      "send_", "unwire_", "remove_", "remember_", "forget_")
 _MUTATING_EXCLUSIONS = set()  # none today; add with a reason, never loosen
 
 
@@ -155,6 +155,12 @@ def test_known_drift_regressions_pinned():
               "update_step_code", "delete_code_flow"):
         assert n in brain.MUTATING_TOOLS, n
     assert brain.claims_completed_mutation("I've sent the email to the team.")
+    # Preferences (2026-09-02): remember/forget are writes; the directory
+    # lookup is a read; an unbacked "I've saved that preference" is caught.
+    for n in ("remember_preference", "forget_preference"):
+        assert n in brain.MUTATING_TOOLS, n
+    assert "find_user_contact" in brain._READ_TOOL_NAMES
+    assert brain.claims_completed_mutation("I've saved that preference for you.")
 
 
 def test_sensitive_fields_map_to_real_tools():
