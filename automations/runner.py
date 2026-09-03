@@ -430,20 +430,37 @@ class AutomationRunner:
             logger.warning(f"open-approval cancel on finish failed for {run_id}: {e}")
 
     def _cancel_open_checkpoint_approvals(self, run_id: str):
+        from . import approval_store
         run = self._db_get_run(run_id)
         log_path = (run or {}).get("log_path")
         workdir = os.path.dirname(log_path) if log_path else None
-        if not workdir or not os.path.isdir(workdir):
-            return
-        from .checkpoints import list_checkpoints
-        open_ids = [c.get("approval_request_id") for c in list_checkpoints(workdir)
-                    if not c.get("decision") and c.get("approval_request_id")]
-        if not open_ids:
-            return
-        from . import approval_store
-        for rid in open_ids:
-            approval_store.settle_row(self.manager.base_path, rid,
-                                      "Cancelled", "system:run-finished")
+        if workdir and os.path.isdir(workdir):
+            from .checkpoints import list_checkpoints
+            open_ids = [c.get("approval_request_id") for c in list_checkpoints(workdir)
+                        if not c.get("decision") and c.get("approval_request_id")]
+            for rid in open_ids:
+                approval_store.settle_row(self.manager.base_path, rid,
+                                          "Cancelled", "system:run-finished")
+        # Non-blocking REVIEW items this run created and never saw decided:
+        # once the run is over a decision can't affect anything, and the
+        # document re-surfaces as a FRESH item in its next batch — so expire
+        # them instead of leaving stale duplicates in My Approvals
+        # (james 2026-09-01).
+        try:
+            for row in approval_store.list_rows(self.manager.base_path, status="Pending"):
+                try:
+                    meta = json.loads(row.get("approval_data") or "{}")
+                except (ValueError, TypeError):
+                    continue
+                if meta.get("run_id") == run_id and meta.get("kind") == "review":
+                    approval_store.settle_row(
+                        self.manager.base_path, row["request_id"], "Cancelled",
+                        "system:review-window-closed",
+                        comments="Expired: the batch closed before a decision. The document "
+                                 "was excluded from this batch and will return as a new "
+                                 "review item in the next batch.")
+        except Exception as e:
+            logger.warning(f"stale review-item expiry failed for {run_id}: {e}")
 
     def _db_get_run(self, run_id: str) -> Optional[Dict]:
         conn = self._db_conn()
