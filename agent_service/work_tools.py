@@ -1134,14 +1134,17 @@ async def setup_agent_email(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "get_agent_email_status",
-    "The QUICK PULSE on the current user's agent email: their address (or "
-    "that none exists yet), settings, poller state, and the last few inbound "
-    "rows (sender/subject/outcome). Questions like 'did you get any email?' "
-    "are answered from THIS — call it and report the activity directly, "
-    "without capability disclaimers. For anything deeper — paging or "
-    "searching past mail, opening a message's body, reading or saving "
-    "attachments — use list_my_email / read_email / list_email_attachments "
-    "/ read_attachment / save_attachment.",
+    "The QUICK PULSE on the current user's AGENT email — the AI Hub agent "
+    "address people send mail TO (mail for the agent), NOT the user's own "
+    "Outlook / Microsoft 365 inbox: their address (or that none exists yet), "
+    "settings, poller state, and the last few inbound rows "
+    "(sender/subject/outcome). 'Did YOU get any email?' is answered from "
+    "THIS — report the activity directly and say it is the agent mailbox. "
+    "'What's in MY inbox?' is the user's OWN mailbox: use "
+    "list_my_connections / use_my_connection instead. For anything deeper "
+    "on the agent mailbox — paging or searching past mail, opening a "
+    "message's body, reading or saving attachments — use list_my_email / "
+    "read_email / list_email_attachments / read_attachment / save_attachment.",
     {},
 )
 async def get_agent_email_status(args: dict[str, Any]) -> dict[str, Any]:

@@ -40,6 +40,7 @@ try:
     from export_tools import EXPORT_TOOLS           # noqa: E402
     from map_tools import MAP_TOOLS                 # noqa: E402
     from image_tools import IMAGE_TOOLS             # noqa: E402
+    from connection_tools import CONNECTION_TOOLS   # noqa: E402
     HAVE_SDK = True
 except ImportError as e:
     HAVE_SDK = False
@@ -59,7 +60,7 @@ else:
     ALL_TOOLS = (AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
                  + INTEGRATION_TOOLS + FILE_TOOLS + DOCUMENT_TOOLS
                  + PORTAL_TOOLS + EMAIL_TOOLS + AGENT_BUILDER_TOOLS + WEB_TOOLS
-                 + EXPORT_TOOLS + MAP_TOOLS + IMAGE_TOOLS)
+                 + EXPORT_TOOLS + MAP_TOOLS + IMAGE_TOOLS + CONNECTION_TOOLS)
     ALL_NAMES = {getattr(t, "name", "") for t in ALL_TOOLS}
 
 # Read-shaped name prefixes. A registered tool matching one of these, not in
@@ -175,6 +176,15 @@ def test_known_drift_regressions_pinned():
         assert n in brain._READ_TOOL_NAMES, n
     assert "generate_image" in brain.MUTATING_TOOLS
     assert brain.claims_completed_mutation("I've created the image you asked for.")
+    # My Connections (2026-09-03): the two discovery tools are reads a side
+    # thread may see; use_my_connection acts AS the user and is a write for
+    # the claim guard AND must never reach a read-only side thread.
+    for n in ("list_my_connections", "get_connection_tools"):
+        assert n in brain._READ_TOOL_NAMES, n
+    assert "use_my_connection" in brain.MUTATING_TOOLS
+    assert "use_my_connection" not in brain._READ_TOOL_NAMES
+    assert hasattr(brain, "_MY_CONNECTIONS_ON")   # the kill switch exists
+    assert brain.claims_completed_mutation("I've sent the email from your Outlook account.")
 
 
 def test_sensitive_fields_map_to_real_tools():

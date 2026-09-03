@@ -31,7 +31,8 @@ class MCPToolConverter:
     """Converts MCP tool definitions to LangChain-compatible StructuredTool objects"""
 
     def __init__(self, gateway_client, server_id: int, server_name: str,
-                 user_id: Optional[int] = None, agent_id: Optional[int] = None):
+                 user_id: Optional[int] = None, agent_id: Optional[int] = None,
+                 connection_user_id=None):
         """
         Args:
             gateway_client: MCPGatewayClient instance for making tool calls
@@ -39,6 +40,10 @@ class MCPToolConverter:
             server_name: Human-readable server name (used for tool name prefixing)
             user_id: Calling user — captured in tool closures for audit logging
             agent_id: Owning agent — captured for audit logging
+            connection_user_id: the user the gateway CONNECTION is scoped to
+                (per-user OAuth servers). Every tool call is routed to that
+                user's own connection, so tokens never cross users. None =
+                the shared (server_id-only) connection.
         """
         self.gateway = gateway_client
         self.server_id = server_id
@@ -46,6 +51,7 @@ class MCPToolConverter:
         self.server_name = self._sanitize_name(server_name)
         self.user_id = user_id
         self.agent_id = agent_id
+        self.connection_user_id = connection_user_id
 
     @staticmethod
     def _sanitize_name(name: str) -> str:
@@ -95,6 +101,7 @@ class MCPToolConverter:
             _original_name = original_name
             _user_id = self.user_id
             _agent_id = self.agent_id
+            _conn_user_id = self.connection_user_id
 
             def _call_mcp_tool(**kwargs) -> str:
                 """Execute MCP tool via gateway with audit logging."""
@@ -105,6 +112,7 @@ class MCPToolConverter:
                         server_id=_server_id,
                         tool_name=_original_name,
                         arguments=kwargs,
+                        user_id=_conn_user_id,
                     )
                     if result.get("status") == "success":
                         status = "success"

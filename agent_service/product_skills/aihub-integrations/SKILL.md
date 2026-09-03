@@ -25,8 +25,14 @@ skill for the general rule).
 4. `delete_*` operations require the user's explicit confirmation
    (confirmed=true on the second call).
 5. `list_mcp_servers` (Developer+) lists the MCP servers configured on the
-   platform — the other half of "what integrations are set up". Neither
-   agent executes MCP tools directly today; say so if asked.
+   platform — the other half of "what integrations are set up". Admin-
+   assigned MCP servers are not executed by The Agent directly; say so if
+   asked. The exception is the user's OWN personal connections (My
+   Connections — their Outlook / Microsoft 365): `list_my_connections` →
+   `get_connection_tools` → `use_my_connection` runs those tools AS the
+   user (reads by default; writes such as sending from their account are
+   off unless an admin allows the exact tool — offer the agent's own
+   mailbox instead).
 
 ## SharePoint file recipe (the common ask)
 

@@ -106,37 +106,54 @@ class MCPGatewayClient:
         """
         return self._make_request('POST', '/api/mcp/test', json=config)
 
-    def connect_server(self, server_id: int, config: dict) -> dict:
+    # user_id (2026-09-03): scopes a connection to ONE user. The gateway keys
+    # connections by (server_id, user_id) so per-user bearer tokens baked into
+    # a transport can never serve another user. Omit it (None) for shared /
+    # service-account servers and the admin routes — the legacy server_id-only
+    # key is unchanged for them. An older gateway ignores the field.
+
+    @staticmethod
+    def _user_param(user_id) -> dict:
+        if user_id is None or str(user_id).strip() in ('', '0', 'None'):
+            return {}
+        return {'user_id': str(user_id).strip()}
+
+    def connect_server(self, server_id: int, config: dict, user_id=None) -> dict:
         """
         Connect to an MCP server via the gateway.
 
         Args:
             server_id: Server ID from database
             config: Connection configuration
+            user_id: optional per-user connection scope
 
         Returns:
             {status, tool_count, tools}
         """
         payload = {'server_id': str(server_id)}
         payload.update(config)
+        payload.update(self._user_param(user_id))
         return self._make_request('POST', '/api/mcp/connect', json=payload)
 
-    def disconnect_server(self, server_id: int) -> dict:
+    def disconnect_server(self, server_id: int, user_id=None) -> dict:
         """Disconnect from a server"""
-        return self._make_request('POST', '/api/mcp/disconnect',
-                                  json={'server_id': str(server_id)})
+        payload = {'server_id': str(server_id)}
+        payload.update(self._user_param(user_id))
+        return self._make_request('POST', '/api/mcp/disconnect', json=payload)
 
-    def list_tools(self, server_id: int) -> list:
+    def list_tools(self, server_id: int, user_id=None) -> list:
         """
         Get available tools from a connected server.
 
         Returns:
-            List of tool definitions [{name, description, inputSchema}]
+            List of tool definitions [{name, description, inputSchema[, annotations]}]
         """
-        r = self._make_request('GET', f'/api/mcp/servers/{server_id}/tools')
+        r = self._make_request('GET', f'/api/mcp/servers/{server_id}/tools',
+                               params=self._user_param(user_id))
         return r.get('tools', [])
 
-    def call_tool(self, server_id: int, tool_name: str, arguments: dict) -> dict:
+    def call_tool(self, server_id: int, tool_name: str, arguments: dict,
+                  user_id=None) -> dict:
         """
         Execute a tool on a connected server.
 
@@ -144,20 +161,24 @@ class MCPGatewayClient:
             server_id: The connected server ID
             tool_name: Name of the tool to call
             arguments: Tool arguments dict
+            user_id: optional — run on this user's own connection
 
         Returns:
             {status, result} or {status, error}
         """
+        body = {'tool_name': tool_name, 'arguments': arguments}
+        body.update(self._user_param(user_id))
         return self._make_request(
             'POST',
             f'/api/mcp/servers/{server_id}/tools/call',
-            json={'tool_name': tool_name, 'arguments': arguments},
+            json=body,
             timeout=60  # tool calls may take longer
         )
 
-    def get_server_status(self, server_id: int) -> dict:
-        """Get connection status for a server"""
-        return self._make_request('GET', f'/api/mcp/servers/{server_id}/status')
+    def get_server_status(self, server_id: int, user_id=None) -> dict:
+        """Get connection status for a server (or one user's connection to it)"""
+        return self._make_request('GET', f'/api/mcp/servers/{server_id}/status',
+                                  params=self._user_param(user_id))
 
     def get_all_connections(self) -> dict:
         """Get all active gateway connections"""

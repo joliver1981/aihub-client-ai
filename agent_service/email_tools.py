@@ -194,7 +194,10 @@ def _html_to_text(html: str) -> str:
 
 @tool(
     "list_my_email",
-    "Page and search the current user's agent-email inbox history — the full "
+    "Page and search the current user's AGENT-email inbox history — the AI "
+    "Hub agent address people send mail TO (mail for the agent), NOT the "
+    "user's own Outlook / Microsoft 365 inbox (that is a personal "
+    "connection: list_my_connections / use_my_connection). Returns the full "
     "ledger get_agent_email_status shows only the last 5 rows of, plus any "
     "PENDING mail sitting in the live cloud feed that the poller has not "
     "processed yet. Each row carries the event_id that read_email / "

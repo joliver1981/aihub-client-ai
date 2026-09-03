@@ -102,6 +102,10 @@ def listing_app(monkeypatch):
     import builder_mcp.routes.my_connections_routes as mc
     import builder_mcp.agent_integration.oauth_manager as om
     import builder_mcp.agent_integration.mcp_server_visibility as vis
+    # The catalog (and its DB access) moved to personal_connections on
+    # 2026-09-03 — shared with The Agent's internal seam; the page route is
+    # now a thin caller of it.
+    import builder_mcp.agent_integration.personal_connections as pc
 
     app = Flask(__name__)
     app.config["TESTING"] = True
@@ -117,10 +121,11 @@ def listing_app(monkeypatch):
     def execute(sql, *params):
         executed.append(sql)
     cur.execute.side_effect = execute
-    cur.fetchall.return_value = [(30, "Microsoft 365", "mail", "Productivity", "fab fa-microsoft")]
+    cur.fetchall.return_value = [(30, "Microsoft 365", "mail", "Productivity", "fab fa-microsoft",
+                                  "remote", "http://127.0.0.1:5001/api/internal/mcp/graph", "oauth2", None)]
     conn = MagicMock()
     conn.cursor.return_value = cur
-    monkeypatch.setattr(mc, "get_db_connection", lambda: conn)
+    monkeypatch.setattr(pc, "get_db_connection", lambda: conn)
     monkeypatch.setattr(om, "_load_server_config",
                         lambda sid: {"oauth_grant_type": "authorization_code", "oauth_scope": "Mail.Read"})
     monkeypatch.setattr(om, "has_user_token", lambda sid, uid: False)

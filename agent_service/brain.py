@@ -37,6 +37,7 @@ from web_tools import WEB_TOOLS
 from export_tools import EXPORT_TOOLS
 from map_tools import MAP_TOOLS
 from image_tools import IMAGE_TOOLS
+from connection_tools import CONNECTION_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -156,8 +157,17 @@ _EXPORT_TOOLS_ON = (os.getenv("AGENT_EXPORT_TOOLS", "true").lower() == "true"
 _MAP_TOOLS_ON = os.getenv("AGENT_MAP_TOOLS", "true").lower() == "true"
 _IMAGE_TOOLS_ON = os.getenv("AGENT_IMAGE_TOOLS", "true").lower() == "true"
 
+# My Connections (2026-09-03): the user's OWN personal accounts (Outlook /
+# Microsoft 365 mail + calendar via per-user OAuth MCP servers), used AS the
+# signed-in user through the main app's internal seam. Same additive /
+# reversible doctrine — AGENT_MY_CONNECTIONS=false ships without them and The
+# Agent honestly reports it cannot reach the user's own mailbox. Reads are
+# default-open; writes are gated separately (AGENT_MY_CONNECTIONS_WRITE_TOOLS,
+# empty by default — see connection_tools.py).
+_MY_CONNECTIONS_ON = os.getenv("AGENT_MY_CONNECTIONS", "true").lower() == "true"
+
 aihub_server = create_sdk_mcp_server(
-    name="aihub", version="0.10.0",
+    name="aihub", version="0.11.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
           + INTEGRATION_TOOLS + FILE_TOOLS
           + (CODE_TOOLS if _CODE_TOOLS_ON else [])
@@ -168,7 +178,8 @@ aihub_server = create_sdk_mcp_server(
           + (WEB_TOOLS if _WEB_TOOLS_ON else [])
           + (EXPORT_TOOLS if _EXPORT_TOOLS_ON else [])
           + (MAP_TOOLS if _MAP_TOOLS_ON else [])
-          + (IMAGE_TOOLS if _IMAGE_TOOLS_ON else []))
+          + (IMAGE_TOOLS if _IMAGE_TOOLS_ON else [])
+          + (CONNECTION_TOOLS if _MY_CONNECTIONS_ON else []))
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -195,6 +206,9 @@ MUTATING_TOOLS = frozenset({
     "send_email", "unwire_steps", "remove_code_step", "update_step_code",
     "delete_code_flow", "remember_preference", "forget_preference",
     "export_data", "manipulate_pdf", "generate_image",
+    # Acts AS the user on their personal account; reads today, and any write
+    # an admin allows must be covered by the "I sent that email" guard.
+    "use_my_connection",
 })
 
 # Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise
@@ -239,6 +253,10 @@ _READ_TOOL_NAMES = [
     "query_document_records", "read_file",
     "lookup_portal", "list_portal_workflows", "describe_portal_workflow",
     "list_agents", "get_agent_config", "get_agent_builder_options",
+    # Personal connections: a side thread may SEE what is connected and what
+    # a connection offers; use_my_connection stays out — a side thread must
+    # never act (or send) as the user.
+    "list_my_connections", "get_connection_tools",
 ]
 _READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
 
@@ -250,6 +268,9 @@ WHAT YOU CAN DO
 - Explore: list connections, inspect schemas, run read-only probe queries, ask
   AI Hub's agents questions (list_agents, then ask_agent), list playbooks and
   run history.
+- Read the user's OWN Outlook / Microsoft 365 mail and calendar through their
+  personal connections (list_my_connections -> get_connection_tools ->
+  use_my_connection) — see PERSONAL CONNECTIONS below.
 - Search the web for current information (search_web) and send email
   (send_email) — see the sections below.
 - Sign into web portals with a real browser (RPA) to download or upload files —
@@ -530,13 +551,44 @@ or in part, and never write one into automation code, a skill, a work item, or
 a View. If they'd rather not paste it in chat at all, point them to Settings ->
 Local Secrets and agree on the name.
 
-EMAIL
-YES — you can receive email AND open it. Every user gets a personal agent
-address (Email screen in the rail); mail sent there reaches you as a headless
-session run as them, and your results land in their My Work. When a user asks
-whether you can get/receive/handle email, the answer is YES: call
-get_agent_email_status FIRST and answer from their actual state — show their
-address and recent activity, or if none exists OFFER TO SET IT UP yourself:
+PERSONAL CONNECTIONS (the user's OWN accounts — Outlook / Microsoft 365 mail
+and calendar, connected by them on My Connections)
+YES — once the user has connected their account at /my-connections you can
+read THEIR real inbox and calendar AS them: list_my_connections FIRST (what
+is connected, what they could still connect), get_connection_tools(server_id)
+for the exact tools and parameters, then use_my_connection(server_id,
+tool_name, arguments_json). Typical tools on a Microsoft 365 connection:
+list_recent_emails (their inbox; pass folder for others, e.g. sentitems),
+list_upcoming_meetings (their calendar), get_my_profile. The platform holds
+the tokens — never ask for credentials, tenant ids or account context.
+- "What's in my inbox?", "did I get mail from X?", "what's on my calendar
+  today?" mean THEIR mailbox/calendar — use these tools. If nothing is
+  connected, say so and tell them: "Connect it at My Connections in the rail
+  (/my-connections), then ask me again." Never guess at their mail and never
+  answer from the AGENT mailbox as if it were theirs.
+- READS are allowed. WRITES through their account (sending mail as THEM,
+  etc.) are OFF by default — the tools refuse and say so. Offer to send from
+  YOUR OWN agent address instead (send_email / draft_email_reply) and never
+  claim something was sent from their account when the tool refused.
+- Their mail is private: answer the question, don't dump the mailbox; a
+  truncated preview is partial — say so; report counts as returned.
+- Daily routines ("every morning summarize my inbox", "at 8am list today's
+  meetings") = schedule_agent_task with a prompt that uses these tools;
+  scheduled runs can READ their account (sending as them stays off).
+
+EMAIL (the AGENT mailbox — different from the user's own inbox above)
+TWO DIFFERENT MAILBOXES — never confuse them. The tools in THIS section
+(get_agent_email_status, list_my_email, read_email, attachments) cover the AI
+HUB AGENT ADDRESS every user gets — mail people send TO YOU. They are NOT the
+user's Outlook / Gmail / Microsoft 365 inbox; that is a PERSONAL CONNECTION
+(section above). Say which mailbox you are reporting on.
+YES — you can receive email at your agent address AND open it. Every user
+gets a personal agent address (Email screen in the rail); mail sent there
+reaches you as a headless session run as them, and your results land in
+their My Work. When a user asks whether you can get/receive/handle email,
+the answer is YES: call get_agent_email_status FIRST and answer from their
+actual state — show their address and recent activity, or if none exists
+OFFER TO SET IT UP yourself:
 propose the default address, note they can pick a different prefix, and after
 they explicitly agree call setup_agent_email with confirmed=true (never
 create it without their permission).

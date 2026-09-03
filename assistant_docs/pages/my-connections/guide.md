@@ -52,6 +52,7 @@ Once a user is connected to, say, Microsoft 365:
 - Any agent that has tools backed by that MCP server (e.g. "send_email", "list_calendar_events") can use **the current user's** tokens when that user is the one chatting.
 - The token never moves between users — agent calls run in the context of whoever is signed in.
 - If a user without a connection asks the agent to do the same action, the tool call will fail with an auth error (or the agent will be told it can't perform that action).
+- **The Agent** (the next-gen assistant) uses these connections too: ask it about *your* inbox or calendar and it reads them **as you** (`list_my_connections` → `get_connection_tools` → `use_my_connection`). If you haven't connected the account yet it sends you here. Reads work out of the box; **sending mail from your own account is off by default** — an administrator enables specific write tools on The Agent service (`AGENT_MY_CONNECTIONS_WRITE_TOOLS`). Until then The Agent offers to send from its own agent address instead.
 
 This is why per-user connections matter for personalization: an "Email me a summary" workflow needs the *user's* mailbox, not a shared one.
 
@@ -66,7 +67,7 @@ The administrator hasn't configured an MCP server for it yet (or the configured 
 Three things to check:
 1. The connection is still active — return to this page and confirm the card shows "Connected."
 2. The scopes match what the agent needs. If they don't, click **Re-authorize** to refresh consent.
-3. The agent actually has the matching MCP tool wired in. That's configured on the agent's builder page (`/custom_agent_enhanced`), not here.
+3. The agent actually has the matching MCP tool wired in. For a General Agent that's configured on its builder page (`/custom_agent_enhanced`), not here. The Agent needs nothing configured — it picks up whatever you have connected on this page.
 
 ### "What happens if I disconnect?"
 - Your tokens are revoked for that service.

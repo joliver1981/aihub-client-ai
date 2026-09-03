@@ -47,8 +47,14 @@ already point there).
 - **Connections** `/connections` — add/edit database connections and
   credentials (admins).
 - **My Connections** `/my-connections` — the USER'S own page for connecting
-  and managing their personal MCP server accounts (different from the
-  database Connections page above; any signed-in user).
+  and managing their personal accounts (Microsoft 365 / Outlook mail and
+  calendar, etc. — per-user OAuth MCP servers; different from the database
+  Connections page above; any signed-in user). YOU use what they connect
+  there: `list_my_connections` → `get_connection_tools` →
+  `use_my_connection` reads THEIR inbox/calendar as them. Not connected
+  yet → send them here, then retry. The agent-email tools
+  (`get_agent_email_status`, `list_my_email`) are a DIFFERENT mailbox: the
+  AI Hub agent address, not the user's Outlook.
 - **Local Secrets** `/local-secrets` — the encrypted secret store page (see
   the secrets skill; you can also store via `store_platform_secret`).
 - **My Approvals** `/approvals` — the classic approval surface; My Work here

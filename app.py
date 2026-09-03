@@ -14321,6 +14321,13 @@ app.register_blueprint(mcp_internal_bp)
 from builder_mcp.routes.my_connections_routes import my_connections_bp
 app.register_blueprint(my_connections_bp)
 
+# My Connections internal seam (2026-09-03): lets The Agent act through a
+# user's OWN personal account AS that user — service key + signed
+# X-AIHub-User assertion; per-user gateway connections. Sibling of the
+# /api/internal/integrations* routes above.
+from builder_mcp.routes.my_connections_internal_routes import my_connections_internal_bp
+app.register_blueprint(my_connections_internal_bp)
+
 # Import and register the Builder Document Search blueprint
 try:
     from builder_service.routes.builder_document_routes import builder_document_bp

@@ -1,7 +1,7 @@
 # Handoff — The Agent cannot use My Connections (personal per-user MCP accounts)
 
-**Status:** ANALYSIS COMPLETE, NOTHING BUILT — **re-verified still unbuilt 2026-09-03** (§0). The prerequisite that blocked it is now **CLEARED**. No code was changed producing this document or the re-verification.
-**Date:** 2026-09-02 (re-verified 2026-09-03)
+**Status:** **BUILT AND LIVE-VERIFIED 2026-09-03 — see §12 (build record).** §0–§11 are the analysis as written before the build; where the build deviated from §6, §12 says so and why. The §7 interim wording was superseded by the "two mailboxes" framing that ships with the bridge.
+**Date:** 2026-09-02 (re-verified 2026-09-03; built 2026-09-03)
 **Repo:** `C:\src\aihub-client-ai-dev` (branch `main` — do NOT create a branch; commit to `main`)
 **Owner:** James
 **Scope for the executing agent:** build the bridge described in §6, or the interim honesty fix in §7, or both. Read §4 and §5 before writing any code — the obvious implementation is unsafe and will not work.
@@ -319,3 +319,77 @@ Delete this section's wording again once §6 ships.
 - **Honesty over silent success.** Tool bodies never raise into the loop; empty results are first-class information; server rejections surface verbatim; mutations are verified by read-back where a read-back exists.
 - **Denylist, not allowlist.** Default-open capability gating; deny lists start empty and grow by observation. **One named exception in this work:** writes through a personal connection are default-closed (§6.4). Do not "correct" that back to default-open — it is a deliberate decision, not an oversight.
 - Another agent may be working in this same tree — verify `git diff` is 100% yours and re-check `origin/main..HEAD` before pushing.
+
+---
+
+## 12. Build record — 2026-09-03
+
+Both §6 (the bridge) and the honesty wording (§7, reframed) shipped in one commit on `main`. Everything below was verified against the running services on this box after restarting the gateway, the main app and The Agent from this tree.
+
+### 12.1 What was built
+
+| Layer | File | What it does |
+|---|---|---|
+| Gateway | `builder_mcp/gateway/server_manager.py` | **Connections are keyed `(server_id, user_id)`** (`connection_key("30", 13)` → `"30@u13"`). `connect` / `disconnect` / `list_tools` / `call_tool` / `get_status` take an optional `user_id`; callers that pass none keep the legacy `server_id`-only key, so the admin routes are unchanged. `get_all_connections` reports `server_id` + `user_id` per key; `connect`/`get_status` echo `connection_key`. `tools/list` **annotations** are carried through. |
+| Gateway | `builder_mcp/gateway/app_mcp_gateway.py` | `user_id` on `ConnectRequest`, `DisconnectRequest`, `ToolCallRequest` and as a query param on `/status` and `/tools`. Older callers omit it and see no change. |
+| Main app | `builder_mcp/client/mcp_gateway_client.py` | `user_id=` kwarg on the five calls (sent only when set — an older gateway ignores it). |
+| Main app | `builder_mcp/client/tool_converter.py` | `MCPToolConverter(connection_user_id=…)` routes every GeneralAgent tool call to that user's own connection. |
+| Main app | `builder_mcp/agent_integration/mcp_agent_tools.py` | `is_personal_server(server_id, auth_type)` (oauth2 + `authorization_code`). Flow B connects/lists/calls **personal** servers under the user's key and shared servers under the legacy key — **this closes the pre-existing GeneralAgent race (Blocker B) as well.** |
+| Main app | `builder_mcp/agent_integration/personal_connections.py` | **New.** The bridge: `catalog_for_user` (the ONE filter the page and the seam share), `ensure_user_connection` (fresh token from `oauth_manager.get_access_token`; reopen when the connection is older than `MY_CONNECTIONS_CONN_MAX_AGE`, default 60 s; one retry after a stale-401), `list_user_tools`, `call_user_tool`, `annotate_known_tools`, `[MCP_AUDIT]` lines on logger `mcp.audit` with `agent_id=the_agent`. **Refuses (`gateway_unscoped`) when the gateway does not echo a per-user `connection_key`** — an old gateway would silently share, so it fails closed. |
+| Main app | `builder_mcp/routes/my_connections_internal_routes.py` | **New.** `GET /api/internal/my-connections`, `GET …/<sid>/tools`, `POST …/<sid>/call`. `internal_api_key_required()` **plus** a signed `X-AIHub-User` assertion (aud `aihub-internal`); the user id is never a parameter; sub 0 is refused. Registered in `app.py` right after `my_connections_bp`. |
+| Main app | `builder_mcp/routes/my_connections_routes.py` | The page's list now calls the shared catalog; Disconnect also drops the user's live gateway connection. |
+| Main app | `builder_mcp/servers/graph_tools.py` | The four Graph tools declare MCP `annotations` (`readOnlyHint` true on the three reads, false on `send_email`). |
+| The Agent | `agent_service/connection_tools.py` | **New.** `list_my_connections`, `get_connection_tools`, `use_my_connection` — thin wrappers over the seam, identity from `CURRENT_USER`, assertion minted per call. One shared guard `tool_permission()` feeds both discovery and execution. |
+| The Agent | `agent_service/brain.py` | Kill switch `AGENT_MY_CONNECTIONS` (default true); `_READ_TOOL_NAMES` += the two discovery tools; `MUTATING_TOOLS` += `use_my_connection`; server version 0.11.0; new prompt section **PERSONAL CONNECTIONS**; the EMAIL section opens with "two different mailboxes". |
+| The Agent | `work_tools.py`, `email_tools.py`, `product_skills/aihub-platform-navigation/SKILL.md`, `product_skills/aihub-integrations/SKILL.md` | The §7 wording, reframed: agent mailbox vs the user's own Outlook, and where each lives. |
+| Docs | `assistant_docs/pages/my-connections/guide.md` | Says The Agent uses these connections and that sending from the user's account is admin-enabled. |
+| Tests | `builder_mcp/gateway/tests/test_user_scoped_connections.py`, `tests_v2/unit/test_personal_connections_seam.py`, `tests_v2/unit/test_agent_connection_tools.py`, pins in `tests_v2/unit/test_agent_brain_tool_lists.py`, live `tests_v2/live/the_agent_my_connections_live_check.py` | See §12.4. |
+
+### 12.2 Configuration (The Agent service unless noted)
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `AGENT_MY_CONNECTIONS` | `true` | Kill switch. `false` unregisters the three tools (98 → 95 tools). |
+| `AGENT_MY_CONNECTIONS_WRITE_TOOLS` | *(empty)* | Comma-separated **exact** tool names permitted to mutate through a personal connection, e.g. `send_email`. |
+| `AGENT_MY_CONNECTIONS_HEADLESS_WRITES` | `false` | Whether an allowed write may also run in a scheduled / email-triggered session. |
+| `AGENT_MY_CONNECTIONS_DENY` | *(empty)* | Comma-separated server ids The Agent must not use even when the user authorized them. |
+| `MY_CONNECTIONS_CONN_MAX_AGE` (main app) | `60` | Seconds before a user's gateway connection is reopened with a fresh token. |
+
+### 12.3 Deviations from §6 — and why
+
+1. **Identity = the signed assertion (§0.3), not a trusted `user_id` parameter.** The seam ignores any `user_id` in the query or body (pinned by test). A service-key holder cannot name a user.
+2. **Blocker B closed at the gateway (the second option in §6.1), not by reconnect-before-call alone.** The key is `(server_id, user_id)`; Flow B uses it for personal servers, so the GeneralAgent race is gone too. The bridge additionally refuses an unscoped gateway.
+3. **"Read" is a server declaration, never a guess.** §6.4.5 says do not pattern-match to decide whether a tool writes. So: a tool runs if it is exactly listed in `AGENT_MY_CONNECTIONS_WRITE_TOOLS`, **or** its server declares `annotations.readOnlyHint = true`. Anything undeclared is denied with text that names the setting. Our Graph server declares all four; the seam overlays those declarations even through an older gateway. Foreign servers (Phase 2 Google/Slack) must declare, or their tools are listed exactly by name.
+4. **Headless: reads allowed, writes double-gated.** §6.4 left this open and leaned interactive-only. The daily-routine use case ("summarize my inbox each morning") is exactly a scheduled read, so reads are allowed there; an allowed write additionally needs `AGENT_MY_CONNECTIONS_HEADLESS_WRITES=true`. "Sent mail as me at 3 am" stays impossible by default.
+5. **`get_connection_tools` hides denied tools from the usable list but adds one steering footer** naming them and what to offer instead (the agent's own mailbox). Hiding alone left the model with no explanation to give the user.
+6. **The catalog moved into a shared module** so the page and the seam cannot drift.
+7. **The §7 "cannot reach" wording was not applied as written** because the bridge ships with it; the same sites now carry the "two mailboxes" distinction instead.
+
+### 12.4 Evidence
+
+- Unit: gateway 22/22 (18 existing + 4 new, both `aihubmcp` standalone and `aihub2.1` pytest); seam/bridge 15/15; The Agent tools 16/16; brain tool-list drift 8/8 (new pins included).
+- Kill switch, offline: `AGENT_MY_CONNECTIONS=false` → 95 tools, none of the three registered; `true` → 98.
+- Restarted from this tree (detached, WMI): gateway `18224 → 12992`, main app `15380 → 10908`, The Agent `10544 → 4068`.
+- **Live, `tests_v2/live/the_agent_my_connections_live_check.py --username admin`: 18/18.** In order: seam refuses no-assertion / garbage / service-principal / no-service-key (all 401); catalog for user 13 lists server 30 **connected**; the four Graph tools with annotations; **`list_recent_emails` returned 5 real messages** (the access token had expired ~8 h earlier — the refresh path worked; `MCPUserTokens.updated_date` moved to 22:26); Sent Items baseline; gateway holds `30@u13`; a user with no grant gets `needs_authorization` on tools and on call; **cross-user race** (two threads as user 13, one as a stranger, 3 calls each, concurrently): user 13 success ×6 with 2 messages each, stranger `needs_authorization` ×3, gateway keys after = `['30@u13']` only; through The Agent as user 13, "how many messages are in my inbox" ran `list_my_connections → get_connection_tools → use_my_connection` and **not** `list_my_email`; as the stranger it answered with `/my-connections`; the **write-gate probe** ("send from my own Outlook account") made **zero** `use_my_connection(send_email)` attempts, Sent Items unchanged, and the reply offered its own mailbox.
+- Platform regression pack 15: run after the restart (result recorded in the commit message / memory).
+
+### 12.5 §8 verification plan — status
+
+| Step | Status |
+|---|---|
+| 1 baseline legacy GeneralAgent path | Not run separately. The grant was proven live through the seam, which uses the same `get_access_token` path; user 13 completed a real Connect on 2026-09-03 12:57. |
+| 2 seam directly | Done (live 18/18). |
+| 3 negative identity | Done (401s + `needs_authorization`; never mail). |
+| 4 cross-user bleed | Done at the gateway (unit, 3 users concurrently, distinct transports) and at the seam (live, user + stranger concurrently). A second **real** grant (two humans) is still the only way to see two mailboxes side by side — open as T7. |
+| 5 through The Agent | Done (three chats). |
+| 6 write gate, default | Done live (no attempt, Sent Items unchanged). |
+| 7 write gate, enabled | **Unit-tested only.** Not run live: it would send real mail from James's account and needs a restart with the setting on. |
+| 8 kill switch | Verified at import time (offline), not by a service restart. |
+| 9 regression gate | Pack 15 run after the restart — see the commit. |
+
+### 12.6 Loose ends (new)
+
+- Deleting a server on the admin page disconnects only the legacy gateway connection; per-user connections for that server idle until the gateway restarts (harmless — the catalog 404s before any call).
+- The dry-run auth middleware reads `X-API-Key`, not `X-Internal-API-Key`; send the internal key as `X-API-Key` (The Agent does; the live script was fixed to).
+- The main app has no `/health` route; `/login` is its liveness probe.
+- `AgentMCPServers (232 → 54)` orphan row from §9 is still there.

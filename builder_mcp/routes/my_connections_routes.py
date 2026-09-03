@@ -7,17 +7,18 @@ Surfaces only `auth_type='oauth2'` servers whose grant_type is
 Service-account servers (`client_credentials`) and non-OAuth servers stay on
 the admin MCP Servers page; they aren't user-facing.
 
+The catalog itself lives in
+builder_mcp/agent_integration/personal_connections.py (catalog_for_user),
+shared with the internal seam The Agent uses — one filter, two surfaces.
+
 Endpoints:
   GET  /my-connections                                 — HTML page
   GET  /api/my-connections/servers                     — list + per-user state
   POST /api/my-connections/<server_id>/disconnect      — revoke current user's tokens
 """
-import os
 import logging
 from flask import Blueprint, render_template, jsonify
 from flask_login import login_required, current_user
-
-from CommonUtils import get_db_connection
 
 logger = logging.getLogger(__name__)
 my_connections_bp = Blueprint('my_connections', __name__)
@@ -34,73 +35,11 @@ def my_connections_page():
 def list_my_connections():
     """List MCP servers the current user can personally connect to, with state."""
     try:
-        from builder_mcp.agent_integration.oauth_manager import (
-            _load_server_config, has_user_token,
+        from builder_mcp.agent_integration.personal_connections import (
+            catalog_for_user, public_view,
         )
-
         user_id = int(current_user.id)
-
-        conn = get_db_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-
-            # All OAuth servers in this tenant — we filter to authorization_code
-            # below since grant_type lives in the encrypted credentials table.
-            # WI-4: only servers an admin has published. When migration 020 has
-            # not been applied the column is absent and every enabled OAuth
-            # server stays visible (today's behaviour) — never hide working
-            # connections because a migration did not run.
-            from builder_mcp.agent_integration.mcp_server_visibility import has_available_to_users_column
-            published_clause = " AND available_to_users = 1" if has_available_to_users_column(cursor) else ""
-            cursor.execute(f"""
-                SELECT server_id, server_name, description, category, icon
-                FROM MCPServers
-                WHERE auth_type = 'oauth2' AND enabled = 1{published_clause}
-                ORDER BY server_name
-            """)
-            rows = cursor.fetchall()
-
-            result = []
-            for sid, name, desc, cat, icon in rows:
-                cfg = _load_server_config(sid)
-                grant_type = (cfg.get('oauth_grant_type') or '').lower()
-                if grant_type != 'authorization_code':
-                    continue
-
-                connected = has_user_token(sid, user_id)
-                last_connected = None
-                if connected:
-                    cursor.execute("""
-                        SELECT MAX(updated_date) FROM MCPUserTokens
-                        WHERE server_id = ? AND user_id = ?
-                    """, sid, user_id)
-                    r = cursor.fetchone()
-                    if r and r[0]:
-                        try:
-                            last_connected = r[0].isoformat()
-                        except Exception:
-                            last_connected = str(r[0])
-
-                result.append({
-                    'server_id': sid,
-                    'name': name,
-                    'description': desc,
-                    'category': cat,
-                    'icon': icon,
-                    'connected': connected,
-                    'last_connected': last_connected,
-                    'scope': cfg.get('oauth_scope', ''),
-                })
-
-            cursor.close()
-            return jsonify(result)
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
+        return jsonify([public_view(e) for e in catalog_for_user(user_id)])
     except Exception as e:
         logger.error(f"Error listing my connections: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
@@ -113,6 +52,13 @@ def disconnect_my_connection(server_id):
     try:
         from builder_mcp.agent_integration.oauth_manager import revoke_user_token
         revoke_user_token(server_id, int(current_user.id))
+        # Drop this user's live gateway connection too, so a revoked token
+        # cannot keep serving an already-open transport.
+        try:
+            from builder_mcp.client.mcp_gateway_client import MCPGatewayClient
+            MCPGatewayClient().disconnect_server(server_id, user_id=int(current_user.id))
+        except Exception as ge:
+            logger.debug(f"gateway disconnect after revoke skipped: {ge}")
         return jsonify({'status': 'success'})
     except Exception as e:
         logger.error(f"Error disconnecting server {server_id}: {e}", exc_info=True)

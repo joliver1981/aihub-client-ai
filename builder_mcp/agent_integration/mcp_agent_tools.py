@@ -113,8 +113,15 @@ def get_mcp_tools_for_agent(agent_id: int, user_id: int = None) -> List:
                     connection_config, server_id, user_id=user_id,
                 )
 
+                # Per-user (delegated OAuth) servers get a connection keyed by
+                # (server_id, user_id) at the gateway — the bearer baked into
+                # the transport is THIS user's, and it must never serve
+                # another user's agent (cross-user bleed, fixed 2026-09-03).
+                # Shared servers keep the legacy server_id-only connection.
+                conn_user = user_id if is_personal_server(server_id, auth_type) else None
+
                 # Connect to the server via gateway
-                connect_result = gateway.connect_server(server_id, config)
+                connect_result = gateway.connect_server(server_id, config, user_id=conn_user)
 
                 if connect_result.get('status') != 'connected':
                     logger.warning(
@@ -126,12 +133,13 @@ def get_mcp_tools_for_agent(agent_id: int, user_id: int = None) -> List:
                 # Get tools (may come from connect response or separate list call)
                 tools = connect_result.get('tools', [])
                 if not tools:
-                    tools = gateway.list_tools(server_id)
+                    tools = gateway.list_tools(server_id, user_id=conn_user)
 
                 # Convert to LangChain tools (user_id + agent_id captured for audit log)
                 converter = MCPToolConverter(
                     gateway, server_id, server_name,
                     user_id=user_id, agent_id=agent_id,
+                    connection_user_id=conn_user,
                 )
                 langchain_tools = converter.convert_all_tools(tools)
                 all_tools.extend(langchain_tools)
@@ -269,6 +277,26 @@ Tool names are prefixed with the server name (e.g., servername_toolname).
     except Exception as e:
         logger.warning(f"Error building MCP system prompt for agent {agent_id}: {e}")
         return ""
+
+
+def is_personal_server(server_id: int, auth_type: str) -> bool:
+    """True when this server's credentials are PER USER — an OAuth2 server
+    whose grant is authorization_code (delegated). Such a server's gateway
+    connection must be scoped to the calling user. Service-account
+    (client_credentials) and non-OAuth servers are shared.
+
+    Never raises: an unreadable config is treated as shared (today's
+    behaviour), so a DB hiccup cannot change how a server is keyed.
+    """
+    if (auth_type or '').lower() != 'oauth2':
+        return False
+    try:
+        from builder_mcp.agent_integration.oauth_manager import _load_server_config
+        cfg = _load_server_config(server_id) or {}
+        return (cfg.get('oauth_grant_type') or '').lower() == 'authorization_code'
+    except Exception as e:
+        logger.warning(f"is_personal_server({server_id}) could not read config: {e}")
+        return False
 
 
 def _build_connection_config(server_type, server_url, auth_type,

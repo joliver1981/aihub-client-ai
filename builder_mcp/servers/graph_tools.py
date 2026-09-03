@@ -120,11 +120,19 @@ def list_upcoming_meetings(args, get_token):
     return {"count": len(out), "meetings": out}
 
 
+# MCP tool annotations (spec 2025-03-26): each tool DECLARES whether it only
+# reads. Consumers that gate writes (The Agent's use_my_connection) trust the
+# declaration and deny anything undeclared — they never guess from a name.
+_READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True}
+_WRITES = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False,
+           "openWorldHint": True}
+
 _TOOLS = [
     {
         "name": "get_my_profile",
         "description": "Get the signed-in user's Microsoft 365 profile (name, email, job title).",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "annotations": dict(_READ_ONLY),
         "handler": get_my_profile,
     },
     {
@@ -140,6 +148,7 @@ _TOOLS = [
             },
             "additionalProperties": False,
         },
+        "annotations": dict(_READ_ONLY),
         "handler": list_recent_emails,
     },
     {
@@ -158,6 +167,7 @@ _TOOLS = [
             "required": ["to", "subject", "body"],
             "additionalProperties": False,
         },
+        "annotations": dict(_WRITES),
         "handler": send_email,
     },
     {
@@ -173,6 +183,7 @@ _TOOLS = [
             },
             "additionalProperties": False,
         },
+        "annotations": dict(_READ_ONLY),
         "handler": list_upcoming_meetings,
     },
 ]

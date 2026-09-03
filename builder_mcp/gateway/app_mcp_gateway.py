@@ -103,10 +103,14 @@ class ConnectRequest(BaseModel):
     transport: Optional[str] = None               # 'streamable-http' | 'sse' | 'auto' (remote only)
     verify_ssl: Optional[bool] = True
     timeout: Optional[int] = 30
+    # Per-user connection scope (2026-09-03): when set, this connection is
+    # keyed (server_id, user_id) so per-user bearer tokens never cross users.
+    user_id: Optional[str] = None
 
 
 class DisconnectRequest(BaseModel):
     server_id: str
+    user_id: Optional[str] = None
 
 
 class TestRequest(BaseModel):
@@ -124,6 +128,7 @@ class TestRequest(BaseModel):
 class ToolCallRequest(BaseModel):
     tool_name: str
     arguments: Dict[str, Any] = {}
+    user_id: Optional[str] = None                 # per-user connection scope
 
 
 # ============================================================================
@@ -171,7 +176,7 @@ async def connect_server(req: ConnectRequest):
         config["transport"] = req.transport
         config["verify_ssl"] = req.verify_ssl if req.verify_ssl is not None else True
 
-    result = await mcp_manager.connect(req.server_id, config)
+    result = await mcp_manager.connect(req.server_id, config, user_id=req.user_id)
 
     if result.get("status") == "error":
         logger.error(f"Failed to connect server {req.server_id}: {result.get('error')}")
@@ -182,21 +187,21 @@ async def connect_server(req: ConnectRequest):
 @app.post("/api/mcp/disconnect")
 async def disconnect_server(req: DisconnectRequest):
     """Disconnect from a server"""
-    result = await mcp_manager.disconnect(req.server_id)
+    result = await mcp_manager.disconnect(req.server_id, user_id=req.user_id)
     return result
 
 
 @app.get("/api/mcp/servers/{server_id}/status")
-async def get_server_status(server_id: str):
-    """Get connection status for a server"""
-    return await mcp_manager.get_status(server_id)
+async def get_server_status(server_id: str, user_id: Optional[str] = None):
+    """Get connection status for a server (optionally one user's connection)"""
+    return await mcp_manager.get_status(server_id, user_id=user_id)
 
 
 @app.get("/api/mcp/servers/{server_id}/tools")
-async def list_server_tools(server_id: str):
-    """List available tools from a connected server"""
+async def list_server_tools(server_id: str, user_id: Optional[str] = None):
+    """List available tools from a connected server (optionally one user's connection)"""
     try:
-        tools = await mcp_manager.list_tools(server_id)
+        tools = await mcp_manager.list_tools(server_id, user_id=user_id)
         return {"server_id": server_id, "tools": tools, "tool_count": len(tools)}
     except ConnectionError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -207,11 +212,13 @@ async def list_server_tools(server_id: str):
 
 @app.post("/api/mcp/servers/{server_id}/tools/call")
 async def call_server_tool(server_id: str, req: ToolCallRequest):
-    """Execute a tool on a connected server"""
+    """Execute a tool on a connected server (on the caller's own connection
+    when user_id is given)"""
     result = await mcp_manager.call_tool(
         server_id=server_id,
         tool_name=req.tool_name,
-        arguments=req.arguments
+        arguments=req.arguments,
+        user_id=req.user_id,
     )
     return result
 
