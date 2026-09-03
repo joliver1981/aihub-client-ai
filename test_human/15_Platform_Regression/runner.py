@@ -170,6 +170,40 @@ def delete_probe_agent(api, aid):
         api.post("/delete/agent", {"agent_id": aid})
 
 
+ORACLE_AGENT_NAME = "Retail Demo - AIRDB2 (15 stores)"
+SEED_HINT = "seed it: python test_human/_scripts/seed_target_fixtures.py --target <host>"
+
+
+def oracle_agent_id(api):
+    """The NL->SQL oracle data agent on THIS target, resolved by NAME — ids
+    differ per install (it was 281 on the dev tree; a fresh box has none until
+    the seed script runs). REGP_ORACLE_AGENT=<id|name> overrides. Returns None
+    when absent; callers SKIP with the seed hint."""
+    body = api.jbody(api.get("/get/data_agents")) or []
+    rows = body.get("data") if isinstance(body, dict) else body
+    if isinstance(rows, str):
+        rows = json.loads(rows)
+    want = (os.environ.get("REGP_ORACLE_AGENT") or "").strip()
+    for a in (rows or []):
+        if not isinstance(a, dict):
+            continue
+        aid = a.get("agent_id") if a.get("agent_id") is not None else a.get("id")
+        try:
+            aid = int(float(aid))
+        except Exception:
+            continue
+        desc = (a.get("agent_description") or "").strip()
+        if want and want in (str(aid), desc):
+            return aid
+        if not want and desc == ORACLE_AGENT_NAME:
+            return aid
+    return None
+
+
+def oracle_missing():
+    return f"SKIP: NLQ oracle data agent {ORACLE_AGENT_NAME!r} not present on this target — {SEED_HINT}"
+
+
 class Api:
     def __init__(self, base_url, username, password):
         self.base = base_url.rstrip("/")
@@ -436,20 +470,14 @@ def c_knowledge(ctx):
 @check("nlq_data_chat", "Data/NLQ", "NL->SQL data chat answers a deterministic question",
        needs=["db"], llm=True)
 def c_nlq(ctx):
-    body = ctx["api"].jbody(ctx["api"].get("/get/data_agents")) or []
-    rows = body.get("data") if isinstance(body, dict) else body
-    if isinstance(rows, str):
-        rows = json.loads(rows)
-    has_281 = any(str(a.get("id") or a.get("agent_id")) == "281"
-                  for a in (rows or []) if isinstance(a, dict))
-    if not has_281:
-        return None, ("SKIP: known NLQ oracle agent (id 281, AIRDB2) not present "
-                      "on this target — no deterministic oracle available")
+    oracle = oracle_agent_id(ctx["api"])
+    if not oracle:
+        return None, oracle_missing()
     ctx["api"].get("/data_assistants", timeout=45)      # seed the chat session:
     # without it /chat/data replies "Your session may have expired" and this check
     # silently depended on pages_render having run first.
     r = ctx["api"].post("/chat/data",
-                        {"agent_id": "281", "question": "How many stores are there in total?",
+                        {"agent_id": str(oracle), "question": "How many stores are there in total?",
                          "history": [], "format_table_as_json": False,
                          "caution_level": "medium"}, timeout=150)
     body = ctx["api"].jbody(r) or {}
@@ -1589,13 +1617,9 @@ def c_comp_mcp_tools(ctx):
 def c_comp_nlq_honest(ctx):
     """Uses the deliberate gaps kept in AIRDB2 as honesty probes: there is no
     London store and no foot-traffic data. A number here is a fabrication."""
-    body = ctx["api"].jbody(ctx["api"].get("/get/data_agents")) or []
-    rows = body.get("data") if isinstance(body, dict) else body
-    if isinstance(rows, str):
-        rows = json.loads(rows)
-    if not any(str(a.get("id") or a.get("agent_id")) == "281"
-               for a in (rows or []) if isinstance(a, dict)):
-        return None, "SKIP: NLQ oracle agent 281 not present on this target"
+    oracle = oracle_agent_id(ctx["api"])
+    if not oracle:
+        return None, oracle_missing()
     api = ctx["api"]
     # A FRESH session, not ctx["api"]: /chat/data keeps server-side conversation
     # state, so the earlier nlq_data_chat turn ("15 stores") bleeds into this one
@@ -1605,7 +1629,7 @@ def c_comp_nlq_honest(ctx):
         return None, "SKIP: could not open a fresh session"
     fresh.get(f"{ctx['base']}/data_assistants", timeout=45)       # seed the chat session
     r = fresh.post(f"{ctx['base']}/chat/data",
-                   json={"agent_id": "281",
+                   json={"agent_id": str(oracle),
                          "question": "What was the foot traffic at our London store last week?",
                          "history": [], "format_table_as_json": False,
                          "caution_level": "medium"}, timeout=180)
@@ -1942,20 +1966,16 @@ def c_de_pin_dashboard(ctx):
        needs=("browser",), llm=True)
 def c_de_pin_live(ctx):
     api = ctx["api"]
-    body = api.jbody(api.get("/get/data_agents")) or []
-    rows = body.get("data") if isinstance(body, dict) else body
-    if isinstance(rows, str):
-        rows = json.loads(rows)
-    if not any(str(a.get("id") or a.get("agent_id")) == "281"
-               for a in (rows or []) if isinstance(a, dict)):
-        return None, "SKIP: NLQ oracle agent 281 not present on this target"
+    oracle = oracle_agent_id(api)
+    if not oracle:
+        return None, oracle_missing()
     with browser_page(ctx, "/data_explorer", DE_READY_JS) as (page, errors):
         try:
             page.wait_for_function(DE_LIST_LOADED_JS, timeout=15000)
         except Exception:
             pass
-        if _de_pick_agent(page, value="281") is None:
-            return None, "SKIP: agent 281 is not offered in the Data Explorer data-source list"
+        if _de_pick_agent(page, value=str(oracle)) is None:
+            return None, f"SKIP: agent {oracle} is not offered in the Data Explorer data-source list"
         page.click('button[title="New dashboard"]')
         _de_ask(page, "How many employees work at each store?")
         try:
@@ -2003,7 +2023,11 @@ def run_pack14(args, remote=False, host="localhost"):
     try:
         proc = subprocess.run(cmd, cwd=PACK14,
                               capture_output=True, text=True, timeout=900)
-        files = sorted(glob.glob(os.path.join(PACK14, "results_history", "results_*.json")))
+        # pack 14 keeps per-target history too (host_<ip>/); read the run it
+        # just wrote for THIS target, never the newest file of another one
+        hist14 = (os.path.join(PACK14, "results_history", f"host_{host}") if remote
+                  else os.path.join(PACK14, "results_history"))
+        files = sorted(glob.glob(os.path.join(hist14, "results_*.json")))
         run = json.load(open(files[-1], encoding="utf-8"))
         rows = []
         for r in run.get("results", []):
@@ -2176,12 +2200,14 @@ def main():
         json.dump(run_doc, fh, indent=1, default=str)
     with open(os.path.join(HISTORY_DIR, f"REPORT_{stamp}.md"), "w", encoding="utf-8") as fh:
         fh.write(report)
-    with open(os.path.join(HERE, "REPORT_LATEST.md"), "w", encoding="utf-8") as fh:
+    # REPORT_LATEST.md is the LOCAL chain's latest; an installed box gets its own
+    latest = os.path.join(HERE, f"REPORT_LATEST_{host}.md" if remote else "REPORT_LATEST.md")
+    with open(latest, "w", encoding="utf-8") as fh:
         fh.write(report)
 
     print("\n" + "=" * 72)
     print(report.split("## Full matrix")[0])
-    print(f"Report: {os.path.join(HERE, 'REPORT_LATEST.md')}")
+    print(f"Report: {latest}")
     if regressions:
         return 2
     if any(r["status"] in ("FAIL", "ERROR") for r in results):

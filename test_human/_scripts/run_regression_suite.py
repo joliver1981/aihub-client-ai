@@ -27,6 +27,17 @@ REMOTE COVERAGE IS NOT LOCAL COVERAGE. Some checks cannot run against a remote
 box (pack 14 verifies engine-written files over an admin share; pack 22 drives
 the local stack). Those SKIP with a reason. Read the per-pack reports — a thin
 run that says CLEAN is not the same as a full run that says CLEAN.
+
+FIXTURES: a fresh install has no NL->SQL oracle agent, no AIRDB2 dictionary, no
+SFTP secret and no simulated-user agent, so the checks that need them SKIP with
+a seed hint. `--seed` runs _scripts/seed_target_fixtures.py against the target
+first (idempotent; `--seed-verify` also asks the oracle the pack-15 question),
+which turns those SKIPs into real coverage.
+
+HISTORY: every pack now keeps an installed box's results in
+results_history/host_<ip>/ and its report in REPORT_LATEST_<ip>.md, so a remote
+run never diffs against — or becomes — the local baseline. The quarantine
+below is kept as a safety net for a pack that forgets.
 """
 import argparse
 import os
@@ -35,6 +46,16 @@ import subprocess
 import sys
 import time
 import datetime
+
+# The pack reports carry status glyphs (✅/❌/⏭). When stdout is a file or a
+# cp1252 console, echoing a pack's tail raised UnicodeEncodeError and KILLED
+# the driver after pack 24 (2026-09-02) — packs 16-20 never ran. Degrade
+# lossily instead of dying.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEST_HUMAN = os.path.abspath(os.path.join(HERE, ".."))
@@ -53,8 +74,10 @@ PACKS = [
     ("18_AuthZ_Matrix", PY_MAIN, [], False, True),
     ("19_CC_Tier_C", PY_MAIN, [], False, True),
     ("20_The_Agent", PY_AGENT, [], False, True),
-    ("22_GA_Code_Interpreter", PY_MAIN, [], False, True),
+    ("22_GA_Code_Interpreter", PY_MAIN, [], False, False),   # reads the LOCAL ledger
 ]
+
+SEED = os.path.join(HERE, "seed_target_fixtures.py")
 
 VERDICT_RE = re.compile(r"##\s*Verdict:\s*\*\*(.+?)\*\*\s*[—-]?\s*(.*)")
 
@@ -89,15 +112,14 @@ def build_env(host, api_key):
 
 
 def quarantine_remote_results(pack_dir, host, started_at):
-    """Move results this remote run just wrote into results_history/host_<h>/.
+    """SAFETY NET: move results a remote run wrote into the FLAT history folder
+    into results_history/host_<h>/.
 
-    Only pack 15 segregates its history by target. The rest write every run into
-    one folder and baseline against the newest file there, so pointing them at an
-    installed box does two bad things at once: the run diffs an INSTALLED box
-    against a LOCAL-dev baseline (everything environmental reads as
-    "REGRESSIONS DETECTED"), and the remote result then becomes the baseline the
-    next LOCAL run is judged against. Segregating per target keeps each
-    environment's history honest without editing five runners.
+    Since 2026-09-02 every pack segregates its own history per target (the
+    `_target_host()` block in each runner), so this normally moves nothing.
+    It stays because the failure it guards against is expensive: a remote run
+    diffed against the LOCAL baseline reads as "REGRESSIONS DETECTED", and the
+    remote result then becomes the baseline the next LOCAL run is judged against.
     """
     hist = os.path.join(pack_dir, "results_history")
     if not os.path.isdir(hist):
@@ -135,6 +157,23 @@ def pack_cmd(pack, py, extra, supports_comp, host, is_local, competency, api_key
     return cmd
 
 
+def seed_target(target, env, verify):
+    """Create the fixtures the packs resolve by name (idempotent). Returns the
+    seed script's exit code; a failure is reported but does not stop the suite —
+    the packs SKIP honestly for whatever is still missing."""
+    cmd = [PY_MAIN, SEED, "--target", target] + (["--verify"] if verify else [])
+    print(f"\n[driver] ===== seed fixtures =====\n[driver] {' '.join(cmd)}")
+    proc = subprocess.run(cmd, cwd=HERE, env=env, timeout=1800, capture_output=True,
+                          text=True, encoding="utf-8", errors="replace")
+    out = (proc.stdout or "") + (proc.stderr or "")
+    for line in out.strip().splitlines()[-14:]:
+        print(f"[seed] {line}" if not line.startswith("[seed]") else line)
+    if proc.returncode:
+        print(f"[driver] WARNING: seeding exited {proc.returncode}; fixture-dependent "
+              f"checks will SKIP with the reason")
+    return proc.returncode
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", required=True,
@@ -144,6 +183,10 @@ def main():
                          "remote target; CC and The Agent 401 without it)")
     ap.add_argument("--competency", action="store_true",
                     help="include the competency tier where a pack supports it")
+    ap.add_argument("--seed", action="store_true",
+                    help="run seed_target_fixtures.py against the target first")
+    ap.add_argument("--seed-verify", action="store_true",
+                    help="--seed, then ask the oracle agent the pack-15 question")
     ap.add_argument("--only", default=None, help="substring match on pack dir name")
     ap.add_argument("--timeout", type=int, default=3600)
     args = ap.parse_args()
@@ -158,6 +201,10 @@ def main():
     print(f"[driver] target: {label}")
     print(f"[driver] REGP_BASE={env['REGP_BASE']}  CC_BASE={env['CC_BASE']}")
     print(f"[driver] signing key: {'target box key' if api_key else 'this tree'}")
+
+    seed_rc = None
+    if args.seed or args.seed_verify:
+        seed_rc = seed_target(args.target, env, args.seed_verify)
 
     selected = [p for p in PACKS if not args.only or args.only in p[0]]
     rows = []
@@ -198,13 +245,21 @@ def main():
             m = VERDICT_RE.search(line)
             if m:
                 verdict, detail = m.group(1).strip(), m.group(2).strip()
+        # A pack that stopped for ONE environmental reason (pack 20: the target
+        # has no Anthropic key) says so once instead of failing every check.
+        mb = re.search(r"\*\*Result: BLOCKED — (.+?)\*\*", out) or re.search(r"\[BLOCKED\] (.+)", out)
+        if mb or rc == 3:
+            verdict, detail = "BLOCKED", (mb.group(1).strip() if mb else "see pack report")
         # Packs that report PASS/FAIL lines instead of a Verdict header
-        if verdict.startswith("rc=") and "PASS" in out:
+        elif verdict.startswith("rc=") and "PASS" in out:
             p = len(re.findall(r"\[PASS\]", out))
             f = len(re.findall(r"\[FAIL\]", out))
             if p or f:
                 verdict = "CLEAN" if not f else "FAILURES"
                 detail = f"{p} PASS / {f} FAIL"
+        elif verdict.startswith("rc=") and rc == 0:
+            skip = next((ln.strip() for ln in out.splitlines() if ln.startswith("SKIP:")), "")
+            verdict, detail = ("SKIPPED", skip[5:].strip()[:120]) if skip else ("CLEAN", "rc=0")
         if not is_local:
             moved = quarantine_remote_results(d, args.target, t0)
             if moved:
@@ -226,7 +281,9 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     lines = [f"# Regression Suite — {stamp}", "",
              f"- Target: **{label}**", f"- Base: `{env['REGP_BASE']}`",
-             f"- Competency tier: {'yes' if args.competency else 'no'}", "",
+             f"- Competency tier: {'yes' if args.competency else 'no'}",
+             f"- Fixtures seeded first: "
+             f"{'no' if seed_rc is None else ('yes' if seed_rc == 0 else f'attempted, exit {seed_rc}')}", "",
              "| pack | verdict | detail | minutes |", "|---|---|---|---:|"]
     for pack, verdict, detail, el in rows:
         lines.append(f"| {pack} | {verdict} | {detail} | {el/60:.1f} |")
@@ -238,7 +295,11 @@ def main():
     print("\n" + "=" * 72)
     print(report)
     print(f"Suite report: {path}")
-    bad = [r for r in rows if r[1] not in ("CLEAN", "SKIPPED")]
+    bad = [r for r in rows if r[1] not in ("CLEAN", "SKIPPED", "BLOCKED")]
+    blocked = [r for r in rows if r[1] == "BLOCKED"]
+    if blocked:
+        print("BLOCKED packs (environment, not product): "
+              + ", ".join(f"{r[0]} — {r[2]}" for r in blocked))
     return 1 if bad else 0
 
 

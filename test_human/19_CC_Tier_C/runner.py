@@ -76,10 +76,32 @@ except Exception:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
-HISTORY_DIR = os.path.join(HERE, "results_history")
+def _target_host():
+    """Host of the app under test, from the suite-wide REGP_BASE convention."""
+    base = os.environ.get("REGP_BASE", "")
+    h = re.sub(r"^https?://", "", base).split(":")[0].split("/")[0]
+    return h if h and h not in ("localhost", "127.0.0.1") else None
+
+
+REMOTE_HOST = _target_host()
+# An installed box is a DIFFERENT environment: its history lives in
+# results_history/host_<ip>/ and is never diffed against the dev-tree baseline.
+# (The first remote run on 2026-09-02 compared the two, reported bogus
+# "REGRESSIONS DETECTED", and then BECAME the baseline the next LOCAL run was
+# judged against.) Same convention as pack 15.
+HISTORY_DIR = (os.path.join(HERE, "results_history", f"host_{REMOTE_HOST}") if REMOTE_HOST
+               else os.path.join(HERE, "results_history"))
+REPORT_LATEST = os.path.join(HERE, f"REPORT_LATEST_{REMOTE_HOST}.md" if REMOTE_HOST
+                             else "REPORT_LATEST.md")
+TARGET_LABEL = f" (INSTALLED {REMOTE_HOST})" if REMOTE_HOST else ""
 CC_BASE = os.environ.get("CC_BASE", "http://127.0.0.1:5091")
 APP_BASE = os.environ.get("REGP_BASE", "http://localhost:5001")
 SIM_AGENT = os.environ.get("TIERC_SIM_AGENT", "84")     # plays the user AND judges
+# Resolved by NAME at startup when TIERC_SIM_AGENT is not set: 84 is "Master
+# Agent" on the dev tree only; an installed box gets "Regression Sim Agent" from
+# _scripts/seed_target_fixtures.py. With neither, the judge would silently
+# return "" for every verdict, so the pack SKIPs instead.
+SIM_AGENT_NAMES = ("Master Agent", "Regression Sim Agent")
 MAX_TURNS = 10
 # Hard wall-clock cap per conversational turn. Distinct from the requests
 # timeout, which only measures gaps BETWEEN bytes and is defeated by SSE
@@ -118,14 +140,22 @@ class App:
     def __init__(self):
         self.base = APP_BASE
         self.s = requests.Session()
-        r = self.s.get(f"{self.base}/login", timeout=20)
-        hid = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
-        hid.update(dict(re.findall(r'<input[^>]*name="([^"]+)"[^>]*type="hidden"[^>]*value="([^"]*)"', r.text)))
-        d = {"username": "admin", "password": "admin", "submit": "Login"}
-        d.update(hid)
-        if "/login" in self.s.post(f"{self.base}/login", data=d,
-                                   allow_redirects=True, timeout=30).url:
-            raise RuntimeError("admin login failed")
+        last = None
+        for attempt in range(1, 4):
+            try:
+                r = self.s.get(f"{self.base}/login", timeout=20)
+                hid = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
+                hid.update(dict(re.findall(r'<input[^>]*name="([^"]+)"[^>]*type="hidden"[^>]*value="([^"]*)"', r.text)))
+                d = {"username": "admin", "password": "admin", "submit": "Login"}
+                d.update(hid)
+                if "/login" in self.s.post(f"{self.base}/login", data=d,
+                                           allow_redirects=True, timeout=30).url:
+                    raise RuntimeError("admin login failed")
+                return
+            except requests.ConnectionError as e:
+                last = e
+                time.sleep(3 * attempt)
+        raise RuntimeError(f"cannot reach {self.base}: {last}")
 
     def get(self, p, **kw):
         return self.s.get(f"{self.base}{p}", timeout=kw.pop("timeout", 45), **kw)
@@ -251,6 +281,37 @@ def strip_agent_header(text):
 
 
 # ------------------------------------------------------------------ LLM seam
+
+def resolve_sim_agent(app):
+    """The general agent that plays the user AND judges, on THIS target.
+    TIERC_SIM_AGENT=<id|name> wins; else the first of SIM_AGENT_NAMES that
+    exists. None when nothing usable exists (caller SKIPs the pack)."""
+    rows = app.rows("/get/agents", "data")
+    want = (os.environ.get("TIERC_SIM_AGENT") or "").strip()
+
+    def aid_of(a):
+        v = a.get("agent_id") if a.get("agent_id") is not None else a.get("id")
+        try:
+            return int(float(v))
+        except Exception:
+            return None
+
+    by_name = {}
+    for a in rows:
+        aid = aid_of(a)
+        if aid is None:
+            continue
+        desc = (a.get("agent_description") or "").strip()
+        if want and want in (str(aid), desc):
+            return aid
+        by_name.setdefault(desc, aid)
+    if want:
+        return None
+    for name in SIM_AGENT_NAMES:
+        if name in by_name:
+            return by_name[name]
+    return None
+
 
 class Llm:
     """Both the simulated user and the judge run through the platform's own
@@ -582,8 +643,21 @@ def main():
 
     stamp = now_stamp()
     app = App()
+    sim = resolve_sim_agent(app)
+    if not sim:
+        os.makedirs(HISTORY_DIR, exist_ok=True)
+        report = (f"# CC Tier C — complete competency under discovery — {stamp}{TARGET_LABEL}\n\n"
+                  f"## Verdict: **SKIPPED** — no simulated-user/judge agent on this target "
+                  f"(none of {list(SIM_AGENT_NAMES)} exists and TIERC_SIM_AGENT is unset); "
+                  f"seed it: python test_human/_scripts/seed_target_fixtures.py --target <host>\n")
+        io.open(REPORT_LATEST, "w", encoding="utf-8").write(report)
+        io.open(os.path.join(HISTORY_DIR, f"REPORT_{stamp}.md"), "w",
+                encoding="utf-8").write(report)
+        print("\n" + report)
+        return 0
+    log(f"sim/judge agent = {sim}{TARGET_LABEL}")
     cc = CC()
-    llm = Llm(app)
+    llm = Llm(app, agent_id=sim)
     results = []
 
     plan = [sc for sc in SCENARIOS if not (args.only and args.only not in sc["id"])]
@@ -619,7 +693,7 @@ def main():
     verdict = "CLEAN" if not any(r["status"] in ("FAIL", "ERROR") for r in results) \
         else "FAILURES"
 
-    lines = [f"# CC Tier C — complete competency under discovery — {stamp}", "",
+    lines = [f"# CC Tier C — complete competency under discovery — {stamp}{TARGET_LABEL}", "",
              f"## Verdict: **{verdict}** — "
              + " / ".join(f"{v} {k}" for k, v in sorted(counts.items())), "",
              "| scenario | turns | artifact | failed dimensions | result |",
@@ -670,7 +744,7 @@ def main():
                       encoding="utf-8"), indent=1, default=str)
     io.open(os.path.join(HISTORY_DIR, f"REPORT_{stamp}.md"), "w",
             encoding="utf-8").write(report)
-    io.open(os.path.join(HERE, "REPORT_LATEST.md"), "w", encoding="utf-8").write(report)
+    io.open(REPORT_LATEST, "w", encoding="utf-8").write(report)
     print("\n" + report.split("### ")[0])
     return 1 if any(r["status"] in ("FAIL", "ERROR") for r in results) else 0
 

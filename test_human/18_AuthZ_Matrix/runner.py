@@ -64,7 +64,24 @@ except Exception:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
-HISTORY_DIR = os.path.join(HERE, "results_history")
+def _target_host():
+    """Host of the app under test, from the suite-wide REGP_BASE convention."""
+    base = os.environ.get("REGP_BASE", "")
+    h = re.sub(r"^https?://", "", base).split(":")[0].split("/")[0]
+    return h if h and h not in ("localhost", "127.0.0.1") else None
+
+
+REMOTE_HOST = _target_host()
+# An installed box is a DIFFERENT environment: its history lives in
+# results_history/host_<ip>/ and is never diffed against the dev-tree baseline.
+# (The first remote run on 2026-09-02 compared the two, reported bogus
+# "REGRESSIONS DETECTED", and then BECAME the baseline the next LOCAL run was
+# judged against.) Same convention as pack 15.
+HISTORY_DIR = (os.path.join(HERE, "results_history", f"host_{REMOTE_HOST}") if REMOTE_HOST
+               else os.path.join(HERE, "results_history"))
+REPORT_LATEST = os.path.join(HERE, f"REPORT_LATEST_{REMOTE_HOST}.md" if REMOTE_HOST
+                             else "REPORT_LATEST.md")
+TARGET_LABEL = f" (INSTALLED {REMOTE_HOST})" if REMOTE_HOST else ""
 APP = os.environ.get("REGP_BASE", "http://localhost:5001")
 PREFIX = "REGA-"
 
@@ -104,11 +121,20 @@ def _hidden(text):
 
 def login_as(base, username, password):
     s = requests.Session()
-    r = s.get(f"{base}/login", timeout=20)
-    d = {"username": username, "password": password, "submit": "Login"}
-    d.update(_hidden(r.text))
-    r = s.post(f"{base}/login", data=d, allow_redirects=True, timeout=30)
-    return s, ("/login" not in r.url)
+    last = None
+    for attempt in range(1, 4):
+        # Retry a CONNECT failure (a LAN box occasionally drops one); a rejected
+        # login is returned as (s, False) exactly as before.
+        try:
+            r = s.get(f"{base}/login", timeout=20)
+            d = {"username": username, "password": password, "submit": "Login"}
+            d.update(_hidden(r.text))
+            r = s.post(f"{base}/login", data=d, allow_redirects=True, timeout=30)
+            return s, ("/login" not in r.url)
+        except requests.ConnectionError as e:
+            last = e
+            time.sleep(3 * attempt)
+    raise RuntimeError(f"cannot reach {base}: {last}")
 
 
 class App:
@@ -699,7 +725,7 @@ def main():
                ("FAILURES (no baseline regression)"
                 if any(r["status"] in ("FAIL", "ERROR") for r in results) else "CLEAN"))
 
-    lines = [f"# AuthZ Matrix - {stamp}", "",
+    lines = [f"# AuthZ Matrix - {stamp}{TARGET_LABEL}", "",
              f"- Tier: {'A+B' if args.competency else 'A'} | Baseline: "
              f"`{os.path.basename(files[-1]) if files else 'none'}`", "",
              f"## Verdict: **{verdict}** - "
@@ -724,7 +750,7 @@ def main():
                       encoding="utf-8"), indent=1, default=str)
     io.open(os.path.join(HISTORY_DIR, f"REPORT_{stamp}.md"), "w",
             encoding="utf-8").write(report)
-    io.open(os.path.join(HERE, "REPORT_LATEST.md"), "w", encoding="utf-8").write(report)
+    io.open(REPORT_LATEST, "w", encoding="utf-8").write(report)
     print("\n" + report.split("## Matrix")[0])
     return 2 if regressions else (1 if any(r["status"] in ("FAIL", "ERROR")
                                            for r in results) else 0)

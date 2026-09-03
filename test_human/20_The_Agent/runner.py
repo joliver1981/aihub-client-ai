@@ -12,6 +12,7 @@ Output: REPORT_LATEST.md (+ results_history/REPORT_<ts>.md)
 import json
 import os
 import sys
+import time
 import datetime
 
 import requests
@@ -153,16 +154,34 @@ def main():
                        "evidence": str(evidence)[:600]})
         print(f"[{'PASS' if ok else 'FAIL'}] {cid} {name}")
 
-    # A0-1 health
-    try:
-        h = requests.get(f"{BASE}/health", timeout=10).json()
-        check("A0-1", "health endpoint up, correct service/model",
-              h.get("status") == "ok" and h.get("service") == "agent_service",
-              json.dumps(h))
-    except Exception as e:
-        check("A0-1", "health endpoint up", False, e)
+    # A0-1 health — retried: a LAN box occasionally refuses ONE connect while
+    # being perfectly healthy (2026-09-02 the whole pack reported 0/1 on that).
+    h, err = None, None
+    for attempt in range(1, 4):
+        try:
+            h = requests.get(f"{BASE}/health", timeout=10).json()
+            break
+        except Exception as e:
+            err = e
+            time.sleep(3 * attempt)
+    if h is None:
+        check("A0-1", "health endpoint up", False, err)
         _write_report(checks)
         sys.exit(1)
+    check("A0-1", "health endpoint up, correct service/model",
+          h.get("status") == "ok" and h.get("service") == "agent_service",
+          json.dumps(h))
+    if h.get("anthropic_key_present") is False:
+        # Neither a product defect nor a rig problem: the TARGET has no Anthropic
+        # key (no BYOK, no relay), so every turn below would fail for that one
+        # reason. Say it once, as BLOCKED, instead of 30 FAILs that read like
+        # thirty broken features.
+        reason = (f"target {BASE} has no Anthropic key "
+                  f"(anthropic_key_source={h.get('anthropic_key_source')!r}) — configure "
+                  f"BYOK or the relay on the box, then rerun")
+        print(f"[BLOCKED] {reason}")
+        _write_report(checks, blocked=reason)
+        sys.exit(3)
 
     # A0-2 auth gate: no token -> 401
     r = requests.post(f"{BASE}/api/chat", json={"message": "hi"}, timeout=10)
@@ -2931,7 +2950,7 @@ def main():
         sys.exit(1)
 
 
-def _write_report(checks):
+def _write_report(checks, blocked=None):
     here = os.path.dirname(os.path.abspath(__file__))
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     passed = sum(1 for c in checks if c["ok"])
@@ -2940,7 +2959,8 @@ def _write_report(checks):
         "",
         f"**Run:** {datetime.datetime.now().isoformat(timespec='seconds')}  ",
         f"**Target:** {BASE}  ",
-        f"**Result: {passed}/{len(checks)} PASS**",
+        (f"**Result: BLOCKED — {blocked}**" if blocked
+         else f"**Result: {passed}/{len(checks)} PASS**"),
         "",
         "| # | Check | Result | Evidence |",
         "|---|---|---|---|",
@@ -2950,9 +2970,15 @@ def _write_report(checks):
         lines.append(f"| {c['id']} | {c['name']} | "
                      f"{'✅ PASS' if c['ok'] else '❌ FAIL'} | {ev} |")
     report = "\n".join(lines) + "\n"
-    with open(os.path.join(here, "REPORT_LATEST.md"), "w", encoding="utf-8") as f:
+    remote = _TARGET_HOST not in ("127.0.0.1", "localhost")
+    latest = os.path.join(here, f"REPORT_LATEST_{_TARGET_HOST}.md" if remote
+                          else "REPORT_LATEST.md")
+    with open(latest, "w", encoding="utf-8") as f:
         f.write(report)
-    hist = os.path.join(here, "results_history")
+    # Per-target history (pack-15 convention): an installed box never shares
+    # the dev tree's report chain.
+    hist = (os.path.join(here, "results_history", f"host_{_TARGET_HOST}") if remote
+            else os.path.join(here, "results_history"))
     os.makedirs(hist, exist_ok=True)
     with open(os.path.join(hist, f"REPORT_{ts}.md"), "w", encoding="utf-8") as f:
         f.write(report)

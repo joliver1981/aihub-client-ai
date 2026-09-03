@@ -59,7 +59,24 @@ except Exception:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
-HISTORY_DIR = os.path.join(HERE, "results_history")
+def _target_host():
+    """Host of the app under test, from the suite-wide REGP_BASE convention."""
+    base = os.environ.get("REGP_BASE", "")
+    h = re.sub(r"^https?://", "", base).split(":")[0].split("/")[0]
+    return h if h and h not in ("localhost", "127.0.0.1") else None
+
+
+REMOTE_HOST = _target_host()
+# An installed box is a DIFFERENT environment: its history lives in
+# results_history/host_<ip>/ and is never diffed against the dev-tree baseline.
+# (The first remote run on 2026-09-02 compared the two, reported bogus
+# "REGRESSIONS DETECTED", and then BECAME the baseline the next LOCAL run was
+# judged against.) Same convention as pack 15.
+HISTORY_DIR = (os.path.join(HERE, "results_history", f"host_{REMOTE_HOST}") if REMOTE_HOST
+               else os.path.join(HERE, "results_history"))
+REPORT_LATEST = os.path.join(HERE, f"REPORT_LATEST_{REMOTE_HOST}.md" if REMOTE_HOST
+                             else "REPORT_LATEST.md")
+TARGET_LABEL = f" (INSTALLED {REMOTE_HOST})" if REMOTE_HOST else ""
 APP = os.environ.get("REGP_BASE", "http://localhost:5001")
 PREFIX = "REGS-"          # everything this runner creates is named PREFIX + id
 
@@ -84,26 +101,50 @@ class App:
     def __init__(self):
         self.base = APP
         self.s = requests.Session()
-        r = self.s.get(f"{self.base}/login", timeout=20)
-        hid = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
-        hid.update(dict(re.findall(r'<input[^>]*name="([^"]+)"[^>]*type="hidden"[^>]*value="([^"]*)"', r.text)))
-        d = {"username": "admin", "password": "admin", "submit": "Login"}
-        d.update(hid)
-        r = self.s.post(f"{self.base}/login", data=d, allow_redirects=True, timeout=30)
-        if "/login" in r.url:
-            raise RuntimeError("admin login failed")
+        last = None
+        for attempt in range(1, 4):
+            try:
+                r = self.s.get(f"{self.base}/login", timeout=20)
+                hid = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
+                hid.update(dict(re.findall(r'<input[^>]*name="([^"]+)"[^>]*type="hidden"[^>]*value="([^"]*)"', r.text)))
+                d = {"username": "admin", "password": "admin", "submit": "Login"}
+                d.update(hid)
+                r = self.s.post(f"{self.base}/login", data=d, allow_redirects=True, timeout=30)
+                if "/login" in r.url:
+                    raise RuntimeError("admin login failed")
+                return
+            except requests.ConnectionError as e:
+                last = e
+                time.sleep(3 * attempt)
+        raise RuntimeError(f"cannot reach {self.base}: {last}")
+
+    def _req(self, method, p, **kw):
+        """Every request goes through here. A CONNECT failure (the socket never
+        reached the server — includes ConnectTimeout) is retried; a read timeout
+        is not, because the request may have been applied. 2026-09-02: c2..c6
+        ERRORed on the installed box with 'Max retries exceeded ... Connection to
+        10.0.0.6 timed out' while the box answered every retry — five bogus
+        REGRESSIONS from one flaky connect each."""
+        last = None
+        for attempt in range(1, 4):
+            try:
+                return getattr(self.s, method)(f"{self.base}{p}", **kw)
+            except requests.ConnectionError as e:
+                last = e
+                time.sleep(2 * attempt)
+        raise last
 
     def get(self, p, **kw):
-        return self.s.get(f"{self.base}{p}", timeout=kw.pop("timeout", 30), **kw)
+        return self._req("get", p, timeout=kw.pop("timeout", 30), **kw)
 
     def post(self, p, payload=None, **kw):
-        return self.s.post(f"{self.base}{p}", json=payload, timeout=kw.pop("timeout", 60), **kw)
+        return self._req("post", p, json=payload, timeout=kw.pop("timeout", 60), **kw)
 
     def put(self, p, payload=None, **kw):
-        return self.s.put(f"{self.base}{p}", json=payload, timeout=kw.pop("timeout", 30), **kw)
+        return self._req("put", p, json=payload, timeout=kw.pop("timeout", 30), **kw)
 
     def delete(self, p, **kw):
-        return self.s.delete(f"{self.base}{p}", timeout=kw.pop("timeout", 30), **kw)
+        return self._req("delete", p, timeout=kw.pop("timeout", 30), **kw)
 
     @staticmethod
     def j(r):
@@ -697,7 +738,7 @@ def main():
                ("FAILURES (no baseline regression)"
                 if any(r["status"] in ("FAIL", "ERROR") for r in results) else "CLEAN"))
 
-    lines = [f"# Scheduling & Jobs Matrix - {stamp}", "",
+    lines = [f"# Scheduling & Jobs Matrix - {stamp}{TARGET_LABEL}", "",
              f"- Tier: {'A+B' if args.competency else 'A'} | Baseline: "
              f"`{os.path.basename(files[-1]) if files else 'none'}`", "",
              f"## Verdict: **{verdict}** - "
@@ -718,7 +759,7 @@ def main():
                       encoding="utf-8"), indent=1, default=str)
     io.open(os.path.join(HISTORY_DIR, f"REPORT_{stamp}.md"), "w",
             encoding="utf-8").write(report)
-    io.open(os.path.join(HERE, "REPORT_LATEST.md"), "w", encoding="utf-8").write(report)
+    io.open(REPORT_LATEST, "w", encoding="utf-8").write(report)
     print("\n" + report.split("## Matrix")[0])
     return 2 if regressions else (1 if any(r["status"] in ("FAIL", "ERROR")
                                            for r in results) else 0)

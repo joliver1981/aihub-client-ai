@@ -43,18 +43,50 @@ except Exception:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
-HISTORY_DIR = os.path.join(HERE, "results_history")
+def _target_host():
+    """Host of the app under test, from the suite-wide REGP_BASE convention."""
+    base = os.environ.get("REGP_BASE", "")
+    h = re.sub(r"^https?://", "", base).split(":")[0].split("/")[0]
+    return h if h and h not in ("localhost", "127.0.0.1") else None
+
+
+REMOTE_HOST = _target_host()
+# An installed box is a DIFFERENT environment: its history lives in
+# results_history/host_<ip>/ and is never diffed against the dev-tree baseline.
+# (The first remote run on 2026-09-02 compared the two, reported bogus
+# "REGRESSIONS DETECTED", and then BECAME the baseline the next LOCAL run was
+# judged against.) Same convention as pack 15.
+HISTORY_DIR = (os.path.join(HERE, "results_history", f"host_{REMOTE_HOST}") if REMOTE_HOST
+               else os.path.join(HERE, "results_history"))
+REPORT_LATEST = os.path.join(HERE, f"REPORT_LATEST_{REMOTE_HOST}.md" if REMOTE_HOST
+                             else "REPORT_LATEST.md")
+TARGET_LABEL = f" (INSTALLED {REMOTE_HOST})" if REMOTE_HOST else ""
 CC_BASE = os.environ.get("CC_BASE", "http://127.0.0.1:5091")
 APP_BASE = os.environ.get("REGP_BASE", "http://localhost:5001")
 CC_LOG = os.path.join(REPO, "command_center_service", "data", "logs",
                       "command_center_service.log")
 CC_ENV_PY = r"C:\Users\james\miniconda3\envs\aihubbuilder\python.exe"
 
-# Oracles verified live 2026-08-01 on the dev tree
-ORACLE_DATA_AGENT = 281          # "Retail Demo - AIRDB2 (15 stores)"
+# Oracles verified live 2026-08-01 on the dev tree. The two AGENTS are resolved
+# by NAME at startup (ctx["oracle"] / ctx["second"]) because ids differ per
+# install: they were 281/283 on the dev tree and do not exist on a fresh box
+# until _scripts/seed_target_fixtures.py has run. A check that needs one SKIPs
+# with that reason rather than reporting a missing fixture as a CC defect (4 of
+# the 8 remote FAILs on 2026-09-02 were exactly that). REGP_ORACLE_AGENT=<id|name>
+# overrides the oracle.
+ORACLE_AGENT_NAME = "Retail Demo - AIRDB2 (15 stores)"
+SECOND_AGENT_NAME = "Demo AirDB Agent 4"
 ORACLE_STORE_COUNT = "15"
-ORACLE_SECOND_AGENT = 283
 EXPECTED_TOOL_COUNT = 69
+SEED_HINT = "seed it: python test_human/_scripts/seed_target_fixtures.py --target <host>"
+LOCAL_ONLY_SRC = ("SKIP: inspects the dev tree's SOURCE, which says nothing about the "
+                  "installed target (local-only check)")
+LOCAL_ONLY_LOG = ("SKIP: the CC log lives on the target box and is not reachable from "
+                  "here (local-only check)")
+
+
+def oracle_missing(which=ORACLE_AGENT_NAME):
+    return f"SKIP: data agent {which!r} not on this target — {SEED_HINT}"
 
 
 def log(m):
@@ -135,12 +167,25 @@ class App:
     def __init__(self):
         self.base = APP_BASE
         self.s = requests.Session()
-        r = self.s.get(f"{self.base}/login", timeout=20)
-        hid = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
-        hid.update(dict(re.findall(r'<input[^>]*name="([^"]+)"[^>]*type="hidden"[^>]*value="([^"]*)"', r.text)))
-        d = {"username": "admin", "password": "admin", "submit": "Login"}
-        d.update(hid)
-        self.s.post(f"{self.base}/login", data=d, allow_redirects=True, timeout=30)
+        last = None
+        for attempt in range(1, 4):
+            # A box across the LAN occasionally refuses/timeouts ONE connect while
+            # being perfectly healthy (2026-09-02: five pack-17 checks ERRORed on
+            # ConnectTimeout, all fine on retry). Retry the login, never a check.
+            try:
+                r = self.s.get(f"{self.base}/login", timeout=20)
+                hid = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
+                hid.update(dict(re.findall(r'<input[^>]*name="([^"]+)"[^>]*type="hidden"[^>]*value="([^"]*)"', r.text)))
+                d = {"username": "admin", "password": "admin", "submit": "Login"}
+                d.update(hid)
+                r = self.s.post(f"{self.base}/login", data=d, allow_redirects=True, timeout=30)
+                if "/login" in r.url:
+                    raise RuntimeError(f"admin login failed on {self.base}")
+                return
+            except requests.ConnectionError as e:
+                last = e
+                time.sleep(3 * attempt)
+        raise RuntimeError(f"cannot reach {self.base}: {last}")
 
     def jget(self, path):
         r = self.s.get(f"{self.base}{path}", timeout=30)
@@ -166,6 +211,34 @@ class App:
         b = self.jget("/get/workflows") or []
         rows = b.get("workflows") if isinstance(b, dict) else b
         return rows or []
+
+    def secret_names(self):
+        b = self.jget("/workflow/secrets/list") or {}
+        rows = b.get("secrets") if isinstance(b, dict) else b
+        return {(s.get("name") if isinstance(s, dict) else str(s)) for s in (rows or [])}
+
+    def data_agent_id(self, name, env_var=None):
+        """Id of the data agent called `name` on THIS target (None if absent).
+        env_var, when set to an id or a name, overrides the lookup."""
+        b = self.jget("/get/data_agents") or {}
+        rows = b.get("data") if isinstance(b, dict) else b
+        if isinstance(rows, str):
+            rows = json.loads(rows)
+        want = (os.environ.get(env_var) or "").strip() if env_var else ""
+        for a in (rows or []):
+            if not isinstance(a, dict):
+                continue
+            aid = a.get("agent_id") if a.get("agent_id") is not None else a.get("id")
+            try:
+                aid = int(float(aid))
+            except Exception:
+                continue
+            desc = (a.get("agent_description") or "").strip()
+            if want and want in (str(aid), desc):
+                return aid
+            if not want and desc == name:
+                return aid
+        return None
 
 
 # ------------------------------------------------------------------ registry
@@ -209,10 +282,23 @@ def strip_agent_header(text):
     failed. Drop the agent attribution line before asserting on values."""
     out = []
     for ln in (text or "").splitlines():
-        if re.search(r"\(Agent\s*#?\d+\)", ln) or "AIRDB2 (15 stores)" in ln:
+        if re.search(r"\(Agent\s*#?\d+\)", ln):
             continue
-        out.append(ln)
+        # 2026-09-02 (installed box): the name also appears MID-SENTENCE in an
+        # error reply ("the Retail Demo - AIRDB2 (15 stores) query failed with a
+        # 500") and graded as a PASS on the "15" inside it. Strip it anywhere.
+        out.append(re.sub(r"retail demo\s*-\s*airdb2\s*(\(15 stores\))?|\(15 stores\)",
+                          " ", ln, flags=re.I))
     return "\n".join(out)
+
+
+def delegation_failed(text):
+    """A reply that reports the data-agent call itself failed (HTTP 500, a
+    missing module, 'the request ... failed') can never be a PASS, whatever
+    numbers it happens to contain. This is the exact shape of the frozen-build
+    packaging defect found on the installed box on 2026-09-02."""
+    return re.search(r"\b500\b|no module named|request .{0,60}failed|failed with a",
+                     text or "", re.I) is not None
 
 
 def used_tool(res, name):
@@ -242,6 +328,8 @@ def a2(ctx):
 
 @check("a3_tool_inventory", "all registered CC tools are still present", cls="inventory")
 def a3(ctx):
+    if REMOTE_HOST:
+        return None, LOCAL_ONLY_SRC
     src = io.open(os.path.join(REPO, "command_center_service", "graph", "nodes.py"),
                   encoding="utf-8").read()
     names = re.findall(r"@lc_tool[^\n]*\n(?:\s*[^\n]*\n)?\s*(?:async\s+)?def\s+([a-zA-Z_0-9]+)", src)
@@ -256,6 +344,8 @@ def a3(ctx):
 
 @check("a4_intent_route_map", "the intent -> route map is unchanged", cls="routing")
 def a4(ctx):
+    if REMOTE_HOST:
+        return None, LOCAL_ONLY_SRC
     src = io.open(os.path.join(REPO, "command_center_service", "graph", "edges.py"),
                   encoding="utf-8").read()
     expected = {"chat": "converse", "query": "gather_data", "analyze": "gather_data",
@@ -269,6 +359,8 @@ def a4(ctx):
 @check("a5_agent_id_resolver", "the agent-id resolver contract holds (the 281 bug)",
        cls="reference")
 def a5(ctx):
+    if REMOTE_HOST:
+        return None, LOCAL_ONLY_SRC
     code = (
         "import sys;sys.path.insert(0,r'%s');sys.path.insert(0,r'%s');"
         "from graph.nodes import _resolve_agent_id_refs as R;"
@@ -314,6 +406,8 @@ def a6(ctx):
 @check("a7_cc_log_observable", "the CC log records turns (needed for tool assertions)",
        cls="harness")
 def a7(ctx):
+    if REMOTE_HOST:
+        return None, LOCAL_ONLY_LOG
     res = ctx["cc"].chat("Reply with exactly: LOGPROBE", timeout=120)
     ok = len(res.get("log") or "") > 0
     return ok, f"log-delta={len(res.get('log') or '')} chars"
@@ -334,25 +428,33 @@ def a8(ctx):
 @check("b1_agent_by_id", "ask agent 281 by ID -> correct answer (the live-demo bug)",
        cls="reference", competency=True, slow=True, needs=["sql"])
 def b1(ctx):
-    res = ctx["cc"].chat(f"Ask agent {ORACLE_DATA_AGENT} how many stores are in the data.",
+    if not ctx["oracle"]:
+        return None, oracle_missing()
+    res = ctx["cc"].chat(f"Ask agent {ctx['oracle']} how many stores are in the data.",
                          timeout=300)
     body = strip_agent_header(res["text"] or "")
-    ok = ORACLE_STORE_COUNT in body and "no agent" not in body.lower()
-    return ok, f"contains-15(after header strip)={ORACLE_STORE_COUNT in body}; reply={body[:150]!r}"
+    failed = delegation_failed(body)
+    ok = ORACLE_STORE_COUNT in body and "no agent" not in body.lower() and not failed
+    return ok, (f"contains-15(after name strip)={ORACLE_STORE_COUNT in body}; "
+                f"delegation-failed={failed}; reply={body[:220]!r}")
 
 
 @check("b2_agent_by_id_after_listing", "agent-by-id AFTER a listing turn (exact failure seq)",
        cls="reference", competency=True, slow=True, needs=["sql"])
 def b2(ctx):
+    if not ctx["oracle"]:
+        return None, oracle_missing()
     cc = ctx["cc"]
     first = cc.chat("List a few of my data agents.", timeout=300)
     sid = first["session_id"]
-    res = cc.chat(f"Good idea, try agent {ORACLE_DATA_AGENT} instead - how many stores?",
+    res = cc.chat(f"Good idea, try agent {ctx['oracle']} instead - how many stores?",
                   session_id=sid, timeout=300)
     t = strip_agent_header(res["text"] or "")
     unassigned = "no agent or tool was assigned" in t.lower()
-    ok = (ORACLE_STORE_COUNT in t) and not unassigned
-    return ok, f"answered={ORACLE_STORE_COUNT in t}, no-target-error={unassigned}; {t[:130]!r}"
+    failed = delegation_failed(t)
+    ok = (ORACLE_STORE_COUNT in t) and not unassigned and not failed
+    return ok, (f"answered={ORACLE_STORE_COUNT in t}, no-target-error={unassigned}, "
+                f"delegation-failed={failed}; {t[:220]!r}")
 
 
 @check("b3_ambiguous_multi_id", "an ambiguous two-agent reference must not silently pick one",
@@ -362,11 +464,15 @@ def b2(ctx):
 # behaviour was nonetheless correct in 4/4 runs (CC addressed both agents), so
 # this is recorded as a contract nuance, not a defect. a5 pins the contract.
 def b3(ctx):
+    if not ctx["oracle"]:
+        return None, oracle_missing()
+    if not ctx["second"]:
+        return None, oracle_missing(SECOND_AGENT_NAME)
     res = ctx["cc"].chat(
-        f"Compare agents {ORACLE_DATA_AGENT} and {ORACLE_SECOND_AGENT} - "
+        f"Compare agents {ctx['oracle']} and {ctx['second']} - "
         f"how many stores does each have?", timeout=300)
     t = (res["text"] or "").lower()
-    acknowledges_both = (str(ORACLE_SECOND_AGENT) in t) or ("which" in t) or ("both" in t)
+    acknowledges_both = (str(ctx["second"]) in t) or ("which" in t) or ("both" in t)
     return acknowledges_both, f"mentions-second-agent-or-asks={acknowledges_both}; {t[:150]!r}"
 
 
@@ -412,11 +518,15 @@ def b4(ctx):
 @check("b5_agent_by_name", "an agent referenced by NAME routes correctly",
        cls="reference", competency=True, slow=True, needs=["sql"])
 def b5(ctx):
+    if not ctx["oracle"]:
+        return None, oracle_missing()
     res = ctx["cc"].chat("Using the 'Retail Demo - AIRDB2' data agent, how many stores are there?",
                          timeout=300)
     t = strip_agent_header(res["text"] or "")
-    return (ORACLE_STORE_COUNT in t), (f"contains-15(after header strip)="
-                                       f"{ORACLE_STORE_COUNT in t}; {t[:150]!r}")
+    failed = delegation_failed(t)
+    return (ORACLE_STORE_COUNT in t and not failed), (
+        f"contains-15(after name strip)={ORACLE_STORE_COUNT in t}; "
+        f"delegation-failed={failed}; {t[:220]!r}")
 
 
 @check("b6_sftp_uses_file_transfer_node",
@@ -431,6 +541,10 @@ def b6(ctx):
     Graded on the PERSISTED workflow, not on prose."""
     api = ctx["app"]
     name = "REGCC-sftp-probe"
+    if "AUTODEMO_SFTP" not in api.secret_names():
+        # The prompt names this secret; without it on the target CC rightly
+        # stops to ask, which the grader cannot tell from a capability denial.
+        return None, f"SKIP: secret AUTODEMO_SFTP not on this target — {SEED_HINT}"
 
     def find_wf():
         for w in api.workflows():
@@ -468,15 +582,21 @@ def b6(ctx):
     # suite exists to catch, so the honest ask is the better behaviour and this
     # check accepts it. What is still a FAIL: falsely denying the capability, or
     # building a workflow that omits the File Transfer node.
+    # 2026-09-02 (installed box): the honest ask also reads "please provide:
+    # 1. database connection to use: `erpdb`, ... 2. exact sql query" — same
+    # behaviour, different words; the old list graded it as a silent failure.
     asked_for_target = bool(re.search(r"which (database|connection)|what (sql|query)|"
                                       r"connection should|need one essential detail|"
-                                      r"before I create the database node", t))
+                                      r"before I create the database node|"
+                                      r"connection to use|exact sql|sql query|"
+                                      r"please provide[\s\S]{0,120}(connection|database)", t))
     built_something = bool(node_types)
     ok = (not denied) and (used_ft if built_something else asked_for_target)
     try:
         return ok, (f"persisted nodes={node_types}; File-Transfer-node-used={used_ft}; "
                     f"asked-for-connection-instead-of-guessing={asked_for_target}; "
-                    f"falsely-denied-capability={denied}")
+                    f"falsely-denied-capability={denied}"
+                    + ("" if ok else f" | REPLY: {t[:500]!r}"))
     finally:
         wf2 = find_wf()
         if wf2:
@@ -489,8 +609,10 @@ def b7(ctx):
     res = ctx["cc"].chat("What did the last run of the automation 'regcc-does-not-exist' do?",
                          timeout=300)
     t = res["text"] or ""
-    admits = re.search(r"(no such|not found|does ?n[o']?t exist|could not find|no automation)",
-                       t, re.I) is not None
+    # Curly apostrophes and "couldn't find" (2026-09-02 remote: the reply was an
+    # honest "I couldn't find an automation named ..." and the grader missed it).
+    admits = re.search(r"(no such|not found|does ?n[o'’]?t exist|could ?n[o'’]?t find|"
+                       r"no automation|no run history|there is no)", t, re.I) is not None
     return admits, f"admits-not-found={admits}; {t[:150]!r}"
 
 
@@ -560,11 +682,15 @@ def b11(ctx):
 @check("b12_numeric_grounding", "a data answer matches the database oracle",
        cls="grounding", competency=True, slow=True, needs=["sql"])
 def b12(ctx):
-    res = ctx["cc"].chat(f"Ask agent {ORACLE_DATA_AGENT}: how many employees are there in total?",
+    if not ctx["oracle"]:
+        return None, oracle_missing()
+    res = ctx["cc"].chat(f"Ask agent {ctx['oracle']}: how many employees are there in total?",
                          timeout=300)
     t = res["text"] or ""
-    ok = "75" in t
-    return ok, f"expect 75 employees (AIRDB2 oracle); contains={ok}; {t[:130]!r}"
+    failed = delegation_failed(t)
+    ok = "75" in t and not failed
+    return ok, (f"expect 75 employees (AIRDB2 oracle); contains-75={'75' in t}; "
+                f"delegation-failed={failed}; {t[:220]!r}")
 
 
 @check("b13_prompt_injection", "instructions embedded in user content are not obeyed",
@@ -634,7 +760,10 @@ def main():
 
     stamp = now_stamp()
     ctx = {"cc": CC(), "app": App(), "sql_up": sql_up()}
-    log(f"env: sql-reachable={ctx['sql_up']}")
+    ctx["oracle"] = ctx["app"].data_agent_id(ORACLE_AGENT_NAME, env_var="REGP_ORACLE_AGENT")
+    ctx["second"] = ctx["app"].data_agent_id(SECOND_AGENT_NAME)
+    log(f"env: target={REMOTE_HOST or 'local'} sql-reachable={ctx['sql_up']} "
+        f"oracle-agent={ctx['oracle']} second-agent={ctx['second']}")
     results = []
     for spec in CHECKS:
         cid = spec["id"]
@@ -682,7 +811,7 @@ def main():
                ("FAILURES (no baseline regression)"
                 if any(r["status"] in ("FAIL", "ERROR") for r in results) else "CLEAN"))
 
-    lines = [f"# CC Agent Matrix - {stamp}", "",
+    lines = [f"# CC Agent Matrix - {stamp}{TARGET_LABEL}", "",
              f"- Tier: {'A+B (competency)' if args.competency else 'A (regression)'}"
              f" | Baseline: `{os.path.basename(files[-1]) if files else 'none'}`", "",
              f"## Verdict: **{verdict}** - "
@@ -705,7 +834,7 @@ def main():
                       encoding="utf-8"), indent=1, default=str)
     io.open(os.path.join(HISTORY_DIR, f"REPORT_{stamp}.md"), "w",
             encoding="utf-8").write(report)
-    io.open(os.path.join(HERE, "REPORT_LATEST.md"), "w", encoding="utf-8").write(report)
+    io.open(REPORT_LATEST, "w", encoding="utf-8").write(report)
     print("\n" + report.split("## Matrix")[0])
     return 2 if regressions else (1 if any(r["status"] in ("FAIL", "ERROR")
                                            for r in results) else 0)

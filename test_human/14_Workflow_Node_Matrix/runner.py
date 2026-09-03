@@ -60,7 +60,8 @@ except Exception:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
-HISTORY_DIR = os.path.join(HERE, "results_history")
+HISTORY_DIR = os.path.join(HERE, "results_history")   # per-target: see main()
+REPORT_LATEST = os.path.join(HERE, "REPORT_LATEST.md")
 PREFIX = "NODEREG-"          # every workflow this runner creates is named PREFIX + check id
 OUT_ROOT = r"C:\temp\aihub_test\nodereg"
 SFTP_ROOT = os.path.join(REPO, "test_human", "_sftp_test_server", "runtime", "server_root")
@@ -1268,12 +1269,22 @@ def probe_env(api):
             log("AIRDB connection row exists but 10.0.0.6:1433 is UNREACHABLE — DB checks will SKIP")
             env["airdb"] = None
             env["airdb_note"] = "10.0.0.6:1433 unreachable"
-    # SFTP server up?
+    # SFTP server up? The rig runs on THIS machine but the ENGINE dials SFTP_HOST.
+    # In remote mode that is this machine's LAN IP, which the rig only serves
+    # when started off-loopback (Start_SFTP_Server_LAN.bat) — so probe the SAME
+    # address the engine will use, and let a loopback-only rig SKIP with the
+    # reason instead of surfacing as a File Transfer "product" failure.
+    env["sftp"] = None
     try:
-        with socket.create_connection(("127.0.0.1", 2222), timeout=2):
+        with socket.create_connection((SFTP_HOST, 2222), timeout=2):
             env["sftp"] = True
     except OSError:
-        env["sftp"] = None
+        if SFTP_HOST != "127.0.0.1":
+            env["sftp_note"] = (f"SFTP rig not reachable at {SFTP_HOST}:2222 (the engine box "
+                                f"dials back here) — start it with Start_SFTP_Server_LAN.bat "
+                                f"and allow TCP 2222/2121 inbound")
+        else:
+            env["sftp_note"] = "SFTP test rig not running (Start_SFTP_Server.bat)"
     secrets = api.secret_names()
     env["sftp_secret"] = next((s for s in ("SFTP_TEST_PASSWORD", "AUTODEMO_SFTP") if s in secrets), None)
     # Portal node: needs the browser-use service (:5101) AND a saved portal workflow to
@@ -1338,8 +1349,10 @@ def run_checks(api, args):
             continue
         missing = [k for k in spec["needs"] if not env.get(k)]
         if missing:
+            notes = "; ".join(str(env[k + "_note"]) for k in missing if env.get(k + "_note"))
             results.append({"id": cid, "title": spec["title"], "tier": spec["tier"],
-                            "status": "SKIP", "evidence": f"env missing: {missing}"})
+                            "status": "SKIP", "evidence": f"env missing: {missing}"
+                            + (f" — {notes}" if notes else "")})
             continue
         if spec.get("disk") and REMOTE_UNC and not env.get("remote_disk"):
             results.append({"id": cid, "title": spec["title"], "tier": spec["tier"],
@@ -1551,7 +1564,7 @@ def write_report(run, args, baseline_name, regressions, fixed, attention):
         json.dump(run, fh, indent=1, default=str)
     with open(os.path.join(HISTORY_DIR, f"REPORT_{ts}.md"), "w", encoding="utf-8") as fh:
         fh.write(report)
-    with open(os.path.join(HERE, "REPORT_LATEST.md"), "w", encoding="utf-8") as fh:
+    with open(REPORT_LATEST, "w", encoding="utf-8") as fh:
         fh.write(report)
     return verdict, report
 
@@ -1578,9 +1591,14 @@ def main():
                          "this dev machine's LAN IP; default 127.0.0.1)")
     args = ap.parse_args()
 
-    global REMOTE_UNC, SFTP_HOST
+    global REMOTE_UNC, SFTP_HOST, HISTORY_DIR, REPORT_LATEST
+    _host = re.sub(r"^https?://", "", args.base_url).split(":")[0].split("/")[0]
+    if _host and _host not in ("localhost", "127.0.0.1"):
+        # Per-target history (pack-15 convention): an installed box is never
+        # diffed against the dev-tree baseline and never becomes it.
+        HISTORY_DIR = os.path.join(HERE, "results_history", f"host_{_host}")
+        REPORT_LATEST = os.path.join(HERE, f"REPORT_LATEST_{_host}.md")
     if args.remote:
-        _host = re.sub(r"^https?://", "", args.base_url).split(":")[0].split("/")[0]
         REMOTE_UNC = f"//{_host}/c$"
         log(f"remote mode: target={_host}, disk via {REMOTE_UNC}")
     if args.sftp_host:
@@ -1602,7 +1620,7 @@ def main():
 
     print("\n" + "=" * 72)
     print(report.split("## Full matrix")[0])
-    print(f"Report: {os.path.join(HERE, 'REPORT_LATEST.md')}")
+    print(f"Report: {REPORT_LATEST}")
     if regressions:
         return 2
     if any(r["status"] in ("FAIL", "ERROR") for r in run["results"]):

@@ -112,6 +112,15 @@ def main():
     ap.add_argument("--skip-sdk", action="store_true", help="skip the S9 live-DB scenario")
     args = ap.parse_args()
 
+    _host = re.sub(r"^https?://", "", BASE).split(":")[0].split("/")[0]
+    if _host not in ("127.0.0.1", "localhost"):
+        # Lane attribution reads logs/run_python_code_invocations.jsonl on THIS
+        # machine, so against a remote box every scenario would grade
+        # "NOT ATTRIBUTED" — a rig limitation, never a product result.
+        print(f"SKIP: pack 22 drives the LOCAL stack only (ledger-attributed lane "
+              f"checks); target {BASE} is remote — nothing run")
+        return 0
+
     import secure_config
     secure_config.load_secure_config()
     import shared_auth
