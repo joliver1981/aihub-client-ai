@@ -1643,10 +1643,14 @@ def home():
                 and os.getenv('THE_AGENT_MODE', 'false').lower() == 'true'
                 and os.getenv('THE_AGENT_ENABLED', 'false').lower() == 'true'
                 and request.args.get('classic') != '1'
-                and not session.get('classic_mode')):
-            # All-users rollout (james 2026-08-24): every signed-in user lands
-            # in The Agent — no role floor here anymore. ?classic=1 stays the
-            # sticky escape hatch for everyone.
+                and not session.get('classic_mode')
+                # Preview posture (james 2026-09-03): only Developers/Admins are
+                # taken to The Agent unless AGENT_ALLOW_ALL_USERS=true — the same
+                # gate as the nav entry and /the-agent. Regular users keep the
+                # classic landing exactly as before. ?classic=1 stays the sticky
+                # escape hatch.
+                and (os.getenv('AGENT_ALLOW_ALL_USERS', 'false').lower() == 'true'
+                     or int(getattr(current_user, 'role', 0) or 0) >= 2)):
             return redirect(url_for('the_agent_redirect'))
 
         # If user is authenticated, redirect to dashboard
@@ -2580,14 +2584,22 @@ def get_agents():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-def _agent_visibility_filter():
-    """Resolve the per-user agent-id filter for agent-listing endpoints.
+def _agent_visibility_filter(strict=False):
+    """Resolve the per-user agent-id filter for agent endpoints.
 
-    When the caller presents a valid X-AIHub-User assertion (CC delegation),
-    return the set of agent ids that user may see — or None for admins / no
-    assertion (meaning "no filtering", preserving prior behavior). Used by the
-    /api/agents/list and /api/agents/summary endpoints so the Command Center
-    landscape only shows agents the user can actually access.
+    When the caller presents a valid X-AIHub-User assertion (CC / The Agent
+    delegation), return the agent ids that user may see — None for admins /
+    no assertion (meaning "no filtering", preserving prior behavior), [] for
+    deny-all. Used by /api/agents/list and /api/agents/summary so the Command
+    Center landscape only shows agents the user can actually access, and by
+    /api/agents/<id>/chat as its AUTHORIZATION check.
+
+    strict=False (listing): a bad assertion logs and falls back to unfiltered
+      — the prior behavior, unchanged.
+    strict=True (authorization, doc-acl G3 2026-09-03): a bad assertion
+      raises _InvalidUserAssertion (the route answers a hard 403) and a
+      resolver failure fails CLOSED ([]). A forged assertion that degraded to
+      "no filter" would let any API-key holder reach any agent.
     """
     assertion = request.headers.get('X-AIHub-User', '')
     if not assertion:
@@ -2597,12 +2609,16 @@ def _agent_visibility_filter():
         claims, err = shared_auth.verify_token(assertion, shared_auth.AUD_INTERNAL)
         if not claims:
             logger.warning(f'[agents] invalid X-AIHub-User assertion: {err}')
+            if strict:
+                raise _InvalidUserAssertion(err or 'no claims')
             return None
         from DataUtils import accessible_agent_ids
         return accessible_agent_ids(shared_auth.claim_user_id(claims), claims.get('role'))
+    except _InvalidUserAssertion:
+        raise
     except Exception as e:
         logger.warning(f'[agents] visibility filter error: {e}')
-        return None
+        return [] if strict else None
 
 
 @app.route('/api/agents/summary', methods=['GET'])
@@ -2694,6 +2710,24 @@ def api_agent_chat(agent_id):
 
         if not prompt:
             return jsonify({'status': 'error', 'response': 'prompt is required'}), 400
+
+        # Agent visibility (doc-acl G3, 2026-09-03): a caller may only talk to
+        # agents they can already SEE — otherwise ask_agent launders both the
+        # agent-visibility ACL and the answering agent's document / knowledge
+        # access to anyone who guesses a small-integer id. Authorization comes
+        # from the X-AIHub-User assertion ONLY — never from the body's
+        # user_id further down, which any API-key holder can name. Three-state:
+        # None = admin / no assertion = unfiltered (every existing session,
+        # classic-UI and CC caller keeps working); [ids] must contain this
+        # agent; [] = deny-all. Forged assertion = 403, never "missing".
+        try:
+            _visible = _agent_visibility_filter(strict=True)
+        except _InvalidUserAssertion:
+            return jsonify({'status': 'error',
+                            'response': 'invalid user assertion'}), 403
+        if _visible is not None and int(agent_id) not in _visible:
+            return jsonify({'status': 'error',
+                            'response': 'You do not have access to that agent.'}), 403
 
         # Determine agent type
         from DataUtils import is_data_agent as _is_data_agent

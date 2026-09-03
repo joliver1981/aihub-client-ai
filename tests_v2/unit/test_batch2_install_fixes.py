@@ -121,7 +121,17 @@ def test_shipped_env_enables_the_front_door_for_developers_only():
         pytest.skip("dist/.env is machine-local (not tracked)")
     assert re.search(r"^THE_AGENT_ENABLED=true$", env, re.M)
     assert re.search(r"^AGENT_ALLOW_ALL_USERS=false$", env, re.M)
-    assert re.search(r"^THE_AGENT_MODE=false$", env, re.M)
+    assert re.search(r"^THE_AGENT_MODE=true$", env, re.M)
+
+
+def test_home_redirect_obeys_the_developer_gate():
+    """THE_AGENT_MODE takes Developers/Admins to The Agent from '/'; regular
+    users keep the classic landing unless AGENT_ALLOW_ALL_USERS=true."""
+    src = _read("app.py")
+    i = src.index("return redirect(url_for('the_agent_redirect'))")
+    cond = src[src.rfind("if (current_user.is_authenticated", 0, i):i]
+    assert "THE_AGENT_MODE" in cond and "THE_AGENT_ENABLED" in cond
+    assert "AGENT_ALLOW_ALL_USERS" in cond and "role', 0) or 0) >= 2" in cond
 
 
 def test_installer_seeds_the_all_users_key():
