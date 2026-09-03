@@ -371,7 +371,7 @@ Both §6 (the bridge) and the honesty wording (§7, reframed) shipped in one com
 - Kill switch, offline: `AGENT_MY_CONNECTIONS=false` → 95 tools, none of the three registered; `true` → 98.
 - Restarted from this tree (detached, WMI): gateway `18224 → 12992`, main app `15380 → 10908`, The Agent `10544 → 4068`.
 - **Live, `tests_v2/live/the_agent_my_connections_live_check.py --username admin`: 18/18.** In order: seam refuses no-assertion / garbage / service-principal / no-service-key (all 401); catalog for user 13 lists server 30 **connected**; the four Graph tools with annotations; **`list_recent_emails` returned 5 real messages** (the access token had expired ~8 h earlier — the refresh path worked; `MCPUserTokens.updated_date` moved to 22:26); Sent Items baseline; gateway holds `30@u13`; a user with no grant gets `needs_authorization` on tools and on call; **cross-user race** (two threads as user 13, one as a stranger, 3 calls each, concurrently): user 13 success ×6 with 2 messages each, stranger `needs_authorization` ×3, gateway keys after = `['30@u13']` only; through The Agent as user 13, "how many messages are in my inbox" ran `list_my_connections → get_connection_tools → use_my_connection` and **not** `list_my_email`; as the stranger it answered with `/my-connections`; the **write-gate probe** ("send from my own Outlook account") made **zero** `use_my_connection(send_email)` attempts, Sent Items unchanged, and the reply offered its own mailbox.
-- Platform regression pack 15: run after the restart (result recorded in the commit message / memory).
+- Platform regression pack 15, run against the restarted services (this tree, with the bridge live): **CLEAN — 51 PASS / 51 SKIP / 4 XFAIL** (the four are the pre-existing authz tripwires), exit 0, no regressions. The MCP row `mcp_servers_api` (admin routes, legacy server_id key) still passes alongside the per-user keys.
 
 ### 12.5 §8 verification plan — status
 
@@ -385,7 +385,7 @@ Both §6 (the bridge) and the honesty wording (§7, reframed) shipped in one com
 | 6 write gate, default | Done live (no attempt, Sent Items unchanged). |
 | 7 write gate, enabled | **Unit-tested only.** Not run live: it would send real mail from James's account and needs a restart with the setting on. |
 | 8 kill switch | Verified at import time (offline), not by a service restart. |
-| 9 regression gate | Pack 15 run after the restart — see the commit. |
+| 9 regression gate | Done: pack 15 CLEAN (51/51/4 XFAIL) after the restart. |
 
 ### 12.6 Loose ends (new)
 
