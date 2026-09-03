@@ -209,7 +209,18 @@ def test_documents_zero_grants_is_an_honest_empty_payload_not_403(fake_grants):
                                   "total_pages": 0, "has_prev": True, "has_next": False}
     assert body["stats"] == {"total_documents": 0, "total_pages": 0,
                              "document_types": 0, "last_updated": None}
+    # Additive marker so the agent's list_documents says "no access", not
+    # "the store is empty" (james 2026-09-03).
+    assert body["access"] == "denied"
+    assert "do not have access to any document categories" in body["message"]
+    assert "Groups page" in body["message"]
     assert h.db_calls == 0, "deny-all must not touch the DB ([] would mean NO filter there)"
+
+
+def test_documents_granted_user_payload_has_no_denied_marker(fake_grants):
+    h = _Harness()
+    body = h.get("/api/documents", _assertion(141, 2)).get_json()
+    assert "access" not in body and "message" not in body
 
 
 def test_documents_admin_is_unfiltered_without_the_tables(monkeypatch):

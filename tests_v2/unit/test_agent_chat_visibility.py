@@ -130,6 +130,16 @@ def test_admin_is_unfiltered(world):
     assert r.status_code == 200 and world.chat_calls
 
 
+def test_developer_may_ask_any_agent_can_list_it_can_ask_it(world):
+    """Developers are shown EVERY agent (Builder page, The Agent's
+    list_agents), so the chat route must not refuse them one (james
+    2026-09-03). User 6's groups exclude AGENT — irrelevant at role 2."""
+    r = world.chat(assertion=_assertion(6, role=2))
+    assert r.status_code == 200
+    assert world.chat_calls == [(AGENT, "hello")]
+    assert world.resolver_calls == [], "role >= 2 is unfiltered without consulting the groups"
+
+
 # ---------------------------------------------------------------- refused
 def test_unshared_agent_is_403(world):
     r = world.chat(assertion=_assertion(6))
@@ -186,6 +196,18 @@ def test_visibility_filter_non_strict_keeps_listing_behavior(world):
         assert vf() == [9] and vf(strict=True) == [9]
     with world.app.test_request_context("/x"):
         assert vf() is None and vf(strict=True) is None
+
+
+def test_visibility_filter_role_floor(world):
+    """unrestricted_from_role: the listing default (3) keeps Developers
+    group-filtered (the CC landscape contract); the chat route's 2 lifts them.
+    Role-1 users are group-filtered either way."""
+    vf = world.ns["_agent_visibility_filter"]
+    with world.app.test_request_context("/x", headers={"X-AIHub-User": _assertion(6, role=2)}):
+        assert vf() == [9]                                   # listing: unchanged
+        assert vf(strict=True, unrestricted_from_role=2) is None
+    with world.app.test_request_context("/x", headers={"X-AIHub-User": _assertion(6, role=1)}):
+        assert vf(strict=True, unrestricted_from_role=2) == [9]
 
 
 def test_visibility_filter_strict_fails_closed_on_resolver_error(monkeypatch):

@@ -741,6 +741,14 @@ async def list_documents(args: dict[str, Any]) -> dict[str, Any]:
         msg = data.get("error") if isinstance(data, dict) else data
         return _text(f"Could not list documents (HTTP {status}): {msg}",
                      is_error=True)
+    if data.get("access") == "denied":
+        # Category ACL deny-all (doc-acl G2): the server answers an EMPTY
+        # listing with HTTP 200 plus this marker. Say what it is — an access
+        # boundary — instead of "the store is empty" (james 2026-09-03); same
+        # wording the search / records tools relay.
+        return _text(data.get("message")
+                     or "You do not have access to any document categories. "
+                        "An administrator can grant access on the Groups page.")
 
     docs = data.get("documents") or []
     stats = data.get("stats") or {}

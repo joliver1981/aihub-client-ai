@@ -2584,7 +2584,7 @@ def get_agents():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-def _agent_visibility_filter(strict=False):
+def _agent_visibility_filter(strict=False, unrestricted_from_role=3):
     """Resolve the per-user agent-id filter for agent endpoints.
 
     When the caller presents a valid X-AIHub-User assertion (CC / The Agent
@@ -2600,6 +2600,12 @@ def _agent_visibility_filter(strict=False):
       raises _InvalidUserAssertion (the route answers a hard 403) and a
       resolver failure fails CLOSED ([]). A forged assertion that degraded to
       "no filter" would let any API-key holder reach any agent.
+    unrestricted_from_role: callers whose verified role is >= this are not
+      filtered at all (None). Default 3 = admins only, the accessible_agent_ids
+      contract. The chat route passes 2: Developers see EVERY agent on the
+      Builder page and in The Agent's list_agents, and "can list it, can ask
+      it" is the rule (james 2026-09-03) — a group check there refused agents
+      the same user had just been shown.
     """
     assertion = request.headers.get('X-AIHub-User', '')
     if not assertion:
@@ -2611,6 +2617,12 @@ def _agent_visibility_filter(strict=False):
             logger.warning(f'[agents] invalid X-AIHub-User assertion: {err}')
             if strict:
                 raise _InvalidUserAssertion(err or 'no claims')
+            return None
+        try:
+            _role = int(claims.get('role') or 0)
+        except (TypeError, ValueError):
+            _role = 0
+        if _role >= int(unrestricted_from_role):
             return None
         from DataUtils import accessible_agent_ids
         return accessible_agent_ids(shared_auth.claim_user_id(claims), claims.get('role'))
@@ -2717,11 +2729,13 @@ def api_agent_chat(agent_id):
         # access to anyone who guesses a small-integer id. Authorization comes
         # from the X-AIHub-User assertion ONLY — never from the body's
         # user_id further down, which any API-key holder can name. Three-state:
-        # None = admin / no assertion = unfiltered (every existing session,
-        # classic-UI and CC caller keeps working); [ids] must contain this
-        # agent; [] = deny-all. Forged assertion = 403, never "missing".
+        # None = no assertion / role >= 2 = unfiltered (every existing session,
+        # classic-UI and CC caller keeps working; Developers are shown every
+        # agent, so they may ask every agent — "can list it, can ask it");
+        # [ids] (role-1 users: agents shared with their groups) must contain
+        # this agent; [] = deny-all. Forged assertion = 403, never "missing".
         try:
-            _visible = _agent_visibility_filter(strict=True)
+            _visible = _agent_visibility_filter(strict=True, unrestricted_from_role=2)
         except _InvalidUserAssertion:
             return jsonify({'status': 'error',
                             'response': 'invalid user assertion'}), 403
@@ -14700,6 +14714,9 @@ def api_get_documents():
             # Honest empty result, SAME shape, HTTP 200 — not 403 (the agent's
             # list_documents renders that as an outage) and no DB round trip
             # (the IN-builder below would treat [] as NO filter).
+            # `access`/`message` are ADDITIVE so the agent's list_documents can
+            # say "no access" instead of "the store is empty" (james
+            # 2026-09-03); every other consumer ignores them.
             return jsonify({
                 'documents': [],
                 'pagination': {'page': page, 'per_page': per_page,
@@ -14707,6 +14724,9 @@ def api_get_documents():
                                'has_prev': page > 1, 'has_next': False},
                 'stats': {'total_documents': 0, 'total_pages': 0,
                           'document_types': 0, 'last_updated': None},
+                'access': 'denied',
+                'message': ('You do not have access to any document categories. '
+                            'An administrator can grant access on the Groups page.'),
             })
         # None = unrestricted; a non-empty list filters the rows, the paging
         # count AND the stats query below (all three or the totals contradict
