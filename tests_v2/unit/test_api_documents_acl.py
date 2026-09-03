@@ -25,6 +25,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from flask import Flask, jsonify, request
@@ -119,8 +120,17 @@ def fake_grants(monkeypatch):
     monkeypatch.setattr(acl, "_connect", _connect)
 
 
+class _NoSession:
+    is_authenticated = False
+
+
+def _session(uid, role):
+    """A flask-login current_user stand-in (decision D1: session identity)."""
+    return SimpleNamespace(is_authenticated=True, id=uid, role=role)
+
+
 class _Harness:
-    def __init__(self, rows=(_ROW_VISIBLE,), single=_ROW_VISIBLE):
+    def __init__(self, rows=(_ROW_VISIBLE,), single=_ROW_VISIBLE, session_user=None):
         self.cursor = _Cursor(list(rows), single)
         self.db_calls = 0
 
@@ -130,8 +140,10 @@ class _Harness:
 
         ns = {"request": request, "jsonify": jsonify, "os": os,
               "logger": logging.getLogger("test_api_documents_acl"),
-              "get_db_connection": _get_db_connection}
+              "get_db_connection": _get_db_connection,
+              "current_user": session_user or _NoSession()}
         load_app_symbols(["_InvalidUserAssertion", "_caller_identity",
+                          "_caller_identity_or_session",
                           "api_get_documents", "api_get_document_types",
                           "api_get_document"], ns)
         app = Flask(__name__)
@@ -327,3 +339,60 @@ def test_single_zero_grants_is_404_without_a_db_round_trip(fake_grants):
 def test_single_forged_assertion_is_403(fake_grants):
     h = _Harness()
     assert h.get("/api/documents/doc-1", "garbage").status_code == 403
+
+
+# ===================================== browser session identity (decision D1)
+def test_session_developer_is_filtered_like_the_agent(fake_grants):
+    h = _Harness(session_user=_session(141, 2))
+    r = h.get("/api/documents", per_page=5)          # no assertion: the browser path
+    assert r.status_code == 200
+    rows_sql, rows_params = h.sql("ORDER BY d.processed_at")[0]
+    stats_sql, _ = h.sql("total_documents")[0]
+    assert "d.document_type IN (?,?)" in rows_sql and "document_type IN (?,?)" in stats_sql
+    assert rows_params[:2] == ["vendor_guide", "lease_agreement"]
+
+
+def test_session_admin_is_unfiltered(monkeypatch):
+    monkeypatch.setattr(acl, "_connect",
+                        lambda: (_ for _ in ()).throw(AssertionError("must not connect")))
+    h = _Harness(session_user=_session(12, 3))
+    r = h.get("/api/documents")
+    assert r.status_code == 200
+    assert "document_type IN" not in h.sql("ORDER BY d.processed_at")[0][0]
+
+
+def test_session_zero_grants_gets_the_denied_payload(fake_grants):
+    h = _Harness(session_user=_session(10, 1))
+    body = h.get("/api/documents").get_json()
+    assert body["documents"] == [] and body["access"] == "denied"
+    assert h.db_calls == 0
+
+
+def test_assertion_outranks_the_session(fake_grants):
+    """A service call carrying a user assertion is scoped to THAT user even if
+    some session cookie is present — the assertion is the delegated identity."""
+    h = _Harness(session_user=_session(12, 3))
+    body = h.get("/api/documents", _assertion(10, 1)).get_json()
+    assert body["documents"] == [] and body["access"] == "denied"
+
+
+def test_no_session_no_assertion_stays_unfiltered(fake_grants):
+    h = _Harness(session_user=_NoSession())
+    r = h.get("/api/documents")
+    assert r.status_code == 200
+    assert "document_type IN" not in h.sql("ORDER BY d.processed_at")[0][0]
+
+
+def test_session_identity_applies_to_types_and_single_document(fake_grants):
+    h = _Harness(single=_ROW_HIDDEN, session_user=_session(141, 2))
+    r = h.get("/api/document-types")
+    assert r.status_code == 200
+    assert "document_type IN (?,?)" in h.sql("GROUP BY document_type")[0][0]
+    assert h.get("/api/documents/doc-2").status_code == 404      # hidden type -> 404
+    h2 = _Harness(single=_ROW_VISIBLE, session_user=_session(141, 2))
+    assert h2.get("/api/documents/doc-1").status_code == 200
+
+
+def test_forged_assertion_with_a_session_is_still_403(fake_grants):
+    h = _Harness(session_user=_session(12, 3))
+    assert h.get("/api/documents", "garbage").status_code == 403

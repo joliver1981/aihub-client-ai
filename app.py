@@ -6343,6 +6343,26 @@ def _caller_identity():
     return (claims.get("sub") or claims.get("user_id")), claims.get("role")
 
 
+def _caller_identity_or_session():
+    """(user_id, role) for routes reachable BOTH by services (assertion) and by
+    the browser (flask-login session): the document listing / detail / search
+    routes. Assertion first — a forged one raises exactly like
+    _caller_identity(); otherwise the signed-in session user (decision D1,
+    james 2026-09-03: the Documents page must show a Developer the same store
+    The Agent shows them); otherwise (API key only, no assertion) (None, None)
+    = unrestricted, unchanged for identity-less service callers.
+    """
+    uid, role = _caller_identity()
+    if uid is not None:
+        return uid, role
+    try:
+        if getattr(current_user, 'is_authenticated', False):
+            return getattr(current_user, 'id', None), getattr(current_user, 'role', None)
+    except Exception:
+        pass
+    return None, None
+
+
 @app.route("/api/internal/document-search-unified", methods=['POST'])
 @cross_origin()
 @internal_api_key_required()
@@ -10085,14 +10105,14 @@ def api_get_document_attribution_summary(document_id):
 def api_get_document(document_id):
     """Metadata for ONE document by id (the agent's get_document tool).
 
-    Identity (doc-acl G2, 2026-09-03): with an X-AIHub-User assertion, a
-    document whose category the caller cannot see answers the SAME 404 as a
-    missing one — otherwise this route is an id-oracle for documents the
-    listing hid. Assertion absent = unrestricted (decision D1).
+    Identity (doc-acl G2, 2026-09-03): with an X-AIHub-User assertion or a
+    browser session (decision D1), a document whose category the caller
+    cannot see answers the SAME 404 as a missing one — otherwise this route
+    is an id-oracle for documents the listing hid. Neither = unrestricted.
     """
     try:
         try:
-            _uid, _role = _caller_identity()
+            _uid, _role = _caller_identity_or_session()
         except _InvalidUserAssertion:
             return jsonify({'error': 'invalid user assertion'}), 403
         from doc_search_v3 import acl
@@ -14696,16 +14716,17 @@ def api_get_documents():
 
         # Caller identity + v3 category ACL (doc-acl G2, 2026-09-03). The
         # Agent authenticates with the tenant API key, so min_role above never
-        # reaches the calling USER — the optional X-AIHub-User assertion does.
-        # Assertion-only on purpose: the browser session path (a Developer+
-        # admin surface) stays unfiltered — handoff decision D1. NOTE for the
+        # reaches the calling USER — the optional X-AIHub-User assertion does;
+        # a browser session counts too (decision D1: the Documents page shows
+        # a Developer the same store The Agent shows them; admins are
+        # unrestricted either way). NOTE for the
         # next reader: The Agent's import_documents idempotency probe
         # (_existing_paths_for) also comes through here and is now filtered
         # too; a re-import of a file whose existing copy sits in a category
         # the user cannot see can duplicate — accepted; do NOT "fix" it by
         # dropping identity from the agent's _headers() (global fail-open).
         try:
-            _uid, _role = _caller_identity()
+            _uid, _role = _caller_identity_or_session()
         except _InvalidUserAssertion:
             return jsonify({'error': 'invalid user assertion'}), 403
         from doc_search_v3 import acl
@@ -14865,12 +14886,12 @@ def api_get_document_types():
     """Get all document types with counts"""
     try:
         # Caller identity + v3 category ACL (doc-acl G2, 2026-09-03) — same
-        # posture as /api/documents: assertion absent = unfiltered (browser
-        # session, decision D1), forged = 403, zero grants = [] with HTTP 200.
+        # posture as /api/documents: assertion, else the browser session
+        # (decision D1), else unfiltered; forged = 403; zero grants = [] 200.
         # The Agent's builder picker (_document_types) comes through here, so
         # a restricted Developer sees only the types they may grant.
         try:
-            _uid, _role = _caller_identity()
+            _uid, _role = _caller_identity_or_session()
         except _InvalidUserAssertion:
             return jsonify({'error': 'invalid user assertion'}), 403
         from doc_search_v3 import acl
