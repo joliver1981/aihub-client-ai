@@ -116,15 +116,20 @@ class AgentAPIClient:
         except Exception as e:
             logger.error(f"Request to {url} failed: {str(e)}")
     
-    def health_check(self) -> bool:
+    def health_check(self, timeout: float = None) -> bool:
         """
         Check if the Agent API service is healthy
-        
+
+        Args:
+            timeout: optional short timeout for a startup probe (the default
+                     request timeout is tuned for chat turns, not for a ping)
+
         Returns:
             True if service is healthy, False otherwise
         """
         try:
-            response = self._make_request('GET', '/health')
+            kwargs = {'timeout': timeout} if timeout else {}
+            response = self._make_request('GET', '/health', **kwargs)
             return response.get('status') == 'healthy'
         except:
             return False
@@ -351,18 +356,28 @@ class AgentAPIAdapter:
     This mimics the interface of the original GeneralAgent class
     """
     
-    def __init__(self, agent_id: int, client: AgentAPIClient = None):
+    def __init__(self, agent_id: int, client: AgentAPIClient = None,
+                 fetch_info: bool = True):
         """
         Initialize the adapter for a specific agent
         
         Args:
             agent_id: ID of the agent
             client: AgentAPIClient instance (creates new if not provided)
+            fetch_info: look the display name up from the Agent API now. The
+                        main app passes False when its startup probe found
+                        the service down: the lookup is cosmetic (the name in
+                        a few log lines / one response field; chats go to the
+                        service on demand), and with the service down every
+                        agent used to cost a full retry cycle at startup.
         """
         self.agent_id = agent_id
         self.client = client or AgentAPIClient()
         self.chat_history = []
-        
+        self.AGENT_NAME = f'Agent {agent_id}'
+        if not fetch_info:
+            return
+
         # Load agent info
         try:
             info = self.client.get_agent_info(agent_id)

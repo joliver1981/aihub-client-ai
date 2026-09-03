@@ -213,6 +213,20 @@ agent. Same answers both ways, which is the no-regression bar.
 
 ---
 
+### 1.10 Batch 2 (2026-09-03, james's decisions on the open-issues table)
+
+| where | change | how it is pinned |
+|---|---|---|
+| Command Center | one 28-word sentence in the build prompt: when the user named no connection or table, discover first and propose the best match; ask only when nothing fits | `test_batch2_install_fixes.py` (single occurrence, ≤ 30 words); live effect to be measured with pack 19 repeats |
+| Main app, auth middleware | Portal Workflows internal endpoints (`internal_run`, `internal_notify_takeover`) are self-authenticating: the Browser Use take-over notification (`X-AIHub-Internal`) was 401'd by an ENFORCING install before the route ran. Ships dry-run (`AUTH_MIDDLEWARE_DRY_RUN=true`); the test box enforces. Startup prints are ASCII now. | unit test on the prefix set and on every print encoding to cp1252 |
+| Main app, Data Dictionary | the Import column is hidden (no `/api/import/dictionary` route); JS kept | unit test |
+| Main app startup | one 3-second probe of the Agent API; when it is down, adapters load without the per-agent display-name lookup (cosmetic; agents work either way). Same in `load_agents()`. | adapter + probe unit tests |
+| The Agent front door | `THE_AGENT_ENABLED=true` in the shipped `.env` for testing; nav entry and `/the-agent` gated to Developers/Admins unless `AGENT_ALLOW_ALL_USERS=true`, matching the service's own gate; installer seeds `AGENT_ALLOW_ALL_USERS=false`. Upgrades keep their existing `.env`, so the 10.0.0.6 box needs `THE_AGENT_ENABLED=true` flipped by hand. | template parse + route/context tests |
+| Pack 20 | I-2 is local-only (in-process handler, this machine's internal key) and SKIPs on a remote target | — |
+
+Not changed: `/get/*` double-encoded JSON (workaround stays), pack 19 dimension
+grading, and anything about how services start.
+
 ## 2. Order of work from here
 
 1. **DONE** — seed fixtures on the target (§3.1 A).

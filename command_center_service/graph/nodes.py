@@ -2906,6 +2906,8 @@ async def converse(state: CommandCenterState) -> dict:
             "- Database nodes take a NUMERIC connection id (as a string, e.g. \"1\") — never a "
             "connection name. When the user names a connection (\"our AIRDB connection\"), call "
             "list_data_connections and resolve the id YOURSELF; NEVER ask the user for a numeric id. "
+            "If the user named NO connection or table, discover first (list_data_connections, "
+            "get_connection_schema) and propose the best match; ask only when nothing fits. "
             "Ground a Database node's SQL in the REAL schema first (get_connection_schema for "
             "tables, then columns) — never invent table/column/join names. "
             "Workflow variables use ${var} substitution; declare them with set_workflow_variable or "

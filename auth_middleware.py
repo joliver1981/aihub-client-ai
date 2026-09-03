@@ -162,6 +162,13 @@ def has_valid_api_key():
 SELF_AUTHENTICATING_PREFIXES = (
     'automations.runtime_',
     'mcp_internal.',
+    # Portal Workflows service-to-service endpoints (internal_run,
+    # internal_notify_takeover) verify their own X-AIHub-Internal key and 403
+    # on a mismatch. The Browser Use service calls notify-takeover with that
+    # header only; an ENFORCING install answered it 401 here before the route
+    # ever ran, so the take-over email never went out (found on the Latest7
+    # test box, 2026-09-03).
+    'portal_workflows_bp.internal_',
 )
 
 
@@ -285,7 +292,9 @@ def init_auth_middleware(app):
     auth_logger.info(f"Unprotected endpoints: {len(UNPROTECTED_ENDPOINTS)}")
     auth_logger.info(f"Alternative auth endpoints: {len(ALTERNATIVE_AUTH_ENDPOINTS)}")
     
-    print(f"✓ Auth middleware initialized ({mode})")
+    # ASCII on purpose: a redirected stdout on Windows is cp1252, and a
+    # non-encodable glyph here killed the dev app at startup (2026-09-03).
+    print(f"[ok] Auth middleware initialized ({mode})")
     print(f"  - {len(UNPROTECTED_ENDPOINTS)} public endpoints")
     print(f"  - {len(ALTERNATIVE_AUTH_ENDPOINTS)} alternative auth endpoints")
 

@@ -605,13 +605,28 @@ logger.addHandler(handler)
 monitoring_agent = None
 #monitoring_agent = GeneralAgent(1)   # Used to demo email feature only
 
+def _agent_api_reachable() -> bool:
+    """One short probe of the Agent API service before a bulk adapter load.
+    When it is down, every per-agent name lookup used to burn a full retry
+    cycle (2 s+ each, hundreds of agents) before the app could bind; the
+    lookup is cosmetic, so skip it and let the next reload fill the names."""
+    try:
+        return bool(agent_client) and bool(agent_client.health_check(timeout=3))
+    except Exception:
+        return False
+
+
 # Load active agents
 active_agents = {}
 if cfg.USE_AGENT_API:
     # New Approach
     active_agents = {}
+    _api_up = _agent_api_reachable()
+    if not _api_up:
+        logger.warning('Agent API service not reachable at startup - loading adapters '
+                       'without display-name lookups (agents still work; names refresh on reload)')
     for agent_id in get_agent_ids():
-        active_agents[agent_id] = AgentAPIAdapter(agent_id, agent_client)
+        active_agents[agent_id] = AgentAPIAdapter(agent_id, agent_client, fetch_info=_api_up)
         print(f'Initialized adapter for agent {agent_id}')
 else:
     # Legacy Approach
@@ -817,8 +832,12 @@ def load_agents(agent_id=None):
     
     if cfg.USE_AGENT_API:
         # New Approach
+        _api_up = _agent_api_reachable()
+        if not _api_up:
+            logger.warning('Agent API service not reachable - reloading adapters without '
+                           'display-name lookups')
         for agent_id in available_agent_ids:
-            temp_active_agents[agent_id] = AgentAPIAdapter(agent_id, agent_client)
+            temp_active_agents[agent_id] = AgentAPIAdapter(agent_id, agent_client, fetch_info=_api_up)
             print(f'Initialized adapter for temp agent {agent_id}')
     else:
         # Legacy Approach
@@ -1970,6 +1989,13 @@ def the_agent_redirect():
     """
     if os.getenv('THE_AGENT_ENABLED', 'false').lower() != 'true':
         flash('The Agent is not enabled on this install.', 'warning')
+        return redirect(url_for('home'))
+    # Preview posture (james 2026-09-03): Developers/Admins only unless
+    # AGENT_ALLOW_ALL_USERS=true — the same gate the service enforces, applied
+    # at the front door so regular users never see a door that refuses them.
+    if (os.getenv('AGENT_ALLOW_ALL_USERS', 'false').lower() != 'true'
+            and int(getattr(current_user, 'role', 0) or 0) < 2):
+        flash('The Agent is in preview for Developers and Admins.', 'warning')
         return redirect(url_for('home'))
 
     # Choosing The Agent ends a sticky classic-mode session (see home route):
@@ -14284,6 +14310,7 @@ def inject_config():
             
             # Local feature flags for sidebar visibility
             'FLAG_THE_AGENT': os.getenv('THE_AGENT_ENABLED', 'false').lower() == 'true',
+            'FLAG_THE_AGENT_ALL_USERS': os.getenv('AGENT_ALLOW_ALL_USERS', 'false').lower() == 'true',
             'FLAG_AGENT_MODE': os.getenv('THE_AGENT_MODE', 'false').lower() == 'true',
             'FLAG_AGENT_NAV_LENS': os.getenv('THE_AGENT_NAV_LENS', 'false').lower() == 'true',
             'FLAG_COMMAND_CENTER': local_flags.get('command_center_enabled', True),
@@ -14336,6 +14363,7 @@ def inject_config():
             'tier_limit': lambda x: 0,
             'APP_VERSION': app_config.APP_VERSION,
             'FLAG_THE_AGENT': os.getenv('THE_AGENT_ENABLED', 'false').lower() == 'true',
+            'FLAG_THE_AGENT_ALL_USERS': os.getenv('AGENT_ALLOW_ALL_USERS', 'false').lower() == 'true',
             'FLAG_AGENT_MODE': os.getenv('THE_AGENT_MODE', 'false').lower() == 'true',
             'FLAG_AGENT_NAV_LENS': os.getenv('THE_AGENT_NAV_LENS', 'false').lower() == 'true',
             'FLAG_COMMAND_CENTER': True,

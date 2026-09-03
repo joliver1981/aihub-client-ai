@@ -1268,6 +1268,17 @@ begin
                mbError, MB_OK);
       end;
 
+      // --- AGENT_ALLOW_ALL_USERS (2026-09-03) ---
+      // The Agent front door is enabled for testing (THE_AGENT_ENABLED=true in a
+      // fresh install's .env) but limited to Developers/Admins. Make the limit
+      // explicit in every install's .env; upgrades keep their existing values.
+      if not EnsureEnvKeyExists(EnvConfigFile, 'AGENT_ALLOW_ALL_USERS', 'false') then
+      begin
+        MsgBox('Warning: Failed to write AGENT_ALLOW_ALL_USERS to .env.' + #13#10 +
+               'You may need to add it manually',
+               mbError, MB_OK);
+      end;
+
       // --- AGENT_ANTHROPIC_RELAY / AGENT_RELAY_URL (v2.0) ---
       // The Agent resolves its Anthropic credential in this order:
       //   BYOK -> RELAY -> ANTHROPIC_API_KEY -> encrypted.

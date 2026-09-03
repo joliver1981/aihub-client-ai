@@ -1928,24 +1928,31 @@ def main():
 
     # I-2 scoping enforced at the tool chokepoint (no model): a role-1 user
     # with no groups sees nothing; a role-2 user sees the real list.
-    try:
-        from platform_tools import CURRENT_USER as _CU2
-        _CU2.set({"user_id": 424243, "role": 1, "username": "pack20-regular"})
-        low = _aio.run(_it.list_integrations.handler({}))
-        low_txt = str(low)
-        _CU2.set({"user_id": 1, "role": 2, "username": "pack20-dev"})
-        dev = _aio.run(_it.list_integrations.handler({}))
-        dev_txt = str(dev)
-        blocked = ("assigned" in low_txt.lower()
-                   or "no integrations" in low_txt.lower()) \
-            and "integration_id" not in low_txt
-        dev_sees = str(len(rows)) in dev_txt or "id " in dev_txt
-        check("I-2", "tool chokepoint: role-1 no-groups user sees none "
-                     "(honest guidance); role-2 sees everything",
-              blocked and dev_sees,
-              f"low={low_txt[:100]!r} dev_count_hint={len(rows)}")
-    except Exception as e:
-        check("I-2", "tool-layer scoping", False, e)
+    if _TARGET_HOST not in ("127.0.0.1", "localhost"):
+        # The handler runs IN-PROCESS on this machine and signs with THIS
+        # machine's internal key, which a remote box rightly rejects (401 on
+        # Latest7, 2026-09-03). Nothing about the target is measured remotely.
+        check("I-2", "tool-layer scoping", True,
+              "SKIP: in-process tool handler uses this machine's internal key (local-only)")
+    else:
+        try:
+            from platform_tools import CURRENT_USER as _CU2
+            _CU2.set({"user_id": 424243, "role": 1, "username": "pack20-regular"})
+            low = _aio.run(_it.list_integrations.handler({}))
+            low_txt = str(low)
+            _CU2.set({"user_id": 1, "role": 2, "username": "pack20-dev"})
+            dev = _aio.run(_it.list_integrations.handler({}))
+            dev_txt = str(dev)
+            blocked = ("assigned" in low_txt.lower()
+                       or "no integrations" in low_txt.lower()) \
+                and "integration_id" not in low_txt
+            dev_sees = str(len(rows)) in dev_txt or "id " in dev_txt
+            check("I-2", "tool chokepoint: role-1 no-groups user sees none "
+                         "(honest guidance); role-2 sees everything",
+                  blocked and dev_sees,
+                  f"low={low_txt[:100]!r} dev_count_hint={len(rows)}")
+        except Exception as e:
+            check("I-2", "tool-layer scoping", False, e)
 
     # I-3 live: real SharePoint health_check through the execute seam, and a
     # real model turn discovers integrations via the tool.

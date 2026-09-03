@@ -1156,8 +1156,8 @@
                 {% endif %}
                 {% endif %}
 
-                {# All-users rollout (james 2026-08-24): the nav entry shows for every signed-in user #}
-                {% if current_user.is_authenticated and FLAG_THE_AGENT %}
+                {# Preview posture (james 2026-09-03): Developers/Admins only unless AGENT_ALLOW_ALL_USERS #}
+                {% if current_user.is_authenticated and FLAG_THE_AGENT and (FLAG_THE_AGENT_ALL_USERS or (current_user.role and current_user.role >= 2)) %}
                 <div class="new-nav-item">
                     <a href="{{ url_for('the_agent_redirect') }}" class="new-nav-link" target="_blank">
                         <i class="fas fa-robot nav-icon"></i>
