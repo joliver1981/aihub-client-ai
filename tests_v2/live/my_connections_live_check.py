@@ -80,6 +80,8 @@ def main():
     ap.add_argument("--keep-user", action="store_true")
     ap.add_argument("--require-broker", action="store_true",
                     help="fail (not skip) when the cloud broker check does not pass")
+    ap.add_argument("--toggle", action="store_true",
+                    help="T4: unpublish the server, prove role-1 is refused while admin is not, then restore")
     args = ap.parse_args()
     base = args.base.rstrip("/")
     sid = args.server_id
@@ -216,6 +218,52 @@ def main():
         r = user.get(f"{base}/api/mcp/oauth/redirect_uri", timeout=20)
         record("role-1 cannot read the admin redirect endpoint", "PASS" if r.status_code in (401, 403) else "FAIL",
                str(r.status_code))
+
+        # ---- T4: the publish switch (needs migration 020) ---------------------------
+        if args.toggle and column_present:
+            def set_publish(flag):
+                """PUT the server back to itself with only available_to_users changed
+                (blank client secret = keep on file). True when the read-back agrees."""
+                s = admin.get(f"{base}/api/mcp/servers/{sid}", timeout=20).json()
+                cfg = s.get("oauth_config") or {}
+                auth_config = {k: cfg.get(k, "") for k in (
+                    "oauth_grant_type", "oauth_token_endpoint", "oauth_auth_endpoint",
+                    "oauth_client_id", "oauth_scope", "oauth_audience", "oauth_redirect_uri")}
+                auth_config["oauth_client_secret"] = ""
+                payload = {
+                    "server_type": s.get("transport") or "remote", "transport": s.get("transport"),
+                    "server_name": s.get("server_name"), "server_url": s.get("server_url"),
+                    "auth_type": s.get("auth_type"), "auth_config": auth_config,
+                    "category": s.get("category") or "", "description": s.get("description") or "",
+                    "request_timeout": s.get("request_timeout") or 30, "max_retries": s.get("max_retries") or 3,
+                    "verify_ssl": s.get("verify_ssl", True), "available_to_users": bool(flag),
+                }
+                rr = admin.put(f"{base}/api/mcp/servers/{sid}", json=payload, timeout=30)
+                after = admin.get(f"{base}/api/mcp/servers/{sid}", timeout=20).json()
+                return (rr.status_code == 200 and bool(after.get("available_to_users")) == bool(flag)
+                        and bool(after.get("has_client_secret")) == has_secret)
+
+            try:
+                record("T4: admin unpublishes the server (secret kept on file)", "PASS" if set_publish(False) else "FAIL")
+                r = user.get(f"{base}/api/my-connections/servers", timeout=20)
+                listed = [c.get("server_id") for c in (r.json() if r.status_code == 200 else [])]
+                record("T4: unpublished → hidden from the role-1 listing", "PASS" if sid not in listed else "FAIL",
+                       f"listed={listed}")
+                r = user.get(f"{base}/api/mcp/oauth/authorize/{sid}", allow_redirects=False, timeout=30)
+                record("T4: unpublished → role-1 direct-URL authorize refused", "PASS" if r.status_code == 403 else "FAIL",
+                       str(r.status_code))
+                r = admin.get(f"{base}/api/mcp/oauth/authorize/{sid}", allow_redirects=False, timeout=30)
+                record("T4: unpublished → admin may still authorize (test before publishing)",
+                       "PASS" if r.status_code == 302 else "FAIL", str(r.status_code))
+            finally:
+                record("T4: restore the original publish state", "PASS" if set_publish(published) else "FAIL",
+                       f"available_to_users={published}")
+            r = user.get(f"{base}/api/my-connections/servers", timeout=20)
+            listed = [c.get("server_id") for c in (r.json() if r.status_code == 200 else [])]
+            record("T4: listing matches the restored state", "PASS" if (sid in listed) == published else "FAIL",
+                   f"listed={listed}")
+        elif args.toggle:
+            record("T4: publish switch", "SKIP", "migration 020 not applied on this database")
     finally:
         if not args.keep_user:
             d = admin.post(f"{base}/delete/user", json={"user_id": uid}, timeout=30)

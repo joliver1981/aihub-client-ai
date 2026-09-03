@@ -67,6 +67,12 @@ def main():
     if not ok:
         return finish()
 
+    # Expected state from the API, so the assertions hold before AND after migration 020.
+    srv = sess.get(f"{base}/api/mcp/servers/{sid}", timeout=20).json()
+    column_present = bool(srv.get("visibility_column_present"))
+    published = bool(srv.get("available_to_users", True))
+    has_secret = bool(srv.get("has_client_secret"))
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         ctx = browser.new_context(viewport={"width": 1400, "height": 1000})
@@ -81,8 +87,10 @@ def main():
         row = page.query_selector(f'#serversTableBody tr:has(button[onclick="editServer({sid})"])')
         row_html = row.inner_html() if row else ""
         record("list: server row present", "PASS" if row else "FAIL")
-        record("list: 'Users' badge reflects effective visibility (column absent → visible)",
-               "PASS" if "Published on My Connections" in row_html else "FAIL")
+        badge = "Published on My Connections" in row_html
+        record("list: 'Users' badge reflects the effective available_to_users flag",
+               "PASS" if badge == published else "FAIL",
+               f"badge={badge} available_to_users={published} column_present={column_present}")
 
         page.click(f'button[onclick="editServer({sid})"]')
         page.wait_for_selector("#serverModal.show", timeout=15000)
@@ -99,15 +107,19 @@ def main():
                "PASS" if "Web" in page.text_content("#oauthRedirectHint") else "FAIL")
 
         secret_status = page.text_content("#oauthSecretStatus").strip()
-        record("modal: client-secret status line rendered", "PASS" if secret_status else "FAIL", secret_status)
+        secret_ok = ("on file" in secret_status) if has_secret else ("No client secret" in secret_status)
+        record("modal: client-secret status line matches the record",
+               "PASS" if secret_status and secret_ok else "FAIL", secret_status)
 
         vis_group = page.eval_on_selector("#oauthAvailableGroup", "el => getComputedStyle(el).display")
         checked = page.is_checked("#oauthAvailableToUsers")
         note = page.eval_on_selector("#oauthAvailableMigrationNote", "el => getComputedStyle(el).display")
-        record("modal: 'Available to users' switch shown for authorization_code",
-               "PASS" if vis_group != "none" else "FAIL", f"display={vis_group} checked={checked}")
-        record("modal: migration-020 note shown while the column is absent",
-               "PASS" if note != "none" else "FAIL", f"display={note}")
+        record("modal: 'Available to users' switch shown for authorization_code and mirrors the flag",
+               "PASS" if vis_group != "none" and checked == published else "FAIL",
+               f"display={vis_group} checked={checked} available_to_users={published}")
+        record("modal: migration-020 note shown only while the column is absent",
+               "PASS" if (note != "none") == (not column_present) else "FAIL",
+               f"display={note} column_present={column_present}")
         override_group = page.eval_on_selector("#oauthRedirectOverrideGroup", "el => getComputedStyle(el).display")
         record("modal: redirect override field shown", "PASS" if override_group != "none" else "FAIL")
 

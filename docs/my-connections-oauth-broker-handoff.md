@@ -1,6 +1,6 @@
 # Handoff — Make My Connections deployable (cloud OAuth redirect broker)
 
-**Status:** PHASE 1 BUILT (2026-09-02) and the broker is DEPLOYED to the **p01 slot** (2026-09-03, `d54d69d`; production answers 404 on the broker paths until the slot swap) — see §0a. Still needed from James: WI-0 client secret, the slot swap, and a DDL login for migration 020. Phase 2 not started.
+**Status:** PHASE 1 LIVE (2026-09-03). Broker `d54d69d` swapped to production; client secret on file; redirect URI registered (Entra renders the sign-in page for a real authorize request); migration 020 applied; every automated check green — see §0a. Remaining: one human completes Connect at Microsoft (T3/T5) and the two-user T7. Phase 2 not started.
 **Spans two repos:** `C:\src\aihub-client-ai-dev` (on-prem AI Hub) and `C:\src\aihub-api` (cloud API → `https://ai-hub-api.azurewebsites.net`).
 **Branching:** do NOT create branches. Commit to `main` in each repo, promptly.
 **⚠ `aihub-api` pushes auto-deploy to Azure.** Do not push there until the endpoint is tested locally.
@@ -48,8 +48,15 @@ inputs only James can supply (the Azure client secret; a DDL-capable SQL login).
 | **p01 live** — `aihub-api/tests/test_mcp_oauth_broker_live.py https://ai-hub-api-p01.azurewebsites.net` without credentials (T6 matrix: malformed / forged / unknown tenant / missing / provider error → refused, no `Location`) | 7/7 |
 | **p01 live** — same script with this install's real `API_KEY` + tenant 1: 302 to the return address with code+state; `verify` → `ok:true, tenant_id:1` (the cloud looked the key up in `Tenants`) | 9/9 |
 | **On-prem → p01, the button IT will click** — server 30's Redirect URI override set to the p01 callback (`tests_v2/live/mcp_redirect_override_tool.py set …`), `GET /api/mcp/oauth/broker_check` → `ok:true, tenant_id:1, broker_tenant_id:1, reason:verified`; the headless "Test broker" reads "Broker verified this installation (tenant 1)"; override cleared afterwards, credential keys unchanged | verified |
+| **After James's steps (2026-09-03: slot swap, client secret, app-registration redirect URI, migration 020)** — production broker live matrix + signed path with the real key | 9/9 |
+| `tests_v2/live/my_connections_live_check.py --require-broker --toggle` — broker_check through the DEFAULT (production) URI verified; role-1 Connect → 302 to `login.microsoftonline.com` with `redirect_uri=https://ai-hub-api.azurewebsites.net/api/mcp/oauth/callback` and a signed state (`r`=this origin, `t`=1); **T4**: admin unpublishes (secret kept) → hidden from the role-1 listing, role-1 direct-URL authorize 403, admin authorize still 302 → restored | 21/21 |
+| `tests_v2/live/mcp_servers_ui_check.py` (state-aware: secret on file, switch mirrors the flag, migration note hidden now the column exists, Test broker verified with the default URI) | 13/13 |
+| **Entra pre-login check** — the exact authorize URL the app emits, opened in a browser: Entra renders "Sign in to your account" (a redirect-URI mismatch would show AADSTS50011 before sign-in) | accepted |
+| `MCPUserTokens` after all of the above | still only the 2026-05-20 rows for user 13 — no human has completed Connect yet |
 
 ### What James needs to do, in order
+
+> **Done 2026-09-03 (James):** client secret added and Test broker OK; redirect URI registered; p01 swapped to production; migration 020 applied. Items 1–3 below are complete and re-verified (evidence table above). Only item 4 remains — it needs a human at the Microsoft sign-in, which the automation deliberately never does.
 
 1. **WI-0** — create a client secret on app registration `fd11daaa-…`, paste it into server 30, Save. The status line under the field turns green ("A client secret is on file"). Register `https://ai-hub-api.azurewebsites.net/api/mcp/oauth/callback` under the registration's **Web** platform (the Copy button gives the exact string).
 2. **Swap the p01 slot to production** (the push is done and verified on p01). Until the swap, the default redirect URI shown on the MCP Servers page (production host) fails **Test broker** with HTTP 404; to work against p01 meanwhile use the per-server Redirect URI override or `OAUTH_REDIRECT_BASE_URL=https://ai-hub-api-p01.azurewebsites.net` (`tests_v2/live/mcp_redirect_override_tool.py set|clear|check` automates the override). After the swap, **Test broker** with the default URI must say "Broker verified this installation (tenant 1)".
