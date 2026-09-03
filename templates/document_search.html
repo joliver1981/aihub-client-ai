@@ -94,7 +94,8 @@
                         {% for cat in tree.categories %}
                         <div class="cat-group {% if selected_category == cat.slug or (selected_type and selected_type in cat.types|map(attribute='name')|list) %}open{% endif %}" data-cat="{{ cat.slug }}">
                             <div class="cat-head">
-                                <span><i class="fas fa-chevron-right cat-caret"></i><span class="cat-name" title="{{ cat.description }}">{{ cat.name }}</span>
+                                {# migration-016 seeded categories are named after the raw type ("lease_agreement"): prettify those, keep admin-typed names verbatim #}
+                                <span><i class="fas fa-chevron-right cat-caret"></i><span class="cat-name" title="{{ cat.description }}">{{ (cat.name|replace('_', ' ')|title) if cat.name == cat.slug else cat.name }}</span>
                                     <a class="cat-scope-link {% if selected_category == cat.slug %}active{% endif %}" href="{{ url_for('document_search_page', category=cat.slug) }}" title="Search every type in this category">search all</a></span>
                                 <span class="badge badge-primary">{{ cat.doc_count }}</span>
                             </div>
