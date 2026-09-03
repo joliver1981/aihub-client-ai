@@ -14725,8 +14725,9 @@ def api_get_documents():
                 'stats': {'total_documents': 0, 'total_pages': 0,
                           'document_types': 0, 'last_updated': None},
                 'access': 'denied',
-                'message': ('You do not have access to any document categories. '
-                            'An administrator can grant access on the Groups page.'),
+                'message': ('You do not have access to any document categories — this '
+                            'is an access restriction, not an empty store. An '
+                            'administrator can grant access on the Groups page.'),
             })
         # None = unrestricted; a non-empty list filters the rows, the paging
         # count AND the stats query below (all three or the totals contradict

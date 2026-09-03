@@ -213,6 +213,7 @@ def test_documents_zero_grants_is_an_honest_empty_payload_not_403(fake_grants):
     # "the store is empty" (james 2026-09-03).
     assert body["access"] == "denied"
     assert "do not have access to any document categories" in body["message"]
+    assert "not an empty store" in body["message"]
     assert "Groups page" in body["message"]
     assert h.db_calls == 0, "deny-all must not touch the DB ([] would mean NO filter there)"
 

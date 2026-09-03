@@ -40,8 +40,9 @@ DENIED = {"documents": [], "pagination": {"page": 1, "per_page": 25, "total_coun
           "stats": {"total_documents": 0, "total_pages": 0, "document_types": 0,
                     "last_updated": None},
           "access": "denied",
-          "message": "You do not have access to any document categories. "
-                     "An administrator can grant access on the Groups page."}
+          "message": "You do not have access to any document categories — this is an "
+                     "access restriction, not an empty store. An administrator can "
+                     "grant access on the Groups page."}
 EMPTY = {k: v for k, v in DENIED.items() if k not in ("access", "message")}
 ONE = {"documents": [{"document_id": "d1", "filename": "a.pdf", "document_type": "vendor_guide",
                       "page_count": 3, "processed_at": "2026-09-01T10:00:00"}],
@@ -63,9 +64,16 @@ def _run(payload, status=200):
 def test_denied_listing_relays_the_access_message_not_an_empty_store():
     res, text = _run(DENIED)
     assert "do not have access to any document categories" in text
+    assert "not an empty store" in text, "the wording must rule out the 'empty store' reading"
     assert "Groups page" in text
     assert "store total" not in text.lower() and "No documents" not in text
     assert not res.get("is_error"), "a denial is information for the user, not a tool failure"
+
+
+def test_denied_marker_without_a_message_uses_the_same_wording():
+    payload = {k: v for k, v in DENIED.items() if k != "message"}
+    _res, text = _run(payload)
+    assert "not an empty store" in text and "Groups page" in text
 
 
 def test_plain_empty_listing_is_unchanged():

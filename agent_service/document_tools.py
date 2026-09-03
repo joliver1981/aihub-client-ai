@@ -747,8 +747,9 @@ async def list_documents(args: dict[str, Any]) -> dict[str, Any]:
         # boundary — instead of "the store is empty" (james 2026-09-03); same
         # wording the search / records tools relay.
         return _text(data.get("message")
-                     or "You do not have access to any document categories. "
-                        "An administrator can grant access on the Groups page.")
+                     or "You do not have access to any document categories — this is "
+                        "an access restriction, not an empty store. An administrator "
+                        "can grant access on the Groups page.")
 
     docs = data.get("documents") or []
     stats = data.get("stats") or {}
