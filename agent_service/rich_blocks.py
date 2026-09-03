@@ -21,7 +21,10 @@ Pure functions, no I/O — the unit pack exercises them directly.
 """
 
 import json
+import os
 import re
+import time
+import uuid
 from typing import Any, Optional
 
 CHART_TYPES = ("bar", "line", "area", "pie", "doughnut", "hbar")
@@ -33,9 +36,60 @@ _LINK_RE = re.compile(r"\[⤓\s*(?P<name>.+?)\s*\((?P<size>[^)]*)\)\]\((?P<url>/
 
 
 def fence(kind: str, spec: dict) -> str:
-    """The fenced block text for a chart/kpi spec."""
+    """The fenced block text for a chart/kpi/map spec."""
     body = json.dumps(spec, ensure_ascii=False, default=str)
     return f"```aihub-{kind}\n{body}\n```"
+
+
+# ---------------------------------------------------------------------------
+# Stored blocks (2026-09-02): a TOOL-built block is saved server-side under the
+# user and the model pastes only {"ref": id}; the chat resolves it through
+# GET /api/blocks/<id> with the auth header. Why: live runs showed the model
+# re-typing tool blocks — reformatting labels and dropping rows/keys (the
+# choropleth's unmapped region vanished) — so "paste VERBATIM" cannot be the
+# integrity mechanism. A reference cannot be paraphrased. Files, not memory,
+# so history replay after a service restart still resolves them.
+# ---------------------------------------------------------------------------
+
+_BLOCK_ID_RE = re.compile(r"^[0-9a-f]{12,32}$")
+BLOCK_TTL_DAYS = int(os.getenv("AGENT_BLOCK_TTL_DAYS", "90"))
+
+
+def _blocks_dir(uid: int) -> str:
+    from agent_config import DATA_DIR
+    d = os.path.join(DATA_DIR, "blocks", str(int(uid or 0)))
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def store_block(uid: int, kind: str, spec: dict) -> str:
+    """Persist a block for this user; returns its id."""
+    bid = uuid.uuid4().hex[:16]
+    payload = {"kind": str(kind), "spec": spec, "ts": time.time()}
+    with open(os.path.join(_blocks_dir(uid), f"{bid}.json"), "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, default=str)
+    return bid
+
+
+def get_block(uid: int, block_id: str) -> Optional[dict]:
+    """{"kind", "spec"} for one of THIS user's blocks, else None (never raises)."""
+    bid = str(block_id or "").strip().lower()
+    if not _BLOCK_ID_RE.match(bid):
+        return None
+    path = os.path.join(_blocks_dir(uid), f"{bid}.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return None
+    if BLOCK_TTL_DAYS and time.time() - float(data.get("ts") or 0) > BLOCK_TTL_DAYS * 86400:
+        return None
+    return {"kind": data.get("kind"), "spec": data.get("spec")}
+
+
+def ref_fence(uid: int, kind: str, spec: dict) -> str:
+    """Store the block and return the tiny reference fence the model pastes."""
+    return fence(kind, {"ref": store_block(uid, kind, spec)})
 
 
 def _num(v) -> Optional[float]:

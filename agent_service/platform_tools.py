@@ -269,9 +269,19 @@ async def probe_connection_query(args: dict[str, Any]) -> dict[str, Any]:
             block, cnote = rich_blocks.chart_from_rows(
                 cols, rows, str(args.get("chart")), str(args.get("chart_title") or ""))
             if block:
-                chart_part = ("\n\nChart block — paste it into your reply VERBATIM "
-                              f"(it renders as a {args.get('chart')} chart; {cnote}):\n"
-                              + block)
+                # Store the spec and hand back a reference the model cannot
+                # paraphrase (numbers never pass through it).
+                try:
+                    import json as _json
+                    spec = _json.loads(block.split("\n", 1)[1].rsplit("\n```", 1)[0])
+                    uid = int((CURRENT_USER.get() or {}).get("user_id") or 0)
+                    block = rich_blocks.ref_fence(uid, "chart", spec)
+                except Exception as e:
+                    logger.warning(f"probe chart: reference store failed, inline block: {e}")
+                chart_part = ("\n\nChart block — paste the 3-line block below into your "
+                              "reply EXACTLY as it is (a reference; the data is stored "
+                              f"server-side; it renders as a {args.get('chart')} chart; "
+                              f"{cnote}):\n" + block)
             else:
                 chart_part = f"\n\n(No chart block: {cnote})"
         return _text("\n".join(lines) + note + chart_part)

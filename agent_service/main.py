@@ -1282,6 +1282,18 @@ async def settings_turn_cap(request: Request):
 # File handoff (James 2026-08-09): download links in chat
 # ---------------------------------------------------------------------------
 
+@app.get("/api/blocks/{block_id}")
+async def serve_rich_block(block_id: str, request: Request):
+    """A tool-built rich block (chart/map) stored for THIS user — the chat
+    resolves {"ref": id} fences here with the auth header (rich_blocks)."""
+    user = _verify_request(request)
+    import rich_blocks
+    hit = rich_blocks.get_block(int(user["user_id"] or 0), block_id)
+    if not hit:
+        raise HTTPException(404, "block not found")
+    return hit
+
+
 @app.get("/api/files/{file_id}")
 async def serve_offered_file(file_id: str, request: Request):
     """Serve a file the agent explicitly offered to THIS user

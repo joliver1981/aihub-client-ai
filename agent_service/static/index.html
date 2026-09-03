@@ -273,6 +273,15 @@
   .md img.inlineimg{max-width:100%;max-height:440px;display:block;margin:.5em 0;
                     border:1px solid var(--line);border-radius:10px;background:var(--raised);cursor:zoom-in}
   .md img.inlineimg.loading{min-height:60px;min-width:120px;opacity:.5}
+  /* maps (pass 4) */
+  .rmap{width:100%;border-radius:8px;overflow:hidden;background:#1f2933}
+  .rlegend{display:flex;gap:4px;align-items:center;margin-top:6px;font-size:11px;color:var(--text2)}
+  .rlegend-swatch{display:inline-block;width:22px;height:10px;border-radius:2px}
+  .rnote{font-size:12px;color:#F5B94D;margin-top:6px;line-height:1.4}
+  .leaflet-container{font-family:var(--sans);font-size:12px}
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#151D26;color:#E6EDF3;box-shadow:0 3px 14px rgba(0,0,0,.5)}
+  .leaflet-container a.leaflet-popup-close-button{color:#9AA4B2}
+  .leaflet-tooltip{background:#151D26;color:#E6EDF3;border-color:#2B3540}
   .histitem{display:block;width:100%;text-align:left;padding:8px 11px;border-radius:9px;
             border:1px solid transparent;color:var(--text2);font-size:12.5px}
   .histitem:hover{background:var(--hover);border-color:var(--line)}
@@ -350,6 +359,8 @@
 <script src="/static/vendor/marked.min.js"></script>
 <script src="/static/vendor/purify.min.js"></script>
 <script src="/static/vendor/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<script src="/static/vendor/leaflet/leaflet.js"></script>
 </head>
 <body>
 
@@ -690,7 +701,7 @@
     // DOMPurify. Returning false falls back to marked's own code renderer.
     marked.use({ renderer: { code(code, infostring, escaped) {
       const lang = String(infostring || "").trim().toLowerCase();
-      if (lang !== "aihub-chart" && lang !== "aihub-kpi") return false;
+      if (lang !== "aihub-chart" && lang !== "aihub-kpi" && lang !== "aihub-map") return false;
       const raw = escaped ? String(code)
                           : String(code).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       return '<div class="rblock-src" data-kind="' + lang.slice(6) + '">' + raw + '</div>\n';
@@ -826,7 +837,7 @@
   }
   function rbFallback(kind, raw, why) {
     const w = rbEl("div", "rblock rerror");
-    w.appendChild(rbEl("div", "rtitle", (kind === "kpi" ? "KPI cards" : "Chart")
+    w.appendChild(rbEl("div", "rtitle", (kind === "kpi" ? "KPI cards" : kind === "map" ? "Map" : "Chart")
                                         + " could not be rendered (" + why + ")"));
     const pre = rbEl("pre");
     pre.appendChild(rbEl("code", "", typeof raw === "string" ? raw : JSON.stringify(raw, null, 1)));
@@ -941,17 +952,154 @@
     });
     host.replaceWith(grid);
   }
+  // ---------- maps (pass 4, 2026-09-02) ----------
+  // ```aihub-map blocks (built server-side by render_map) mount a Leaflet map:
+  // OSM tiles when online, markers, and a US-state choropleth from the
+  // vendored GeoJSON (/static/data/us-states.geojson, no auth needed).
+  let RB_GEO = null;
+  function rbGeo() {
+    if (!RB_GEO) RB_GEO = fetch("/static/data/us-states.geojson")
+      .then(r => r.ok ? r.json() : null).catch(() => null);
+    return RB_GEO;
+  }
+  function rbShade(v, lo, hi) {
+    const t = hi > lo ? Math.max(0, Math.min(1, (v - lo) / (hi - lo))) : 0.5;
+    const stops = [[219,234,254],[147,197,253],[96,165,250],[59,130,246],[30,64,175]];
+    const x = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(x)), f = x - i;
+    const c = stops[i].map((a, k) => Math.round(a + (stops[i + 1][k] - a) * f));
+    return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+  }
+  function rbEscHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function mountMap(host, spec) {
+    if (!spec || typeof spec !== "object") { host.replaceWith(rbFallback("map", spec, "unrecognized map shape")); return; }
+    if (!window.L) { host.replaceWith(rbFallback("map", spec, "map library not loaded")); return; }
+    const markers = Array.isArray(spec.markers)
+      ? spec.markers.filter(m => m && Number.isFinite(Number(m.lat)) && Number.isFinite(Number(m.lng))) : [];
+    const regions = Array.isArray(spec.regions) ? spec.regions.filter(r => r && r.name) : [];
+    if (!markers.length && !regions.length) { host.replaceWith(rbFallback("map", spec, "no markers or regions")); return; }
+    const wrap = rbEl("div", "rblock");
+    if (spec.title) wrap.appendChild(rbEl("div", "rtitle", String(spec.title).slice(0, 80)));
+    const div = rbEl("div", "rmap");
+    div.style.height = regions.length ? "360px" : "300px";
+    wrap.appendChild(div);
+    const legend = rbEl("div", "rlegend");
+    legend.hidden = true;
+    wrap.appendChild(legend);
+    const subLine = n => markers.length + " marker" + (markers.length === 1 ? "" : "s")
+      + (regions.length ? " · " + n + " shaded state" + (n === 1 ? "" : "s") : "");
+    const sub = rbEl("div", "rsub", subLine(regions.length));
+    wrap.appendChild(sub);
+    host.replaceWith(wrap);
+    try {
+      const center = (Array.isArray(spec.center) && spec.center.length === 2)
+        ? spec.center.map(Number) : (regions.length ? [39.8, -98.5] : [20, 0]);
+      const zoom = Number(spec.zoom) || (regions.length ? 4 : 2);
+      const map = L.map(div, { scrollWheelZoom: false }).setView(center, zoom);
+      div._lmap = map;
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                  { attribution: "&copy; OpenStreetMap contributors", maxZoom: 18 }).addTo(map);
+      const group = [];
+      markers.forEach(m => {
+        const mk = L.marker([Number(m.lat), Number(m.lng)]).addTo(map);
+        const txt = String(m.popup || m.label || "");
+        if (txt) mk.bindPopup(rbEscHtml(txt));
+        if (m.label) mk.bindTooltip(String(m.label));
+        group.push(mk);
+      });
+      if (markers.length > 1 && !regions.length && !spec.zoom)
+        map.fitBounds(L.featureGroup(group).getBounds().pad(0.2));
+      if (regions.length) rbGeo().then(geo => {
+        if (!geo) { wrap.appendChild(rbEl("div", "rnote", "State outlines unavailable — choropleth not drawn.")); return; }
+        const byName = {};
+        regions.forEach(r => { byName[String(r.name).toLowerCase()] = r; });
+        const geoNames = new Set(geo.features.map(f => String((f.properties || {}).name || "").toLowerCase()));
+        const matched = regions.filter(r => geoNames.has(String(r.name).toLowerCase()));
+        sub.textContent = subLine(matched.length);           // only states that actually match
+        const vals = matched.map(r => Number(r.value)).filter(v => Number.isFinite(v) && v !== 0);
+        const has = vals.length > 0, lo = has ? Math.min(...vals) : 0, hi = has ? Math.max(...vals) : 0;
+        const layer = L.geoJSON(geo, {
+          style: f => {
+            const r = byName[String((f.properties || {}).name || "").toLowerCase()];
+            const v = r ? Number(r.value) : NaN;
+            if (r && has && Number.isFinite(v) && v !== 0)
+              return { fillColor: rbShade(v, lo, hi), fillOpacity: 0.75, weight: 1, color: "#10161D", opacity: 1 };
+            return { fillColor: "#2a3441", fillOpacity: 0.25, weight: 0.5, color: "#3a4655", opacity: 0.6 };
+          },
+          onEachFeature: (f, l) => {
+            const nm = String((f.properties || {}).name || "");
+            const r = byName[nm.toLowerCase()];
+            if (!r) return;
+            l.bindPopup("<strong>" + rbEscHtml(nm) + "</strong><br>" + rbEscHtml(r.label || (nm + ": " + r.value)));
+            l.on("mouseover", e => { e.target.setStyle({ weight: 2.5, fillOpacity: 0.9 }); e.target.bringToFront(); });
+            l.on("mouseout", e => layer.resetStyle(e.target));
+          }
+        }).addTo(map);
+        const bounds = [];
+        layer.eachLayer(l => {
+          const nm = String(((l.feature || {}).properties || {}).name || "").toLowerCase();
+          if (byName[nm]) bounds.push(l.getBounds());
+        });
+        if (bounds.length && !spec.zoom) { let b = bounds[0]; bounds.forEach(x => b = b.extend(x)); map.fitBounds(b, { padding: [20, 20] }); }
+        if (vals.length > 1) {
+          legend.hidden = false;
+          legend.innerHTML = "";
+          legend.appendChild(rbEl("span", "rlegend-label", "Low " + rbFormat(lo, spec.format)));
+          for (let i = 0; i < 5; i++) {
+            const s = rbEl("span", "rlegend-swatch");
+            s.style.background = rbShade(lo + (hi - lo) * (i / 4), lo, hi);
+            legend.appendChild(s);
+          }
+          legend.appendChild(rbEl("span", "rlegend-label", rbFormat(hi, spec.format) + " High"));
+        }
+        const unm = (Array.isArray(spec.unmapped) && spec.unmapped.length) ? spec.unmapped
+          : regions.filter(r => !geoNames.has(String(r.name).toLowerCase())).map(r => r.name);
+        if (unm.length) wrap.appendChild(rbEl("div", "rnote",
+          "⚠ " + unm.length + " region(s) not shown (this map shades US states only): " + unm.join(", ")));
+        if (matched.length && !has) wrap.appendChild(rbEl("div", "rnote",
+          "⚠ No numeric values were provided, so the states could not be shaded."));
+        setTimeout(() => map.invalidateSize(), 100);
+      });
+      setTimeout(() => map.invalidateSize(), 100);
+    } catch (e) { wrap.replaceWith(rbFallback("map", spec, e.message || "render error")); }
+  }
+  // Tool-built blocks arrive as {"ref": id} and are resolved server-side
+  // (auth header, this user's blocks only) — the model never retypes data.
+  const RB_REF_CACHE = new Map();
+  function rbResolveRef(ref) {
+    if (!RB_REF_CACHE.has(ref)) {
+      RB_REF_CACHE.set(ref, fetch("/api/blocks/" + encodeURIComponent(ref), { headers: H() })
+        .then(r => r.ok ? r.json() : null).catch(() => null));
+    }
+    return RB_REF_CACHE.get(ref);
+  }
+  function mountKind(kind, host, spec) {
+    if (kind === "chart") mountChart(host, spec);
+    else if (kind === "map") mountMap(host, spec);
+    else mountKpi(host, spec);
+  }
   function mountRichBlocks(root) {
     root.querySelectorAll(".rblock-src").forEach(src => {
       const kind = src.dataset.kind;
       const spec = rbParse(src.textContent);
       if (!spec) { src.replaceWith(rbFallback(kind, src.textContent, "invalid JSON")); return; }
-      if (kind === "chart") mountChart(src, spec); else mountKpi(src, spec);
+      if (typeof spec.ref === "string" && spec.ref) {
+        const ph = rbEl("div", "rblock");
+        ph.appendChild(rbEl("div", "rsub", "loading " + kind + " …"));
+        src.replaceWith(ph);
+        rbResolveRef(spec.ref).then(d => {
+          if (!ph.isConnected) return;
+          if (!d || !d.spec) { ph.replaceWith(rbFallback(kind, spec, "stored block no longer available")); return; }
+          mountKind(d.kind || kind, ph, d.spec);
+        });
+        return;
+      }
+      mountKind(kind, src, spec);
     });
   }
   function rbDestroyCharts(root) {
-    if (!window.Chart || !root.querySelectorAll) return;
-    root.querySelectorAll("canvas").forEach(c => { const ch = Chart.getChart(c); if (ch) ch.destroy(); });
+    if (!root.querySelectorAll) return;
+    if (window.Chart) root.querySelectorAll("canvas").forEach(c => { const ch = Chart.getChart(c); if (ch) ch.destroy(); });
+    root.querySelectorAll(".rmap").forEach(d => { if (d._lmap) { try { d._lmap.remove(); } catch {} d._lmap = null; } });
   }
   function inlineImages(root) {
     root.querySelectorAll('img[src^="/api/files/"]').forEach(img => {

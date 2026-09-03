@@ -42,10 +42,17 @@ def _txt(res):
     return res["content"][0]["text"]
 
 
-def _spec(block):
+def _spec(block, uid=0):
+    """(kind, spec) — a {"ref"} fence (tool-built) resolves through the store."""
+    import rich_blocks
     m = re.search(r"```aihub-(\w+)\n(.*?)\n```", block, re.S)
     assert m, block
-    return m.group(1), json.loads(m.group(2))
+    kind, spec = m.group(1), json.loads(m.group(2))
+    if "ref" in spec:
+        hit = rich_blocks.get_block(uid, spec["ref"])
+        assert hit and hit["kind"] == kind, spec
+        return kind, hit["spec"]
+    return kind, spec
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +123,7 @@ def test_probe_query_chart_parameter_appends_a_verbatim_block():
         res = _run(P.probe_connection_query.handler({"connection": "ERPDB", "sql": "select 1",
                                                      "chart": "pie", "chart_title": "Orders by status"}))
         out = _txt(res)
-        assert "status | n" in out and "VERBATIM" in out
+        assert "status | n" in out and "EXACTLY" in out and '{"ref": "' in out
         kind, spec = _spec(out)
         assert kind == "chart" and spec["type"] == "pie" and spec["labels"] == ["open", "closed"]
         assert spec["series"][0]["data"] == [5.0, 12.0] and spec["title"] == "Orders by status"

@@ -38,6 +38,8 @@ try:
     from agent_builder_tools import AGENT_BUILDER_TOOLS  # noqa: E402
     from web_tools import WEB_TOOLS                 # noqa: E402
     from export_tools import EXPORT_TOOLS           # noqa: E402
+    from map_tools import MAP_TOOLS                 # noqa: E402
+    from image_tools import IMAGE_TOOLS             # noqa: E402
     HAVE_SDK = True
 except ImportError as e:
     HAVE_SDK = False
@@ -57,13 +59,13 @@ else:
     ALL_TOOLS = (AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
                  + INTEGRATION_TOOLS + FILE_TOOLS + DOCUMENT_TOOLS
                  + PORTAL_TOOLS + EMAIL_TOOLS + AGENT_BUILDER_TOOLS + WEB_TOOLS
-                 + EXPORT_TOOLS)
+                 + EXPORT_TOOLS + MAP_TOOLS + IMAGE_TOOLS)
     ALL_NAMES = {getattr(t, "name", "") for t in ALL_TOOLS}
 
 # Read-shaped name prefixes. A registered tool matching one of these, not in
 # MUTATING_TOOLS and not excluded below, MUST be in _READ_TOOL_NAMES.
 _READ_PREFIXES = ("list_", "get_", "describe_", "lookup_", "search_",
-                  "query_", "check_", "read_")
+                  "query_", "check_", "read_", "render_", "geocode_")
 # Curated exclusions from the read allowlist, each with its reason:
 _READ_EXCLUSIONS = {
     # stages a private file copy for the user = a write; side-threads answer
@@ -78,7 +80,7 @@ _MUTATING_PREFIXES = ("create_", "save_", "delete_", "schedule_", "promote_",
                       "execute_", "assign_", "store_", "rename_", "decide_",
                       "raise_", "setup_", "draft_", "set_", "update_",
                       "send_", "unwire_", "remove_", "remember_", "forget_",
-                      "export_", "manipulate_")
+                      "export_", "manipulate_", "generate_")
 _MUTATING_EXCLUSIONS = set()  # none today; add with a reason, never loosen
 
 
@@ -168,6 +170,11 @@ def test_known_drift_regressions_pinned():
     for n in ("export_data", "manipulate_pdf"):
         assert n in brain.MUTATING_TOOLS, n
     assert brain.claims_completed_mutation("I've created the Excel file with the vendors.")
+    # Pass 4 (2026-09-02): maps are read-shaped renders; image generation is a write.
+    for n in ("render_map", "geocode_places"):
+        assert n in brain._READ_TOOL_NAMES, n
+    assert "generate_image" in brain.MUTATING_TOOLS
+    assert brain.claims_completed_mutation("I've created the image you asked for.")
 
 
 def test_sensitive_fields_map_to_real_tools():

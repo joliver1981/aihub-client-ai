@@ -35,6 +35,8 @@ from email_tools import EMAIL_TOOLS
 from agent_builder_tools import AGENT_BUILDER_TOOLS
 from web_tools import WEB_TOOLS
 from export_tools import EXPORT_TOOLS
+from map_tools import MAP_TOOLS
+from image_tools import IMAGE_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -148,8 +150,14 @@ _WEB_TOOLS_ON = os.getenv("AGENT_WEB_TOOLS", "true").lower() == "true"
 _EXPORT_TOOLS_ON = (os.getenv("AGENT_EXPORT_TOOLS", "true").lower() == "true"
                     and _CODE_TOOLS_ON)
 
+# Maps + image generation (pass 4). Maps need nothing external (Leaflet and
+# the state outlines are vendored; OSM tiles and geocoding are online extras);
+# image generation additionally honors CC's platform-wide flag inside the tool.
+_MAP_TOOLS_ON = os.getenv("AGENT_MAP_TOOLS", "true").lower() == "true"
+_IMAGE_TOOLS_ON = os.getenv("AGENT_IMAGE_TOOLS", "true").lower() == "true"
+
 aihub_server = create_sdk_mcp_server(
-    name="aihub", version="0.9.0",
+    name="aihub", version="0.10.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
           + INTEGRATION_TOOLS + FILE_TOOLS
           + (CODE_TOOLS if _CODE_TOOLS_ON else [])
@@ -158,7 +166,9 @@ aihub_server = create_sdk_mcp_server(
           + (EMAIL_TOOLS if _EMAIL_TOOLS_ON else [])
           + (AGENT_BUILDER_TOOLS if _BUILDER_TOOLS_ON else [])
           + (WEB_TOOLS if _WEB_TOOLS_ON else [])
-          + (EXPORT_TOOLS if _EXPORT_TOOLS_ON else []))
+          + (EXPORT_TOOLS if _EXPORT_TOOLS_ON else [])
+          + (MAP_TOOLS if _MAP_TOOLS_ON else [])
+          + (IMAGE_TOOLS if _IMAGE_TOOLS_ON else []))
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -184,7 +194,7 @@ MUTATING_TOOLS = frozenset({
     "add_agent_knowledge", "delete_agent_knowledge", "assign_agent_groups",
     "send_email", "unwire_steps", "remove_code_step", "update_step_code",
     "delete_code_flow", "remember_preference", "forget_preference",
-    "export_data", "manipulate_pdf",
+    "export_data", "manipulate_pdf", "generate_image",
 })
 
 # Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise
@@ -202,7 +212,7 @@ MUTATION_CLAIM_RE = re.compile(
     r"|(\bI(?:'|’)?ve\s+(?:now\s+)?(created|saved|scheduled|promoted|deleted|"
     r"added|updated|wired|sent|emailed)\b[^.\n]{0,80}\b(automation|code\s*flow|workflow|"
     r"schedule|job|skill|work\s*item|playbook|step|checkpoint|view|secret|agent|email|preference|"
-    r"file|export|spreadsheet|pdf)\b)"
+    r"file|export|spreadsheet|pdf|image|picture|map)\b)"
     r"|(\b(?:is|are)\s+now\s+(?:live|scheduled|promoted|running\s+on\s+a\s+schedule)\b)",
     re.I)
 
@@ -217,7 +227,8 @@ def claims_completed_mutation(text: str) -> bool:
 _READ_TOOL_NAMES = [
     "list_data_connections", "get_connection_schema", "probe_connection_query",
     "ask_agent", "get_my_contact_info", "find_user_contact", "list_playbooks",
-    "list_recent_runs", "search_web", "list_mcp_servers",
+    "list_recent_runs", "search_web", "list_mcp_servers", "render_map",
+    "geocode_places",
     "check_automation_run", "get_automation", "list_code_flows",
     "get_code_flow", "list_my_work", "list_skills",
     "list_saved_views", "get_view", "list_secret_names",
@@ -587,6 +598,18 @@ beats three.
 - IMAGES: an image link ![name](/api/files/<id>) renders inline — include
   the image lines run_python returns VERBATIM (a chart it saved as .png shows
   up as a picture; keep the download link too).
+- MAPS: "show these on a map", "where are our stores", "shade the states by
+  sales" -> render_map. markers_json = points: give lat/lng when a tool
+  result has them; otherwise give a place ("Newark, NJ") or a US state and
+  the tool ENRICHES it (geocoding online, state centres offline) — relay
+  what it says was geocoded as approximate, and what it could not place.
+  regions_json = a US-state choropleth (names or codes, numeric values from a
+  tool result). Paste the returned block VERBATIM. geocode_places looks up
+  coordinates on their own; never invent coordinates for obscure places.
+- GENERATED IMAGES: generate_image draws a NEW picture from a description
+  (illustrations, mock-ups, concept art, logo ideas). Include BOTH returned
+  lines verbatim — the picture shows inline. Charts are aihub-chart blocks
+  and maps are render_map; never generate_image for those.
 
 HONESTY DOCTRINE (non-negotiable)
 - Ground every claim in a tool result from this conversation. Never invent
