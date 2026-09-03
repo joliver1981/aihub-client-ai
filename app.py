@@ -10035,15 +10035,30 @@ def api_get_document_attribution_summary(document_id):
 @app.route('/api/documents/<string:document_id>', methods=['GET'])
 @api_key_or_session_required(min_role=2)
 def api_get_document(document_id):
-    """API endpoint to get paginated documents list"""
+    """Metadata for ONE document by id (the agent's get_document tool).
+
+    Identity (doc-acl G2, 2026-09-03): with an X-AIHub-User assertion, a
+    document whose category the caller cannot see answers the SAME 404 as a
+    missing one — otherwise this route is an id-oracle for documents the
+    listing hid. Assertion absent = unrestricted (decision D1).
+    """
     try:
+        try:
+            _uid, _role = _caller_identity()
+        except _InvalidUserAssertion:
+            return jsonify({'error': 'invalid user assertion'}), 403
+        from doc_search_v3 import acl
+        allowed_types = acl.accessible_document_types(_uid, _role)
+        if acl.deny_all(allowed_types):
+            return jsonify({'error': 'Document not found'}), 404
+
         # Connect to database
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Set tenant context
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
+
         # Build the query
         query = """
             SELECT 
@@ -10070,6 +10085,11 @@ def api_get_document(document_id):
         
         # Fetch results
         row = cursor.fetchone()
+        # Missing, and hidden-by-category, are the same 404 (see docstring).
+        # (Pre-G2 a missing id raised on row[0] and answered 500.)
+        if row is None or (allowed_types is not None and row[2] not in allowed_types):
+            conn.close()
+            return jsonify({'error': 'Document not found'}), 404
         document = {
                 'document_id': row[0],
                 'filename': row[1],
@@ -14615,17 +14635,53 @@ def api_get_documents():
         date_range = request.args.get('date_range', '')
         start_date = request.args.get('start_date', '')
         end_date = request.args.get('end_date', '')
-        
+
         # Calculate offset
         offset = (page - 1) * per_page
-        
+
+        # Caller identity + v3 category ACL (doc-acl G2, 2026-09-03). The
+        # Agent authenticates with the tenant API key, so min_role above never
+        # reaches the calling USER — the optional X-AIHub-User assertion does.
+        # Assertion-only on purpose: the browser session path (a Developer+
+        # admin surface) stays unfiltered — handoff decision D1. NOTE for the
+        # next reader: The Agent's import_documents idempotency probe
+        # (_existing_paths_for) also comes through here and is now filtered
+        # too; a re-import of a file whose existing copy sits in a category
+        # the user cannot see can duplicate — accepted; do NOT "fix" it by
+        # dropping identity from the agent's _headers() (global fail-open).
+        try:
+            _uid, _role = _caller_identity()
+        except _InvalidUserAssertion:
+            return jsonify({'error': 'invalid user assertion'}), 403
+        from doc_search_v3 import acl
+        allowed_types = acl.accessible_document_types(_uid, _role)
+        if acl.deny_all(allowed_types):
+            # Honest empty result, SAME shape, HTTP 200 — not 403 (the agent's
+            # list_documents renders that as an outage) and no DB round trip
+            # (the IN-builder below would treat [] as NO filter).
+            return jsonify({
+                'documents': [],
+                'pagination': {'page': page, 'per_page': per_page,
+                               'total_count': 0, 'total_pages': 0,
+                               'has_prev': page > 1, 'has_next': False},
+                'stats': {'total_documents': 0, 'total_pages': 0,
+                          'document_types': 0, 'last_updated': None},
+            })
+        # None = unrestricted; a non-empty list filters the rows, the paging
+        # count AND the stats query below (all three or the totals contradict
+        # the rows and the model reports a discrepancy it cannot explain).
+        acl_sql, acl_params = '', []
+        if allowed_types is not None:
+            acl_sql = f" AND d.document_type IN ({','.join('?' * len(allowed_types))})"
+            acl_params = list(allowed_types)
+
         # Connect to database
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Set tenant context
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
+
         # Build the query
         query = """
             SELECT 
@@ -14665,7 +14721,12 @@ def api_get_documents():
         elif date_range == 'custom' and start_date and end_date:
             query += " AND d.processed_at >= ? AND d.processed_at <= ?"
             params.extend([start_date, end_date + ' 23:59:59'])
-        
+
+        # Category ACL (resolved above) — on the rows, and therefore on the
+        # paging count, which is built from the same query.
+        query += acl_sql
+        params.extend(acl_params)
+
         # Get total count
         count_query = f"SELECT COUNT(*) FROM ({query}) AS cnt"
         cursor.execute(count_query, params)
@@ -14698,13 +14759,13 @@ def api_get_documents():
         # Get statistics
         cursor.execute("""
             SELECT 
-                COUNT(DISTINCT document_id) as total_documents,
-                SUM(page_count) as total_pages,
-                COUNT(DISTINCT document_type) as document_types,
-                MAX(processed_at) as last_updated
-            FROM Documents
-            WHERE is_knowledge_document = 0
-        """)
+                COUNT(DISTINCT d.document_id) as total_documents,
+                SUM(d.page_count) as total_pages,
+                COUNT(DISTINCT d.document_type) as document_types,
+                MAX(d.processed_at) as last_updated
+            FROM Documents d
+            WHERE d.is_knowledge_document = 0
+        """ + acl_sql, acl_params)   # same category filter as the rows (G2)
         
         stats_row = cursor.fetchone()
         stats = {
@@ -14741,20 +14802,39 @@ def api_get_documents():
 def api_get_document_types():
     """Get all document types with counts"""
     try:
+        # Caller identity + v3 category ACL (doc-acl G2, 2026-09-03) — same
+        # posture as /api/documents: assertion absent = unfiltered (browser
+        # session, decision D1), forged = 403, zero grants = [] with HTTP 200.
+        # The Agent's builder picker (_document_types) comes through here, so
+        # a restricted Developer sees only the types they may grant.
+        try:
+            _uid, _role = _caller_identity()
+        except _InvalidUserAssertion:
+            return jsonify({'error': 'invalid user assertion'}), 403
+        from doc_search_v3 import acl
+        allowed_types = acl.accessible_document_types(_uid, _role)
+        if acl.deny_all(allowed_types):
+            return jsonify([])
+        acl_sql, acl_params = '', []
+        if allowed_types is not None:
+            acl_sql = f" AND document_type IN ({','.join('?' * len(allowed_types))})"
+            acl_params = list(allowed_types)
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Set tenant context
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
+
         # Get document types with counts
         cursor.execute("""
             SELECT document_type, COUNT(*) as count
             FROM Documents
             WHERE is_knowledge_document = 0 AND document_type IS NOT NULL
+        """ + acl_sql + """
             GROUP BY document_type
             ORDER BY count DESC
-        """)
+        """, acl_params)
         
         types = []
         for row in cursor.fetchall():
