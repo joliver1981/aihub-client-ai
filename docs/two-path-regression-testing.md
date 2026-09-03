@@ -55,11 +55,16 @@ CC -> agent 2 on 10.0.0.6
 ```
 
 The same request direct to `/api/agents/2/chat` on that box returns **200** with
-real data. So the agent is fine and Command Center is up — the packaged CC is
-missing a module. This is the `command_center.orchestration` shadowing family
-again (a partial loose `command_center` package shipped to `{app}` winning over
-the CC exe's own bundle). **It cannot reproduce from source**, which is exactly
-why a second path is worth building.
+real data. So the agent is fine and Command Center is up. The first reading —
+"the packaged CC is missing a module, the `command_center.orchestration`
+shadowing family again" — turned out to be wrong: the 500 is raised by the
+**main app**, on `/data_explorer/internal/query` (the endpoint CC's delegator
+uses for data agents), because `app.py` loads `routes/data_explorer.py` by file
+path and PyInstaller therefore never bundled a module only that file imports.
+Root cause, proof and fix: `docs/handoff-cc-artifacts-data-export-missing.md`.
+**It cannot reproduce from source**, which is exactly why a second path is
+worth building — and pack 24 now carries `cc_delegation_endpoint` /
+`cc_data_agent_turn` so the exact surface is checked on every installed box.
 
 ## 3. The blockers, each with options
 

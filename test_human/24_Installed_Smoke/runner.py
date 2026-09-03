@@ -10,6 +10,14 @@ surfaces:
 
   * Command Center  - pack 15 only proves the service answers /health and mints
                       a token. It never takes a real conversational turn.
+                      And an arithmetic turn is NOT enough: on 2026-09-02 the
+                      installed box answered "1875 / 25" fine while every CC
+                      delegation to a DATA agent 500'd with "No module named
+                      'command_center.artifacts.data_export'" - a module the
+                      frozen app.exe never bundled (routes/data_explorer.py is
+                      loaded by file path, so PyInstaller never saw its imports).
+                      cc_delegation_endpoint hits that exact surface directly
+                      and cc_data_agent_turn drives it through CC.
   * The Agent       - not probed at all by pack 15.
   * NL->SQL         - pack 15's check is pinned to oracle agent 281 (AIRDB2) and
                       SKIPs when that agent is absent, which it is on a fresh
@@ -37,6 +45,13 @@ import sys
 import time
 import datetime
 import requests
+
+# The report uses check-mark glyphs; a cp1252 console (plain cmd / an agent
+# shell) otherwise dies with UnicodeEncodeError AFTER the files are written
+# and turns a finished run into a traceback.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -132,6 +147,21 @@ class Api:
         return body
 
 
+def data_agent_ids(api):
+    """Ids of the data agents that exist on the target (may be empty)."""
+    body = api.jbody(api.get("/get/data_agents")) or []
+    rows = body.get("data") if isinstance(body, dict) else body
+    if isinstance(rows, str):
+        rows = json.loads(rows)
+    return [str(a.get("id") or a.get("agent_id")) for a in (rows or [])
+            if isinstance(a, dict)]
+
+
+# The signature of a module the frozen build failed to bundle. The answer text
+# is irrelevant when this shows up: the process raised ModuleNotFoundError.
+PACKAGING_MARKERS = ("No module named", "cannot import name")
+
+
 # ------------------------------------------------------------------ checks
 
 @check("svc_health", "Services", "app / CC / agent-service / builder all answer")
@@ -158,12 +188,7 @@ def c_nlq(ctx):
     silently killed NL->SQL for a week - the engine 400s, swallows it, and serves
     a friendly apology as a normal answer."""
     api = ctx["api"]
-    body = api.jbody(api.get("/get/data_agents")) or []
-    rows = body.get("data") if isinstance(body, dict) else body
-    if isinstance(rows, str):
-        rows = json.loads(rows)
-    ids = [str(a.get("id") or a.get("agent_id")) for a in (rows or [])
-           if isinstance(a, dict)]
+    ids = data_agent_ids(api)
     if not ids:
         return None, "SKIP: no data agents exist on this target"
 
@@ -218,6 +243,91 @@ def c_cc_chat(ctx):
     ok = r.status_code == 200 and "75" in text and not any(
         m in text for m in FALLBACK_MARKERS)
     return ok, f"http={r.status_code}, contains-75={'75' in text}, tail={text[-160:]}"
+
+
+@check("cc_delegation_endpoint", "Command Center",
+       "main app's CC data-delegation endpoint returns a result (frozen-build packaging)")
+def c_cc_delegation_endpoint(ctx):
+    """CC's delegator sends DATA-agent turns to the main app's
+    /data_explorer/internal/query, NOT to /api/agents/<id>/chat - so a direct
+    agent call passing proves nothing about this path. The route lives in
+    routes/data_explorer.py, which app.py loads by file path; PyInstaller never
+    walks that file's imports, so a module only it imports can be missing from
+    app.exe while everything else works (2026-09-02: command_center.artifacts
+    .data_export). The route validates X-API-Key itself, so this needs the
+    TARGET box's key (--api-key-file); with the wrong key it SKIPs, never FAILs."""
+    api = ctx["api"]
+    ids = data_agent_ids(api)
+    if not ids:
+        return None, "SKIP: no data agents exist on this target"
+    key = os.getenv("API_KEY", "")
+    if not key:
+        return None, "SKIP: no API_KEY loaded (pass --api-key-file)"
+    tried = []
+    for aid in ids[:2]:
+        t0 = time.time()
+        r = api.post("/data_explorer/internal/query",
+                     {"agent_id": aid, "question": "How many rows are in the largest table?",
+                      "session_id": "pack24-smoke", "history": []},
+                     headers={"X-API-Key": key}, timeout=240)
+        el = time.time() - t0
+        text = r.text or ""
+        if r.status_code == 401:
+            return None, ("SKIP: the internal endpoint rejected this tree's API_KEY - "
+                          "the installed box uses a different key; pass --api-key-file")
+        packaging = [m for m in PACKAGING_MARKERS if m in text]
+        if packaging:
+            return False, (f"FROZEN-BUILD PACKAGING DEFECT on agent {aid}: http={r.status_code} "
+                           f"{text[:220]!r}")
+        body = api.jbody(r) if r.status_code == 200 else None
+        answer = str((body or {}).get("response", "")) if isinstance(body, dict) else ""
+        fell_back = any(m in answer for m in FALLBACK_MARKERS)
+        tried.append(f"agent {aid}: http={r.status_code} {el:.1f}s "
+                     f"status={(body or {}).get('status') if isinstance(body, dict) else '-'} "
+                     f"answer={len(answer)}b fallback={fell_back}")
+        if r.status_code == 200 and isinstance(body, dict) \
+                and body.get("status") == "success" and answer.strip() and not fell_back:
+            return True, (f"agent {aid} answered via the delegation endpoint in {el:.1f}s; "
+                          f"answer_type={body.get('answer_type')} artifacts={bool(body.get('artifacts'))} "
+                          f"| tried: {'; '.join(tried)}")
+    return False, f"no data agent produced a result on the delegation endpoint | {'; '.join(tried)}"
+
+
+@check("cc_data_agent_turn", "Command Center", "CC delegates to a data agent and returns data")
+def c_cc_data_turn(ctx):
+    """The user-visible form of cc_delegation_endpoint: a CC turn that must
+    delegate to a DATA agent and come back with a number, not
+    'Agent returned status 500: No module named ...'."""
+    api = ctx["api"]
+    ids = data_agent_ids(api)
+    if not ids:
+        return None, "SKIP: no data agents exist on this target"
+    try:
+        token = mint_token()
+    except Exception as e:
+        return None, f"SKIP: could not mint a CC token ({type(e).__name__}: {e})"
+    aid = ids[0]
+    try:
+        r = requests.post(f"{ctx['cc']}/api/chat",
+                          json={"message": f"Ask agent {aid} how many rows are in its "
+                                           f"largest table. Report the table name and the number."},
+                          headers={"Authorization": f"Bearer {token}"},
+                          timeout=300)
+    except Exception as e:
+        return None, f"SKIP: CC unreachable ({type(e).__name__}: {e})"
+    if r.status_code == 401:
+        return None, ("SKIP: CC rejected a locally-minted token (401) - the installed "
+                      "box uses a different API_KEY; pass --api-key-file")
+    text = r.text or ""
+    import re as _re
+    packaging = [m for m in PACKAGING_MARKERS if m.lower() in text.lower()]
+    delegation_failed = "returned status 5" in text.lower()
+    has_number = bool(_re.search(r"\d[\d,]{2,}", text))
+    ok = (r.status_code == 200 and not packaging and not delegation_failed
+          and has_number and not any(m in text for m in FALLBACK_MARKERS))
+    return ok, (f"http={r.status_code}, agent={aid}, number={has_number}, "
+                f"delegation-failed={delegation_failed}, packaging={packaging or '-'}, "
+                f"tail={text[-200:]}")
 
 
 @check("agent_service_turn", "The Agent", "agent service answers a real turn")

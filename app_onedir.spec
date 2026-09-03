@@ -117,6 +117,35 @@ if os.path.exists('schemas'):
 if os.path.exists('routes/data_explorer.py'):
     app_datas.append(('routes/data_explorer.py', 'routes'))
 
+# ---------------------------------------------------------------------------
+# Imports INSIDE those path-loaded files are invisible to PyInstaller: the file
+# is a data blob, not a module, so nothing it imports gets pulled into the
+# bundle unless something else imports it by name. 2026-09-02, installed box:
+# command_center.artifacts.data_export is imported ONLY by routes/data_explorer.py
+# -> not bundled -> every Command Center delegation to a data agent answered
+# "Agent returned status 500: No module named 'command_center.artifacts.data_export'"
+# (cannot reproduce from source). Derive every import of every path-loaded file
+# into explicit hiddenimports here, and FAIL THE BUILD below if a first-party one
+# still did not make it into the bundle. Keep PATH_LOADED_SOURCES in sync with
+# app.py's spec_from_file_location loads (tests_v2/unit/test_app_spec_path_loaded_imports.py
+# checks the list against app.py).
+# ---------------------------------------------------------------------------
+import importlib.util as _dri_importlib
+_dri_spec = _dri_importlib.spec_from_file_location(
+    'dynamic_route_imports', os.path.join(SPECPATH, 'scripts', 'dynamic_route_imports.py'))
+_dri = _dri_importlib.module_from_spec(_dri_spec)
+_dri_spec.loader.exec_module(_dri)
+
+PATH_LOADED_SOURCES = [
+    'routes/data_explorer.py',
+]
+path_loaded_hiddenimports = []
+for _src in PATH_LOADED_SOURCES:
+    _names = _dri.hidden_imports_for(os.path.join(SPECPATH, _src), SPECPATH)
+    _fp = _dri.first_party(_names, SPECPATH)
+    print(f"✅ path-loaded {_src}: {len(_names)} hidden imports, {len(_fp)} first-party: {', '.join(_fp)}")
+    path_loaded_hiddenimports.extend(n for n in _names if n not in path_loaded_hiddenimports)
+
 # Assistant docs - include entire folder with all markdown files
 if os.path.exists('assistant_docs'):
     app_datas.append(('assistant_docs', 'assistant_docs'))
@@ -217,7 +246,7 @@ a = Analysis(
         'doc_search_v3.acl',
         'doc_search_v3.enumerate_engine',
         'doc_search_v3.category_assignment',
-    ] + all_collected_hiddenimports,
+    ] + all_collected_hiddenimports + path_loaded_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -225,6 +254,20 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
+# Build guard: every first-party module a path-loaded file imports must now be
+# in the bundle (pure modules or extension modules). Fail here, at build time,
+# rather than as a 500 on a client box the first time the route runs.
+_bundled = {entry[0] for entry in a.pure} | {entry[0] for entry in a.binaries}
+_missing = _dri.verify_bundled(path_loaded_hiddenimports, _bundled, SPECPATH)
+if _missing:
+    raise SystemExit(
+        "app_onedir.spec: modules imported by a path-loaded route file are NOT in the "
+        "bundle: " + ", ".join(_missing) + " - the frozen app would raise "
+        "ModuleNotFoundError at request time (cf. command_center.artifacts.data_export, "
+        "installed box 2026-09-02). Check PATH_LOADED_SOURCES / scripts/dynamic_route_imports.py.")
+print(f"✅ path-loaded route imports verified in bundle: "
+      f"{', '.join(_dri.first_party(path_loaded_hiddenimports, SPECPATH))}")
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
