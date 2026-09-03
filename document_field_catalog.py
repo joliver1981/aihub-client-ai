@@ -150,8 +150,11 @@ def ensure_table(cur) -> bool:
         for stmt in DDL:
             cur.execute(stmt)
     except Exception as e:
-        log.warning(f"{TABLE}: could not create ({e}); apply migration 021 with a "
-                    f"login that has CREATE TABLE")
+        if not _table_state.get("create_warned"):
+            _table_state["create_warned"] = True     # once per process, not once per ingest
+            log.warning(f"{TABLE}: could not create ({str(e)[:160]}); apply migration 021 "
+                        f"with a login that has CREATE TABLE, then run "
+                        f"run_document_field_catalog_backfill.py")
     with _lock:
         _table_state.update(exists=None)
     return table_exists(cur, ttl=0)

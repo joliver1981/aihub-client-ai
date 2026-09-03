@@ -43,6 +43,10 @@ def extract_symbols(names, path=APP_PY):
             # above with their own linenos, Python >= 3.8), so slicing from
             # here is what drops them.
             out[node.name] = "".join(lines[node.lineno - 1:node.end_lineno])
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and isinstance(node.targets[0], ast.Name) and node.targets[0].id in wanted:
+            # module-level constants a route references (e.g. a message string)
+            out[node.targets[0].id] = "".join(lines[node.lineno - 1:node.end_lineno])
     missing = wanted - set(out)
     if missing:
         raise LookupError(f"not found at the top level of app.py: {sorted(missing)}")

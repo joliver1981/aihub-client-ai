@@ -8412,806 +8412,259 @@ def list_directories():
 #-------------------------------------------
 from math import ceil
 
-@app.route('/document-search-legacy')
-@login_required
-def document_search_page_legacy():
+# ---------------------------------------------------------------------------
+# Document Search page — rebuilt 2026-09-03 (james: "I cannot release this page
+# to clients this way"). Thin routes: identity + ACL here, everything else in
+# document_search_page.py (unit-tested without app.py). The legacy route
+# /document-search-legacy (a 380-line duplicate with no tier check) is gone.
+# ---------------------------------------------------------------------------
+
+def _document_search_identity():
+    """(uid, role, allowed) for the search page and its JSON endpoints, or a
+    403 response tuple for a forged assertion. allowed follows the v3
+    three-state contract (None / [types] / [] = deny-all)."""
     try:
-        """Render the document search page with server-side search functionality"""
-        # Get basic search parameters from query string
-        search_query = request.args.get('query', '')
-        document_type = request.args.get('document_type', '')
-        min_score = float(request.args.get('min_score', 0.5))
-        max_results = int(request.args.get('max_results', 10))
-        page = int(request.args.get('page', 1))
-        advanced_search = 'advanced' in request.args
-        print('advanced_search:', advanced_search)
-        print('request.args:', request.args)
-        
-        # Collect field search filters if present
-        field_filters = []
-        field_names = request.args.getlist('field_name[]')
-        field_operators = request.args.getlist('field_operator[]')
-        field_values = request.args.getlist('field_value[]')
+        uid, role = _caller_identity_or_session()
+    except _InvalidUserAssertion:
+        return None, None, None, (jsonify({'error': 'invalid user assertion'}), 403)
+    from doc_search_v3 import acl
+    return uid, role, acl.accessible_document_types(uid, role), None
 
-        print('Field Name:', field_names)
-        print('Field Operators:', field_operators)
-        print('Field Values:', field_values)
-        
-        print('Processing field filters...')
-        # Process field filters
-        if field_names and field_operators and field_values:
-            for i in range(len(field_names)):
-                if i < len(field_operators) and i < len(field_values) and field_names[i] and field_values[i]:
-                    # Get display name for the field
-                    display_name = field_names[i].split('.')[-1] if '.' in field_names[i] else field_names[i]
-                    display_name = display_name.replace('_', ' ').title()
-                    
-                    field_filters.append({
-                        'field_path': field_names[i],
-                        'display_name': display_name,
-                        'operator': field_operators[i],
-                        'value': field_values[i]
-                    })
-                    print('Appending -->>', str({
-                        'field_path': field_names[i],
-                        'display_name': display_name,
-                        'operator': field_operators[i],
-                        'value': field_values[i]
-                    }))
-        
-        print('Field Filters:', field_filters)
-        
-        # Default values
-        search_results = []
-        error_message = None
-        pagination = None
-        available_fields = []
-        common_fields = []
-    except Exception as e:
-        print(f'Search error: {str(e)}')
-        abort(404)
-    
-    try:
-        # Get all document types for filters (regardless of search)
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Set tenant context if needed
-        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
-        # Get document types
-        cursor.execute("SELECT DISTINCT document_type FROM Documents WHERE is_knowledge_document = 0 ORDER BY document_type")
-        document_types = [row[0] for row in cursor.fetchall()]
-        
-        # Get document counts
-        cursor.execute("""
-            SELECT document_type, COUNT(*) as doc_count 
-            FROM Documents 
-            WHERE is_knowledge_document = 0 
-            GROUP BY document_type 
-            ORDER BY doc_count DESC
-        """)
-        document_counts = {row[0]: row[1] for row in cursor.fetchall()}
-        
-        # Get available fields for search
-        if document_type:
-            # If document type is selected, get fields specific to that type
-            cursor.execute("""
-                SELECT df.field_name, df.field_path, COUNT(*) as field_count
-                FROM DocumentFields df
-                JOIN DocumentPages dp ON df.page_id = dp.page_id
-                JOIN Documents d ON dp.document_id = d.document_id
-                WHERE d.document_type = ?
-                AND d.is_knowledge_document = 0 
-                GROUP BY df.field_name, df.field_path
-                ORDER BY field_count DESC, field_name
-            """, (document_type,))
-        else:
-            # Get all available fields
-            cursor.execute("""
-                SELECT df.field_name, df.field_path, COUNT(*) as field_count
-                FROM DocumentFields df
-                JOIN DocumentPages dp ON df.page_id = dp.page_id
-                JOIN Documents d ON dp.document_id = d.document_id
-                WHERE d.is_knowledge_document = 0 
-                GROUP BY df.field_name, df.field_path
-                ORDER BY field_count DESC, field_name
-            """)
-        
-        # Process fields into a hierarchical structure
-        field_data = cursor.fetchall()
-        fields_by_group = defaultdict(list)
-        
-        for field_name, field_path, field_count in field_data:
-            # Get group from path (first part before the dot)
-            group = field_path.split('.')[0] if field_path and '.' in field_path else 'General'
-            display_name = field_name.replace('_', ' ').title()
-            
-            fields_by_group[group].append({
-                'name': field_name,
-                'path': field_path or field_name,
-                'display_name': display_name,
-                'count': field_count
-            })
-        
-        # Create structured list of field groups
-        available_fields = [
-            {'group': group, 'fields': fields} 
-            for group, fields in fields_by_group.items()
-        ]
-        
-        # Sort groups alphabetically except put 'General' first
-        available_fields.sort(key=lambda x: (0 if x['group'] == 'General' else 1, x['group']))
-        
-        # Get common fields (top 10 most used)
-        cursor.execute("""
-            SELECT TOP 10 df.field_name, df.field_path, COUNT(*) as field_count
-            FROM DocumentFields df
-            JOIN DocumentPages dp ON df.page_id = dp.page_id
-            JOIN Documents d ON dp.document_id = d.document_id
-            WHERE d.is_knowledge_document = 0
-            GROUP BY df.field_name, df.field_path
-            ORDER BY field_count DESC
-        """)
-        
-        common_fields = []
-        for field_name, field_path, field_count in cursor.fetchall():
-            display_name = field_name.replace('_', ' ').title()
-            common_fields.append({
-                'name': field_name,
-                'path': field_path or field_name,
-                'display_name': display_name,
-                'count': field_count
-            })
-        
-        # Perform search if query or field filters are provided
-        if search_query or field_filters:
-            # Create processor instance
-            processor = LLMDocumentSearch()
-            
-            # Set up filters
-            filters = {}
-            if document_type:
-                # No need to add to filters - will be handled directly in search_documents
-                pass
-            
-            # First step: If we have field filters, find matching documents
-            matching_page_ids = set()
-            matching_fields_by_page = {}
-            
-            if field_filters:
-                query_parts = []
-                params = []
-                
-                for filter in field_filters:
-                    print('Filter:', filter)
-                    field_path = filter['field_path']
-                    operator = filter['operator']
-                    value = filter['value']
-                    
-                    # Build SQL condition based on operator
-                    if operator == 'equals':
-                        if field_path == '%':
-                            query_parts.append("(df.field_path LIKE ? AND df.field_value = ?)")
-                        else:
-                            query_parts.append("(df.field_path = ? AND df.field_value = ?)")
-                        params.extend([field_path, value])
-                    elif operator == 'contains':
-                        if field_path == '%':
-                            query_parts.append("(df.field_path LIKE ? AND df.field_value LIKE ?)")
-                        else:
-                            query_parts.append("(df.field_path = ? AND df.field_value LIKE ?)")
-                        params.extend([field_path, f'%{value}%'])
-                    elif operator == 'starts_with':
-                        if field_path == '%':
-                            query_parts.append("(df.field_path LIKE ? AND df.field_value LIKE ?)")
-                        else:
-                            query_parts.append("(df.field_path = ? AND df.field_value LIKE ?)")
-                        params.extend([field_path, f'{value}%'])
-                    elif operator == 'ends_with':
-                        if field_path == '%':
-                            query_parts.append("(df.field_path LIKE ? AND df.field_value LIKE ?)")
-                        else:
-                            query_parts.append("(df.field_path = ? AND df.field_value LIKE ?)")
-                        params.extend([field_path, f'%{value}'])
 
-                    print('Params:', params)
-                
-                # Build the complete SQL query for field filtering
-                if query_parts:
-                    field_filter_sql = f"""
-                        SELECT dp.page_id, df.field_name, df.field_path, df.field_value
-                        FROM DocumentFields df
-                        JOIN DocumentPages dp ON df.page_id = dp.page_id
-                        JOIN Documents d ON dp.document_id = d.document_id
-                        WHERE ({' OR '.join(query_parts)}) AND d.is_knowledge_document = 0 
-                        {f"AND d.document_type = '{document_type}'" if document_type else ""}
-                    """
-
-                    print('SQL Filter Query:', field_filter_sql)
-                    print('Params:', params)
-                    
-                    cursor.execute(field_filter_sql, params)
-                    field_matches = cursor.fetchall()
-                    
-                    # Process matched pages
-                    for page_id, field_name, field_path, field_value in field_matches:
-                        matching_page_ids.add(page_id)
-                        
-                        if page_id not in matching_fields_by_page:
-                            matching_fields_by_page[page_id] = []
-                            
-                        matching_fields_by_page[page_id].append({
-                            'name': field_name.replace('_', ' ').title(),
-                            'path': field_path,
-                            'value': field_value
-                        })
-            
-            # If we have field matches or just a text search, proceed with search
-            if matching_page_ids or search_query:
-                print('Performing search...')
-                # Perform search with vector DB for text query
-                if search_query:
-                    results = processor.search_documents(
-                        query=search_query,
-                        document_type=document_type if document_type else None,
-                        filters=filters if filters else None,
-                        n_results=1000,  # Get more results for pagination
-                        min_score=min_score
-                    )
-                    print('Search Results:', str(results))
-                else:
-                    # If no text query but we have field filters, get basic info for all matching pages
-                    results = []
-                    if matching_page_ids:
-                        # Get page info for all matching pages
-                        page_ids_str = "', '".join(matching_page_ids)
-                        cursor.execute(f"""
-                            SELECT dp.page_id, d.document_id, d.filename, d.document_type, dp.page_number, dp.full_text
-                            FROM DocumentPages dp
-                            JOIN Documents d ON dp.document_id = d.document_id
-                            WHERE dp.page_id IN ('{page_ids_str}') AND d.is_knowledge_document = 0 
-                        """)
-                        
-                        for page_id, document_id, filename, doc_type, page_number, full_text in cursor.fetchall():
-                            # Create a result structure similar to what the processor would return
-                            snippet = full_text[:250] + "..." if full_text and len(full_text) > 250 else (full_text or "")
-                            results.append({
-                                "page_id": page_id,
-                                "document_id": document_id,
-                                "filename": filename,
-                                "document_type": doc_type,
-                                "page_number": page_number,
-                                "relevance_score": 1.0,  # Perfect match since it matches exact field criteria
-                                "snippet": snippet
-                            })
-                
-                # For combined search (text + fields), filter by matching page IDs
-                if search_query and field_filters:
-                    # Filter text search results to only include pages that also match field criteria
-                    results = [r for r in results if r["page_id"] in matching_page_ids]
-                
-                # Format results
-                formatted_results = []
-                for result in results:
-                    # Enhance with additional metadata from SQL if needed
-                    formatted_result = {
-                        "document_id": result["document_id"],
-                        "page_id": result["page_id"],
-                        "filename": result["filename"],
-                        "document_type": result["document_type"],
-                        "page_number": result["page_number"],
-                        "relevance_score": result["relevance_score"],
-                        "snippet": highlight_snippet(result["snippet"], search_query),
-                    }
-                    
-                    # Get additional document info
-                    cursor.execute("""
-                        SELECT processed_at, reference_number, customer_id, vendor_id, document_date
-                        FROM Documents 
-                        WHERE document_id = ? AND is_knowledge_document = 0 
-                    """, (result["document_id"],))
-                    
-                    doc_info = cursor.fetchone()
-                    if doc_info:
-                        formatted_result["processed_at"] = doc_info[0].strftime("%Y-%m-%d %H:%M") if doc_info[0] else ""
-                        formatted_result["reference_number"] = doc_info[1] or ""
-                        formatted_result["customer_id"] = doc_info[2] or ""
-                        formatted_result["vendor_id"] = doc_info[3] or ""
-                        formatted_result["document_date"] = doc_info[4] if doc_info[4] else ""
-                    
-                    # Add matching fields if this was a field search
-                    if result["page_id"] in matching_fields_by_page:
-                        formatted_result["matching_fields"] = matching_fields_by_page[result["page_id"]]
-                    
-                    formatted_results.append(formatted_result)
-                
-                # Implement pagination
-                items_per_page = max_results
-                total_items = len(formatted_results)
-                total_pages = ceil(total_items / items_per_page)
-                
-                # Verify page is within bounds
-                if page < 1:
-                    page = 1
-                elif page > total_pages and total_pages > 0:
-                    page = total_pages
-                    
-                # Calculate slice indices
-                start_idx = (page - 1) * items_per_page
-                end_idx = start_idx + items_per_page
-                
-                # Get current page of results
-                current_page_results = formatted_results[start_idx:end_idx]
-                
-                # Create pagination object
-                pagination = {
-                    'page': page,
-                    'per_page': items_per_page,
-                    'total': total_items,
-                    'pages': total_pages,
-                    'has_prev': page > 1,
-                    'has_next': page < total_pages,
-                    'prev_num': page - 1,
-                    'next_num': page + 1,
-                    'iter_pages': lambda left_edge=2, right_edge=2, left_current=2, right_current=2: iter_pages(
-                        page, total_pages, left_edge, right_edge, left_current, right_current
-                    )
-                }
-                
-                search_results = current_page_results
-                processor.close()
-            
-        conn.close()
-            
-    except Exception as e:
-        print('Error: ', str(e))
-        error_message = str(e)
-        document_types = []
-        document_counts = {}
-        
-    # Render the template with search results
-    return render_template(
-        'document_search.html',
-        search_query=search_query,
-        selected_type=document_type,
-        min_score=min_score,
-        max_results=max_results,
-        document_types=document_types,
-        document_counts=document_counts,
-        search_results=search_results,
-        error_message=error_message,
-        pagination=pagination,
-        advanced_search=advanced_search,
-        field_filters=field_filters,
-        available_fields=available_fields,
-        common_fields=common_fields
-    )
+_DOC_SEARCH_DENIED = ("You do not have access to any document categories — this is an "
+                      "access restriction, not an empty store. An administrator can "
+                      "grant access on the Groups page.")
 
 
 @app.route('/document-search')
 @login_required
 @tier_allows_feature('documents')
 def document_search_page():
+    """Render the document search page (server-side search, paginated)."""
+    from urllib.parse import urlencode
+    from doc_search_v3 import acl
+    import document_search_page as dsp
+
+    uid, role, allowed, err = _document_search_identity()
+    if err is not None:
+        abort(403)
+    req = dsp.parse_request(request.args)
+    denied = acl.deny_all(allowed)
+    role_n = int(getattr(current_user, 'role', 0) or 0)
+    ctx = {
+        'search_query': req.query, 'search_mode': req.search_mode,
+        'selected_type': req.document_type, 'selected_category': req.category,
+        'min_score': req.min_score, 'max_results': req.max_results,
+        'field_filters': req.field_filters, 'attribute_filters': req.attribute_filters,
+        'tree': {'categories': [], 'uncategorised': [], 'total_docs': 0, 'total_types': 0},
+        'scope_types': [], 'scope_label': '', 'common_fields': [],
+        'search_results': [], 'total_results': 0, 'pagination': None, 'answer': None,
+        'error_message': None, 'searched': req.has_criteria,
+        'denied': denied, 'denied_message': _DOC_SEARCH_DENIED if denied else '',
+        'can_delete': role_n >= 2, 'is_admin': role_n >= 3, 'catalog_stats': {},
+        'page_qs': urlencode([(k, v) for k, v in request.args.items(multi=True) if k != 'page']),
+    }
+    if denied:
+        return render_template('document_search.html', **ctx)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
     try:
-        """Render the document search page with server-side search functionality"""
-        # Get basic search parameters from query string
-        search_query = request.args.get('query', '')
-        document_type = request.args.get('document_type', '')
-        min_score = float(request.args.get('min_score', 0.5))
-        max_results = int(request.args.get('max_results', 10))
-        page = int(request.args.get('page', 1))
-        advanced_search = 'advanced' in request.args
-        print('advanced_search:', advanced_search)
-        print('request.args:', request.args)
-        
-        # Collect field search filters if present
-        field_filters = []
-        field_names = request.args.getlist('field_name[]')
-        field_operators = request.args.getlist('field_operator[]')
-        field_values = request.args.getlist('field_value[]')
-
-        # NEW: Process attribute search parameters
-        search_mode = request.args.get('search_mode', 'fields')
-        attribute_filters = []
-
-        attribute_names = request.args.getlist('attribute_name[]')
-        attribute_operators = request.args.getlist('attribute_operator[]')
-        attribute_values = request.args.getlist('attribute_value[]')
-
-        print('Search Mode:', search_mode)
-        print('Attribute Names:', attribute_names)
-        print('Attribute Operators:', attribute_operators)
-        print('Attribute Values:', attribute_values)
-
-        # Process attribute filters
-        if attribute_names and attribute_operators and attribute_values:
-            for i in range(len(attribute_names)):
-                if i < len(attribute_operators) and i < len(attribute_values) and attribute_names[i] and attribute_values[i]:
-                    attribute_filters.append({
-                        'attribute_name': attribute_names[i],
-                        'operator': attribute_operators[i],
-                        'value': attribute_values[i]
-                    })
-
-        print('Attribute Filters:', attribute_filters)
-
-        print('Field Name:', field_names)
-        print('Field Operators:', field_operators)
-        print('Field Values:', field_values)
-        
-        print('Processing field filters...')
-        # Process field filters
-        if field_names and field_operators and field_values:
-            for i in range(len(field_names)):
-                if i < len(field_operators) and i < len(field_values) and field_names[i] and field_values[i]:
-                    # Get display name for the field
-                    display_name = field_names[i].split('.')[-1] if '.' in field_names[i] else field_names[i]
-                    display_name = display_name.replace('_', ' ').title()
-                    
-                    field_filters.append({
-                        'field_path': field_names[i],
-                        'display_name': display_name,
-                        'operator': field_operators[i],
-                        'value': field_values[i]
-                    })
-                    print('Appending -->>', str({
-                        'field_path': field_names[i],
-                        'display_name': display_name,
-                        'operator': field_operators[i],
-                        'value': field_values[i]
-                    }))
-        
-        print('Field Filters:', field_filters)
-
-        # Create connection
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Set tenant context if needed
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
-        # Default values
-        # Determine which search to perform
-        if search_mode == 'attributes' and attribute_filters:
-            print("Performing ATTRIBUTE search...")
-            search_results = perform_attribute_search(attribute_filters, document_type, search_query, cursor, max_results)
+        ctx['tree'] = dsp.category_tree(cursor, allowed)
+        scope = dsp.resolve_scope(cursor, allowed, req)
+        ctx['scope_types'] = scope['types'] or []
+        ctx['scope_label'] = scope['label'].replace('_', ' ') if scope['label'] else ''
+        if scope['denied']:
+            ctx['error_message'] = scope['message']
         else:
-            print("Using existing search logic...")
-            search_results = []  # Your existing logic will populate this
-
-        error_message = None
-        pagination = None
-        available_fields = []
-        common_fields = []
+            # Only a concrete scope lists fields — never every type's 8.8k names.
+            if scope['types'] and (req.document_type or req.category):
+                try:
+                    ctx['common_fields'] = dsp.top_fields(cursor, scope['types'], 15)
+                except Exception as e:
+                    logger.warning(f"[document-search] top fields: {e}")
+            if req.has_criteria:
+                with _SEARCH_GATE.slot() as tok:
+                    if tok is None:
+                        ctx['error_message'] = ("The document stack is busy right now — try again "
+                                                "in a moment.")
+                    else:
+                        from document_search_wrapper import document_search_unified
+                        out = dsp.run_search(cursor, req, scope, (uid, role), document_search_unified)
+                        ctx.update(search_results=out['results'], total_results=out['total'],
+                                   pagination=out['pagination'], answer=out['answer'],
+                                   error_message=out['error'])
+        if ctx['is_admin']:
+            try:
+                import document_field_catalog as dfc
+                ctx['catalog_stats'] = dfc.stats(cursor)
+            except Exception as e:
+                logger.warning(f"[document-search] catalog stats: {e}")
     except Exception as e:
-        print(f'Search error: {str(e)}')
-        abort(404)
-    
+        logger.error(f"[document-search] {e}", exc_info=True)
+        ctx['error_message'] = f"Search failed: {e}"
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return render_template('document_search.html', **ctx)
+
+
+def _document_search_scope_from_args(cursor, allowed):
+    """Scope for the JSON endpoints from ?document_type= / ?category=."""
+    import document_search_page as dsp
+    req = dsp.SearchRequest(document_type=request.args.get('document_type', ''),
+                            category=request.args.get('category', ''))
+    return dsp.resolve_scope(cursor, allowed, req)
+
+
+@app.route('/api/document-search/categories', methods=['GET'])
+@api_key_or_session_required()
+def api_document_search_categories():
+    """The sidebar tree, ACL-scoped: categories -> visible types with counts."""
+    import document_search_page as dsp
+    from doc_search_v3 import acl
+    uid, role, allowed, err = _document_search_identity()
+    if err is not None:
+        return err
+    if acl.deny_all(allowed):
+        return jsonify({'categories': [], 'uncategorised': [], 'total_docs': 0, 'total_types': 0,
+                        'access': 'denied', 'message': _DOC_SEARCH_DENIED})
+    conn = get_db_connection()
     try:
-        # Get all document types for filters (regardless of search)
-        #conn = get_db_connection()
-        #cursor = conn.cursor()
-        
-        # Set tenant context if needed
-        #cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
-        # Get document types
-        cursor.execute("SELECT DISTINCT document_type FROM Documents WHERE is_knowledge_document = 0 ORDER BY document_type")
-        document_types = [row[0] for row in cursor.fetchall()]
-        
-        # Get document counts
-        cursor.execute("""
-            SELECT document_type, COUNT(*) as doc_count 
-            FROM Documents 
-            WHERE is_knowledge_document = 0 
-            GROUP BY document_type 
-            ORDER BY doc_count DESC
-        """)
-        document_counts = {row[0]: row[1] for row in cursor.fetchall()}
-        
-        # Get available fields for search
-        if document_type:
-            # If document type is selected, get fields specific to that type
-            cursor.execute("""
-                SELECT df.field_name, df.field_path, COUNT(*) as field_count
-                FROM DocumentFields df
-                JOIN DocumentPages dp ON df.page_id = dp.page_id
-                JOIN Documents d ON dp.document_id = d.document_id
-                WHERE d.document_type = ?
-                AND d.is_knowledge_document = 0 
-                GROUP BY df.field_name, df.field_path
-                ORDER BY field_count DESC, field_name
-            """, (document_type,))
-        else:
-            # Get all available fields
-            cursor.execute("""
-                SELECT df.field_name, df.field_path, COUNT(*) as field_count
-                FROM DocumentFields df
-                JOIN DocumentPages dp ON df.page_id = dp.page_id
-                JOIN Documents d ON dp.document_id = d.document_id
-                WHERE d.is_knowledge_document = 0 
-                GROUP BY df.field_name, df.field_path
-                ORDER BY field_count DESC, field_name
-            """)
-        
-        # Process fields into a hierarchical structure
-        field_data = cursor.fetchall()
-        fields_by_group = defaultdict(list)
-        
-        for field_name, field_path, field_count in field_data:
-            # Get group from path (first part before the dot)
-            group = field_path.split('.')[0] if field_path and '.' in field_path else 'General'
-            display_name = field_name.replace('_', ' ').title()
-            
-            fields_by_group[group].append({
-                'name': field_name,
-                'path': field_path or field_name,
-                'display_name': display_name,
-                'count': field_count
-            })
-        
-        # Create structured list of field groups
-        available_fields = [
-            {'group': group, 'fields': fields} 
-            for group, fields in fields_by_group.items()
-        ]
-        
-        # Sort groups alphabetically except put 'General' first
-        available_fields.sort(key=lambda x: (0 if x['group'] == 'General' else 1, x['group']))
-        
-        # Get common fields (top 10 most used)
-        cursor.execute("""
-            SELECT TOP 10 df.field_name, df.field_path, COUNT(*) as field_count
-            FROM DocumentFields df
-            JOIN DocumentPages dp ON df.page_id = dp.page_id
-            JOIN Documents d ON dp.document_id = d.document_id
-            WHERE d.is_knowledge_document = 0
-            GROUP BY df.field_name, df.field_path
-            ORDER BY field_count DESC
-        """)
-        
-        common_fields = []
-        for field_name, field_path, field_count in cursor.fetchall():
-            display_name = field_name.replace('_', ' ').title()
-            common_fields.append({
-                'name': field_name,
-                'path': field_path or field_name,
-                'display_name': display_name,
-                'count': field_count
-            })
-        
-        # Perform search if query or field filters are provided
-        if search_query or field_filters:
-            # Create processor instance
-            processor = LLMDocumentSearch()
-            
-            # Set up filters
-            filters = {}
-            if document_type:
-                # No need to add to filters - will be handled directly in search_documents
-                pass
-            
-            # First step: If we have field filters, find matching documents
-            matching_page_ids = set()
-            matching_fields_by_page = {}
-            
-            if field_filters:
-                query_parts = []
-                params = []
-                
-                for filter in field_filters:
-                    print('Filter:', filter)
-                    field_path = filter['field_path']
-                    operator = filter['operator']
-                    value = filter['value']
-                    
-                    # Build SQL condition based on operator
-                    if operator == 'equals':
-                        if field_path == '%':
-                            query_parts.append("(df.field_path LIKE ? AND df.field_value = ?)")
-                        else:
-                            query_parts.append("(df.field_path = ? AND df.field_value = ?)")
-                        params.extend([field_path, value])
-                    elif operator == 'contains':
-                        if field_path == '%':
-                            query_parts.append("(df.field_path LIKE ? AND df.field_value LIKE ?)")
-                        else:
-                            query_parts.append("(df.field_path = ? AND df.field_value LIKE ?)")
-                        params.extend([field_path, f'%{value}%'])
-                    elif operator == 'starts_with':
-                        if field_path == '%':
-                            query_parts.append("(df.field_path LIKE ? AND df.field_value LIKE ?)")
-                        else:
-                            query_parts.append("(df.field_path = ? AND df.field_value LIKE ?)")
-                        params.extend([field_path, f'{value}%'])
-                    elif operator == 'ends_with':
-                        if field_path == '%':
-                            query_parts.append("(df.field_path LIKE ? AND df.field_value LIKE ?)")
-                        else:
-                            query_parts.append("(df.field_path = ? AND df.field_value LIKE ?)")
-                        params.extend([field_path, f'%{value}'])
-
-                    print('Params:', params)
-                
-                # Build the complete SQL query for field filtering
-                if query_parts:
-                    field_filter_sql = f"""
-                        SELECT dp.page_id, df.field_name, df.field_path, df.field_value
-                        FROM DocumentFields df
-                        JOIN DocumentPages dp ON df.page_id = dp.page_id
-                        JOIN Documents d ON dp.document_id = d.document_id
-                        WHERE ({' OR '.join(query_parts)}) AND d.is_knowledge_document = 0 
-                        {f"AND d.document_type = '{document_type}'" if document_type else ""}
-                    """
-
-                    print('SQL Filter Query:', field_filter_sql)
-                    print('Params:', params)
-                    
-                    cursor.execute(field_filter_sql, params)
-                    field_matches = cursor.fetchall()
-                    
-                    # Process matched pages
-                    for page_id, field_name, field_path, field_value in field_matches:
-                        matching_page_ids.add(page_id)
-                        
-                        if page_id not in matching_fields_by_page:
-                            matching_fields_by_page[page_id] = []
-                            
-                        matching_fields_by_page[page_id].append({
-                            'name': field_name.replace('_', ' ').title(),
-                            'path': field_path,
-                            'value': field_value
-                        })
-            
-            # If we have field matches or just a text search, proceed with search
-            if matching_page_ids or search_query:
-                print('Performing search...')
-                # Perform search with vector DB for text query
-                # TODO: Implement this in agent search tools
-                if search_query:
-                    results = processor.search_documents(
-                        query=search_query,
-                        document_type=document_type if document_type else None,
-                        filters=filters if filters else None,
-                        n_results=1000,  # Get more results for pagination
-                        min_score=min_score
-                    )
-                    print('Search Results:', str(results))
-                else:
-                    # If no text query but we have field filters, get basic info for all matching pages
-                    results = []
-                    if matching_page_ids:
-                        # Get page info for all matching pages
-                        page_ids_str = "', '".join(matching_page_ids)
-                        cursor.execute(f"""
-                            SELECT dp.page_id, d.document_id, d.filename, d.document_type, dp.page_number, dp.full_text
-                            FROM DocumentPages dp
-                            JOIN Documents d ON dp.document_id = d.document_id
-                            WHERE dp.page_id IN ('{page_ids_str}') AND d.is_knowledge_document = 0 
-                        """)
-                        
-                        for page_id, document_id, filename, doc_type, page_number, full_text in cursor.fetchall():
-                            # Create a result structure similar to what the processor would return
-                            snippet = full_text[:250] + "..." if full_text and len(full_text) > 250 else (full_text or "")
-                            results.append({
-                                "page_id": page_id,
-                                "document_id": document_id,
-                                "filename": filename,
-                                "document_type": doc_type,
-                                "page_number": page_number,
-                                "relevance_score": 1.0,  # Perfect match since it matches exact field criteria
-                                "snippet": snippet
-                            })
-                
-                # For combined search (text + fields), filter by matching page IDs
-                if search_query and field_filters:
-                    # Filter text search results to only include pages that also match field criteria
-                    results = [r for r in results if r["page_id"] in matching_page_ids]
-                
-                # Format results
-                formatted_results = []
-                for result in results:
-                    # Enhance with additional metadata from SQL if needed
-                    formatted_result = {
-                        "document_id": result["document_id"],
-                        "page_id": result["page_id"],
-                        "filename": result["filename"],
-                        "document_type": result["document_type"],
-                        "page_number": result["page_number"],
-                        "relevance_score": result["relevance_score"],
-                        "snippet": highlight_snippet(result["snippet"], search_query),
-                    }
-                    
-                    # Get additional document info
-                    cursor.execute("""
-                        SELECT processed_at, reference_number, customer_id, vendor_id, document_date
-                        FROM Documents 
-                        WHERE document_id = ? AND is_knowledge_document = 0 
-                    """, (result["document_id"],))
-                    
-                    doc_info = cursor.fetchone()
-                    if doc_info:
-                        formatted_result["processed_at"] = doc_info[0].strftime("%Y-%m-%d %H:%M") if doc_info[0] else ""
-                        formatted_result["reference_number"] = doc_info[1] or ""
-                        formatted_result["customer_id"] = doc_info[2] or ""
-                        formatted_result["vendor_id"] = doc_info[3] or ""
-                        formatted_result["document_date"] = doc_info[4] if doc_info[4] else ""
-                    
-                    # Add matching fields if this was a field search
-                    if result["page_id"] in matching_fields_by_page:
-                        formatted_result["matching_fields"] = matching_fields_by_page[result["page_id"]]
-                    
-                    formatted_results.append(formatted_result)
-                
-                # Implement pagination
-                items_per_page = max_results
-                total_items = len(formatted_results)
-                total_pages = ceil(total_items / items_per_page)
-                
-                # Verify page is within bounds
-                if page < 1:
-                    page = 1
-                elif page > total_pages and total_pages > 0:
-                    page = total_pages
-                    
-                # Calculate slice indices
-                start_idx = (page - 1) * items_per_page
-                end_idx = start_idx + items_per_page
-                
-                # Get current page of results
-                current_page_results = formatted_results[start_idx:end_idx]
-                
-                # Create pagination object
-                pagination = {
-                    'page': page,
-                    'per_page': items_per_page,
-                    'total': total_items,
-                    'pages': total_pages,
-                    'has_prev': page > 1,
-                    'has_next': page < total_pages,
-                    'prev_num': page - 1,
-                    'next_num': page + 1,
-                    'iter_pages': lambda left_edge=2, right_edge=2, left_current=2, right_current=2: iter_pages(
-                        page, total_pages, left_edge, right_edge, left_current, right_current
-                    )
-                }
-                
-                search_results = current_page_results
-                processor.close()
-            
-        conn.close()
-            
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        return jsonify(dsp.category_tree(cursor, allowed))
     except Exception as e:
-        print('Error: ', str(e))
-        error_message = str(e)
-        document_types = []
-        document_counts = {}
-        
-    # Render the template with search results
-    return render_template(
-        'document_search.html',
-        search_query=search_query,
-        selected_type=document_type,
-        min_score=min_score,
-        max_results=max_results,
-        document_types=document_types,
-        document_counts=document_counts,
-        search_results=search_results,
-        attribute_filters=attribute_filters,
-        search_mode=search_mode,
-        error_message=error_message,
-        pagination=pagination,
-        advanced_search=advanced_search,
-        field_filters=field_filters,
-        available_fields=available_fields,
-        common_fields=common_fields
-    )
+        logger.error(f"[document-search] categories: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/document-search/fields', methods=['GET'])
+@api_key_or_session_required()
+def api_document_search_fields():
+    """Field type-ahead for ONE type or category (?document_type= | ?category=,
+    &q=, &limit=), from the per-type field catalog. ACL-scoped: a type the
+    caller cannot see is refused, and without a scope the answer is a hint."""
+    import document_search_page as dsp
+    from doc_search_v3 import acl
+    uid, role, allowed, err = _document_search_identity()
+    if err is not None:
+        return err
+    if acl.deny_all(allowed):
+        return jsonify({'fields': [], 'hint': _DOC_SEARCH_DENIED, 'access': 'denied'})
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        scope = _document_search_scope_from_args(cursor, allowed)
+        if scope['denied']:
+            return jsonify({'fields': [], 'hint': scope['message'], 'access': 'denied'})
+        if not (request.args.get('document_type') or request.args.get('category')):
+            return jsonify(dsp.field_suggestions(cursor, None, '', 0))
+        limit = request.args.get('limit', 50, type=int)
+        return jsonify(dsp.field_suggestions(cursor, scope['types'], request.args.get('q', ''), limit))
+    except Exception as e:
+        logger.error(f"[document-search] fields: {e}")
+        return jsonify({'fields': [], 'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/document-search/attributes', methods=['GET'])
+@api_key_or_session_required()
+def api_document_search_attributes():
+    """Attribute-name type-ahead for the scope (custom metadata), ACL-scoped."""
+    import document_search_page as dsp
+    from doc_search_v3 import acl
+    uid, role, allowed, err = _document_search_identity()
+    if err is not None:
+        return err
+    if acl.deny_all(allowed):
+        return jsonify({'attributes': [], 'access': 'denied', 'message': _DOC_SEARCH_DENIED})
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        scope = _document_search_scope_from_args(cursor, allowed)
+        if scope['denied']:
+            return jsonify({'attributes': [], 'access': 'denied', 'message': scope['message']})
+        limit = request.args.get('limit', 50, type=int)
+        rows = dsp.attribute_suggestions(cursor, scope['types'], request.args.get('q', ''), limit)
+        return jsonify({'attributes': rows})
+    except Exception as e:
+        logger.error(f"[document-search] attributes: {e}")
+        return jsonify({'attributes': [], 'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/document-search/catalog/stats', methods=['GET'])
+@api_key_or_session_required(min_role=3)
+def api_document_search_catalog_stats():
+    import document_field_catalog as dfc
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        return jsonify(dfc.stats(cursor))
+    finally:
+        conn.close()
+
+
+@app.route('/api/document-search/catalog/rebuild', methods=['POST'])
+@api_key_or_session_required(min_role=3)
+def api_document_search_catalog_rebuild():
+    """Admin: recompute the field catalog (optional body {"document_types": [...]})
+    from DocumentFields. Synchronous; reads every extracted field once."""
+    import time as _time
+    import document_field_catalog as dfc
+    body = request.get_json(silent=True) or {}
+    types = body.get('document_types') or None
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        t0 = _time.perf_counter()
+        counts = dfc.rebuild(cursor, types)
+        conn.commit()
+        return jsonify({'ok': True, 'rows': sum(counts.values()), 'types': len(counts),
+                        'seconds': round(_time.perf_counter() - t0, 1)})
+    except Exception as e:
+        logger.error(f"[document-search] catalog rebuild: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
+from werkzeug.exceptions import HTTPException as _HTTPException
 
 @app.route('/document/view/<string:document_id>')
+@login_required
 def document_view_page(document_id):
-    """Render the document view page"""
+    """Render the document view page.
+
+    2026-09-03: this route had NO login at all (any document's text by URL).
+    Now login_required and scoped by the caller's category ACL — a document
+    whose type the caller cannot see is a 404, exactly like a missing one.
+    """
     page_number = request.args.get('page', 1, type=int)
+    try:
+        _v_uid, _v_role = _caller_identity_or_session()
+    except _InvalidUserAssertion:
+        abort(403)
+    from doc_search_v3 import acl as _acl
+    _v_allowed = _acl.accessible_document_types(_v_uid, _v_role)
+    if _acl.deny_all(_v_allowed):
+        abort(404)
     
     try:
         print('Viewing document/page:', document_id, page_number)
@@ -9233,6 +8686,8 @@ def document_view_page(document_id):
         doc_row = cursor.fetchone()
         if not doc_row:
             abort(404)
+        if _v_allowed is not None and doc_row[1] not in _v_allowed:
+            abort(404)          # hidden by category == missing (no id-oracle)
             
         document = {
             "document_id": document_id,
@@ -9315,6 +8770,8 @@ def document_view_page(document_id):
             return_url=request.args.get('return_url', url_for('document_search_page'))
         )
         
+    except _HTTPException:
+        raise               # abort(404/403) must reach the client as such (was swallowed -> 200 error page)
     except Exception as e:
         print('Document view error:', str(e))
         return render_template('error.html', error=str(e))
@@ -10521,16 +9978,33 @@ def api_search_documents_hybrid():
 
 
 @app.route('/api/document-attributes/metadata', methods=['GET'])
-@api_key_or_session_required(min_role=2)
+@api_key_or_session_required()
 def api_get_document_attributes_metadata():
-    """Get metadata about all available document attributes"""
+    """Get metadata about the document attributes the caller may see.
+
+    2026-09-03: was min_role=2 (the search page's Attribute tab silently
+    403'd for regular users); now any signed-in user or service assertion,
+    scoped by the category ACL (deny-all, or a type outside it -> empty).
+    """
     try:
         from DocUtils import get_document_attributes_metadata
         document_type = request.args.get('document_type', '')
+        try:
+            _a_uid, _a_role = _caller_identity_or_session()
+        except _InvalidUserAssertion:
+            return jsonify({'error': 'invalid user assertion'}), 403
+        from doc_search_v3 import acl as _acl
+        _a_allowed = _acl.accessible_document_types(_a_uid, _a_role)
+        if _acl.deny_all(_a_allowed) or (document_type and _a_allowed is not None
+                                         and document_type not in _a_allowed):
+            return jsonify({'attribute_metadata': [], 'common_combinations': [],
+                            'total_unique_attributes': 0, 'access': 'denied'})
+        _a_scope = document_type if document_type else (
+            list(_a_allowed) if _a_allowed is not None else None)
         
         # Use the reusable function
         result = get_document_attributes_metadata(
-            document_type=document_type if document_type else None,
+            document_type=_a_scope,
             return_format='json'
         )
         
@@ -14673,10 +14147,43 @@ def purge_document(document_id):
             conn.close()
         
 
+def _document_visible(document_id, allowed):
+    """True when the document exists and its type is in `allowed` (a list).
+    Used by delete: a Developer may only purge documents they can see."""
+    if allowed is not None and len(allowed) == 0:
+        return False
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("SELECT document_type FROM Documents WHERE document_id = ?", (document_id,))
+        row = cursor.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return False
+    return allowed is None or row[0] in allowed
+
+
 @app.route('/document/delete/<document_id>', methods=['POST'])
 @login_required
 def delete_document(document_id):
-    """Delete a document from both vector and SQL databases"""
+    """Delete a document from both vector and SQL databases.
+
+    2026-09-03: Developer+ only (any signed-in user could purge any document
+    from the search page), and scoped by the category ACL — a Developer can
+    delete only documents they can see (hidden == 404).
+    """
+    if int(getattr(current_user, 'role', 0) or 0) < 2:
+        return jsonify({"status": "error", "message": "Developer access required"}), 403
+    try:
+        _d_uid, _d_role = _caller_identity_or_session()
+    except _InvalidUserAssertion:
+        return jsonify({"status": "error", "message": "invalid user assertion"}), 403
+    from doc_search_v3 import acl as _acl
+    _d_allowed = _acl.accessible_document_types(_d_uid, _d_role)
+    if _d_allowed is not None and not _document_visible(document_id, _d_allowed):
+        return jsonify({"status": "error", "message": "Document not found"}), 404
     status, message, status_code = purge_document(document_id)
     return jsonify({
         "status": status,
