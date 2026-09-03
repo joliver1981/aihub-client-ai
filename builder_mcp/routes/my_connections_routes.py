@@ -2,9 +2,10 @@
 My Connections — per-user view of personal MCP integrations.
 
 Surfaces only `auth_type='oauth2'` servers whose grant_type is
-`authorization_code` (delegated, per-user). Service-account servers
-(`client_credentials`) and non-OAuth servers stay on the admin MCP Servers
-page; they aren't user-facing.
+`authorization_code` (delegated, per-user) AND that an admin has published
+(`MCPServers.available_to_users`, migration 020 — absent column = visible).
+Service-account servers (`client_credentials`) and non-OAuth servers stay on
+the admin MCP Servers page; they aren't user-facing.
 
 Endpoints:
   GET  /my-connections                                 — HTML page
@@ -46,10 +47,16 @@ def list_my_connections():
 
             # All OAuth servers in this tenant — we filter to authorization_code
             # below since grant_type lives in the encrypted credentials table.
-            cursor.execute("""
+            # WI-4: only servers an admin has published. When migration 020 has
+            # not been applied the column is absent and every enabled OAuth
+            # server stays visible (today's behaviour) — never hide working
+            # connections because a migration did not run.
+            from builder_mcp.agent_integration.mcp_server_visibility import has_available_to_users_column
+            published_clause = " AND available_to_users = 1" if has_available_to_users_column(cursor) else ""
+            cursor.execute(f"""
                 SELECT server_id, server_name, description, category, icon
                 FROM MCPServers
-                WHERE auth_type = 'oauth2' AND enabled = 1
+                WHERE auth_type = 'oauth2' AND enabled = 1{published_clause}
                 ORDER BY server_name
             """)
             rows = cursor.fetchall()

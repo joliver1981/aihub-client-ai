@@ -61,7 +61,7 @@ logger = setup_logging()
 
 def get_api_url() -> str:
     """Get the Cloud API base URL"""
-    return os.environ.get('AI_HUB_API_URL', 'https://api.aihub.everiai.ai')
+    return os.environ.get('AI_HUB_API_URL', 'https://ai-hub-api.azurewebsites.net').rstrip('/')
 
 
 def get_api_key() -> str:

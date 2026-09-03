@@ -25,7 +25,7 @@ _TENANT_TTL = 300
 
 
 def _cloud_base() -> str:
-    return (os.getenv("AI_HUB_API_URL") or "https://api.aihub.everiai.ai").rstrip("/")
+    return (os.getenv("AI_HUB_API_URL") or "https://ai-hub-api.azurewebsites.net").rstrip("/")
 
 
 def _headers() -> dict:

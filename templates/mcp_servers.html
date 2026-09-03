@@ -257,6 +257,7 @@
                                             <div class="form-group col-md-6">
                                                 <label>Client Secret</label>
                                                 <input type="password" class="form-control" id="oauthClientSecret" placeholder="(leave blank to keep existing on edit)">
+                                                <small class="form-text" id="oauthSecretStatus"></small>
                                             </div>
                                         </div>
                                         <div class="form-group">
@@ -264,8 +265,29 @@
                                             <input type="text" class="form-control" id="oauthAudience">
                                         </div>
                                         <div class="alert alert-info py-2 small mb-2" id="oauthRedirectHint" style="display:none;">
-                                            Register this redirect URI with your IdP:
-                                            <code id="oauthRedirectUri">(loading...)</code>
+                                            <div><strong>Redirect URI for the app registration</strong> &mdash; hand this exact string to whoever manages the registration.
+                                                Entra: Authentication &rarr; Add a platform &rarr; <strong>Web</strong> (not &ldquo;Mobile and desktop&rdquo; &mdash; this is a confidential client).
+                                                Google: Authorized redirect URIs. Slack: Redirect URLs.</div>
+                                            <div class="d-flex align-items-center mt-1">
+                                                <code id="oauthRedirectUri" class="flex-grow-1" style="word-break:break-all;">(loading...)</code>
+                                                <button type="button" class="btn btn-outline-secondary btn-sm ml-2" onclick="copyRedirectUri()" title="Copy to clipboard"><i class="fas fa-copy"></i> Copy</button>
+                                                <button type="button" class="btn btn-outline-info btn-sm ml-2" onclick="checkBroker()" id="oauthBrokerCheckBtn" title="Sign a test state and ask the broker to verify it &mdash; proves tenant id, API key and return address agree"><i class="fas fa-satellite-dish"></i> Test broker</button>
+                                            </div>
+                                            <div class="text-muted mt-1" id="oauthRedirectSource"></div>
+                                            <div class="mt-1" id="oauthBrokerCheckResult"></div>
+                                        </div>
+                                        <div class="form-group" id="oauthRedirectOverrideGroup" style="display:none;">
+                                            <label>Redirect URI override <small class="text-muted">(advanced &mdash; leave blank to use the broker above)</small></label>
+                                            <input type="url" class="form-control" id="oauthRedirectOverride" placeholder="https://your-own-https-host/api/mcp/oauth/callback">
+                                            <small class="form-text text-muted">Only for installs that cannot reach the cloud broker (air-gapped). The host you enter must serve HTTPS and route to this application; it replaces the URI above for this server only.</small>
+                                        </div>
+                                        <div class="form-group" id="oauthAvailableGroup" style="display:none;">
+                                            <div class="custom-control custom-switch">
+                                                <input type="checkbox" class="custom-control-input" id="oauthAvailableToUsers">
+                                                <label class="custom-control-label" for="oauthAvailableToUsers"><strong>Available to users on My Connections</strong></label>
+                                            </div>
+                                            <small class="form-text text-muted">Users can connect their own account once this is on. Developers and admins can test the connection before it is on.</small>
+                                            <small class="form-text text-warning" id="oauthAvailableMigrationNote" style="display:none;"><i class="fas fa-exclamation-triangle"></i> Database migration 020 has not been applied yet &mdash; until it is, every enabled OAuth server is visible to users and this switch has no effect.</small>
                                         </div>
                                         <div id="oauthAuthorizeBox" style="display:none;">
                                             <button type="button" class="btn btn-info btn-sm" onclick="oauthAuthorize()">
@@ -414,7 +436,7 @@ let allServers = [];
 let currentEditingServerId = null;
 let oauthAuthorized = false;
 let oauthUserCount = 0;
-let cachedRedirectUri = null;
+let redirectInfoCache = {};   // keyed by server id (or '_new'); per-server overrides differ
 
 // ============================================================================
 // Page Load
@@ -485,7 +507,7 @@ function renderServers() {
 
             return `<tr data-server-type="${s.server_type}">
                 <td class="text-center">${icon}</td>
-                <td><strong>${s.server_name}</strong> <small class="text-muted">#${s.server_id}</small><br><small class="text-muted">${s.description || ''}</small></td>
+                <td><strong>${s.server_name}</strong> <small class="text-muted">#${s.server_id}</small>${(s.auth_type === 'oauth2' && s.available_to_users) ? ' <span class="badge badge-info" title="Published on My Connections">Users</span>' : ''}<br><small class="text-muted">${s.description || ''}</small></td>
                 <td>${endpoint}</td>
                 <td>${s.category || '-'}</td>
                 <td>${statusBadge}</td>
@@ -530,6 +552,10 @@ function showAddServerModal() {
     document.getElementById('testResults').style.display = 'none';
     currentEditingServerId = null;
     oauthAuthorized = false;
+    document.getElementById('oauthAvailableToUsers').checked = false;
+    document.getElementById('oauthAvailableMigrationNote').style.display = 'none';
+    document.getElementById('oauthBrokerCheckResult').innerHTML = '';
+    setSecretStatus(null);
     toggleAuthFields();
     $('.nav-tabs a[href="#remoteTab"]').tab('show');
     $('#serverModal').modal('show');
@@ -570,7 +596,13 @@ async function editServer(serverId) {
                 document.getElementById('oauthClientId').value = cfg.oauth_client_id || '';
                 document.getElementById('oauthAudience').value = cfg.oauth_audience || '';
                 document.getElementById('oauthClientSecret').value = '';  // never re-displayed
+                document.getElementById('oauthRedirectOverride').value = cfg.oauth_redirect_uri || '';
             }
+            document.getElementById('oauthAvailableToUsers').checked = !!s.available_to_users;
+            document.getElementById('oauthAvailableMigrationNote').style.display =
+                (s.visibility_column_present === false) ? 'block' : 'none';
+            document.getElementById('oauthBrokerCheckResult').innerHTML = '';
+            setSecretStatus(s.auth_type === 'oauth2' ? !!s.has_client_secret : null);
             toggleAuthFields();
         } else {
             $('.nav-tabs a[href="#localTab"]').tab('show');
@@ -611,7 +643,8 @@ async function saveServer() {
             description: document.getElementById('remoteDescription').value,
             request_timeout: parseInt(document.getElementById('requestTimeout').value) || 30,
             max_retries: parseInt(document.getElementById('maxRetries').value) || 3,
-            verify_ssl: document.getElementById('verifySsl').checked
+            verify_ssl: document.getElementById('verifySsl').checked,
+            available_to_users: document.getElementById('oauthAvailableToUsers').checked
         };
     } else {
         data = {
@@ -898,21 +931,93 @@ function toggleAuthFields() {
 
 function toggleOauthFields() {
     const gt = document.getElementById('oauthGrantType').value;
-    document.getElementById('oauthAuthEndpointGroup').style.display = (gt === 'authorization_code') ? 'block' : 'none';
+    const perUser = (gt === 'authorization_code');
+    document.getElementById('oauthAuthEndpointGroup').style.display = perUser ? 'block' : 'none';
+    document.getElementById('oauthRedirectOverrideGroup').style.display = perUser ? 'block' : 'none';
+    document.getElementById('oauthAvailableGroup').style.display = perUser ? 'block' : 'none';
+    ensureOauthRedirectUri();   // show the URI as soon as the grant is per-user — IT needs it before the record exists
 }
 
 async function ensureOauthRedirectUri() {
     const hint = document.getElementById('oauthRedirectHint');
     if (!hint) return;
-    if (!cachedRedirectUri) {
+    const perUser = document.getElementById('oauthGrantType').value === 'authorization_code';
+    hint.style.display = perUser ? 'block' : 'none';
+    if (!perUser) return;
+    const key = currentEditingServerId || '_new';
+    if (!redirectInfoCache[key]) {
         try {
-            const resp = await fetch('/api/mcp/oauth/redirect_uri');
-            const data = await resp.json();
-            cachedRedirectUri = data.redirect_uri || '';
-        } catch (e) { cachedRedirectUri = ''; }
+            const qs = currentEditingServerId ? '?server_id=' + currentEditingServerId : '';
+            const resp = await fetch('/api/mcp/oauth/redirect_uri' + qs);
+            redirectInfoCache[key] = await resp.json();
+        } catch (e) { redirectInfoCache[key] = {}; }
     }
-    document.getElementById('oauthRedirectUri').textContent = cachedRedirectUri || '(unavailable)';
-    hint.style.display = (document.getElementById('oauthGrantType').value === 'authorization_code') ? 'block' : 'none';
+    const info = redirectInfoCache[key] || {};
+    document.getElementById('oauthRedirectUri').textContent = info.redirect_uri || '(unavailable)';
+    const sourceLabel = ({
+        server: 'this server\'s Redirect URI override',
+        env: 'OAUTH_REDIRECT_BASE_URL in .env',
+        ai_hub_api_url: 'the cloud broker (AI_HUB_API_URL)',
+        default: 'the cloud broker (default)'
+    })[info.source] || 'unknown';
+    document.getElementById('oauthRedirectSource').textContent = info.redirect_uri
+        ? 'Source: ' + sourceLabel + '. After sign-in the broker sends users back to ' +
+          (info.return_address || 'this server') + ' (tenant ' + (info.tenant_id || '?') + ').'
+        : '';
+}
+
+function copyRedirectUri() {
+    const text = document.getElementById('oauthRedirectUri').textContent || '';
+    if (!text || text.startsWith('(')) { showToast('Nothing to copy yet', 'warning'); return; }
+    const done = () => showToast('Redirect URI copied', 'success');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    } else {
+        fallbackCopy(text, done);
+    }
+}
+
+function fallbackCopy(text, done) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); }
+    catch (e) { showToast('Copy failed — select the text and copy it manually', 'warning'); }
+    document.body.removeChild(ta);
+}
+
+async function checkBroker() {
+    const out = document.getElementById('oauthBrokerCheckResult');
+    out.innerHTML = '<span class="text-muted"><i class="fas fa-spinner fa-spin"></i> Asking the broker to verify a signed test state…</span>';
+    try {
+        const qs = currentEditingServerId ? '?server_id=' + currentEditingServerId : '';
+        const resp = await fetch('/api/mcp/oauth/broker_check' + qs);
+        const d = await resp.json();
+        out.innerHTML = d.ok
+            ? '<span class="text-success"><i class="fas fa-check-circle"></i> Broker verified this installation (tenant ' +
+              escapeHtml(String(d.tenant_id)) + '). It will send users back to ' + escapeHtml(d.return_address || '') + '.</span>'
+            : '<span class="text-danger"><i class="fas fa-times-circle"></i> Broker check failed: ' + escapeHtml(d.reason || 'unknown') +
+              (d.verify_url ? ' <small class="text-muted">(' + escapeHtml(d.verify_url) + ')</small>' : '') + '</span>';
+    } catch (e) {
+        out.innerHTML = '<span class="text-danger">Broker check error: ' + escapeHtml(e.message) + '</span>';
+    }
+}
+
+function setSecretStatus(hasSecret) {
+    const el = document.getElementById('oauthSecretStatus');
+    if (!el) return;
+    if (hasSecret === null || hasSecret === undefined) { el.textContent = ''; el.className = 'form-text'; return; }
+    el.className = hasSecret ? 'form-text text-success' : 'form-text text-danger';
+    el.innerHTML = hasSecret
+        ? '<i class="fas fa-check-circle"></i> A client secret is on file (leave blank to keep it).'
+        : '<i class="fas fa-exclamation-triangle"></i> No client secret on file — users will be stopped at Connect until one is saved here.';
+}
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 async function oauthAuthorize() {
@@ -956,6 +1061,8 @@ function getAuthConfig() {
         config.oauth_client_secret = document.getElementById('oauthClientSecret').value;
         config.oauth_scope = document.getElementById('oauthScope').value;
         config.oauth_audience = document.getElementById('oauthAudience').value;
+        // blank = no override (the broker URI shown in the hint is used)
+        config.oauth_redirect_uri = document.getElementById('oauthRedirectOverride').value.trim();
     }
     else if (authType === 'custom') {
         document.querySelectorAll('#customHeadersContainer .input-group').forEach(g => {
