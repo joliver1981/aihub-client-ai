@@ -202,7 +202,8 @@ def _question_shape(question: str) -> str:
 def document_search_unified(question: str, max_results: int | None = None,
                             check_completeness: bool | None = None,
                             conn_string: str | None = None,
-                            user_id=None, user_role=None) -> dict:
+                            user_id=None, user_role=None,
+                            document_types: list | None = None) -> dict:
     """Additive facade: route by question shape, then run the right engine and
     return the stable normalized schema. The Agent and Command Center call this
     (via the internal endpoint) instead of parsing raw engine output.
@@ -211,7 +212,13 @@ def document_search_unified(question: str, max_results: int | None = None,
     real denominator, one verdict per document, deterministic roll-up — and
     LOOKUP questions run the legacy engine, now carrying the caller's category
     allow list. Identity is optional: absent -> today's unrestricted posture.
-    Every v3 error falls back to legacy, never to a dead end."""
+    Every v3 error falls back to legacy, never to a dead end.
+
+    document_types (2026-09-03, the document-search page): an explicit type
+    scope — the sidebar's selected type or category. It can only NARROW the
+    caller's ACL (requested ∩ allowed), never widen it; a scope with no
+    accessible type is answered like deny-all. A scoped search always runs
+    the LOOKUP engine: the v3 COUNT engine picks its own types."""
     question = (question or "").strip()
     if not question:
         return _empty_result(question, "repository_super_search", "",
@@ -237,7 +244,24 @@ def document_search_unified(question: str, max_results: int | None = None,
                                  error=str(e)[:200])
         allowed = None
 
-    if getattr(cfg, "DOC_SEARCH_V3_ENABLED", True) \
+    # Explicit type scope: requested ∩ allowed. Three-state care — `allowed`
+    # None means unrestricted, so the scope simply becomes the allow list;
+    # an intersection that comes up EMPTY must stop here (an empty list would
+    # read as "no filter" at the engine — the fail-open trap acl.py documents).
+    requested = [str(t).strip() for t in (document_types or []) if str(t or "").strip()]
+    if requested:
+        if allowed is None:
+            allowed = requested
+        else:
+            scoped = [t for t in requested if t in allowed]
+            if not scoped:
+                return _empty_result(
+                    question, "doc_search_v3.acl",
+                    "The selected document type is not accessible to you. An "
+                    "administrator can grant access on the Groups page.")
+            allowed = scoped
+
+    if not requested and getattr(cfg, "DOC_SEARCH_V3_ENABLED", True) \
             and _question_shape(question) == "COUNT":
         try:
             from doc_search_v3.enumerate_engine import enumerate_documents
