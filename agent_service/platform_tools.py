@@ -31,8 +31,39 @@ CURRENT_USER: contextvars.ContextVar[dict] = contextvars.ContextVar(
 _TIMEOUT = httpx.Timeout(30.0, read=120.0)
 
 
+def _user_assertion_header() -> dict:
+    """{'X-AIHub-User': <assertion>} for the signed-in user this turn runs for,
+    or {} for the service principal (user_id 0 — the contextvar default) and
+    identity-less runs.
+
+    The main app's identity-aware routes (document search / records / listing,
+    /api/agents/<id>/chat) treat an ABSENT assertion as unrestricted, so this
+    header is what makes the caller's own ACLs apply to delegated calls
+    (doc-acl G3, 2026-09-03). If signing FAILS for a real user (PyJWT missing,
+    no API_KEY so there is no secret) this RAISES rather than sending the call
+    identity-less: a silently unrestricted call is the fail-open that
+    document_tools._headers() still carries (background doc G5). Every tool
+    wraps its call, so the raise surfaces as an honest error text.
+    """
+    user = CURRENT_USER.get() or {}
+    uid = user.get("user_id")
+    if uid in (None, "", 0, "0"):
+        return {}
+    try:
+        import shared_auth
+        token = shared_auth.sign_user_assertion(
+            uid, user.get("tenant_id"), user.get("role"))
+    except Exception as e:
+        logger.error(f"user assertion signing failed for user_id={uid}: {e} — "
+                     f"refusing to send an identity-less (unrestricted) platform call")
+        raise RuntimeError(f"could not sign the user assertion: {e}") from e
+    return {"X-AIHub-User": token}
+
+
 def _headers():
-    return {"X-API-Key": AI_HUB_API_KEY, "Connection": "close"}
+    h = {"X-API-Key": AI_HUB_API_KEY, "Connection": "close"}
+    h.update(_user_assertion_header())
+    return h
 
 
 def _unwrap(data):
