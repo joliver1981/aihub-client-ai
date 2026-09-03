@@ -88,6 +88,40 @@ def build_env(host, api_key):
     return env, is_local
 
 
+def quarantine_remote_results(pack_dir, host, started_at):
+    """Move results this remote run just wrote into results_history/host_<h>/.
+
+    Only pack 15 segregates its history by target. The rest write every run into
+    one folder and baseline against the newest file there, so pointing them at an
+    installed box does two bad things at once: the run diffs an INSTALLED box
+    against a LOCAL-dev baseline (everything environmental reads as
+    "REGRESSIONS DETECTED"), and the remote result then becomes the baseline the
+    next LOCAL run is judged against. Segregating per target keeps each
+    environment's history honest without editing five runners.
+    """
+    hist = os.path.join(pack_dir, "results_history")
+    if not os.path.isdir(hist):
+        return 0
+    dest = os.path.join(hist, f"host_{host}")
+    moved = 0
+    for name in os.listdir(hist):
+        src = os.path.join(hist, name)
+        if not os.path.isfile(src):
+            continue
+        try:
+            if os.path.getmtime(src) < started_at:
+                continue
+        except OSError:
+            continue
+        os.makedirs(dest, exist_ok=True)
+        try:
+            os.replace(src, os.path.join(dest, name))
+            moved += 1
+        except OSError:
+            pass
+    return moved
+
+
 def pack_cmd(pack, py, extra, supports_comp, host, is_local, competency, api_key_file):
     cmd = [py, "runner.py"] + list(extra)
     if pack == "15_Platform_Regression" and not is_local:
@@ -171,6 +205,16 @@ def main():
             if p or f:
                 verdict = "CLEAN" if not f else "FAILURES"
                 detail = f"{p} PASS / {f} FAIL"
+        if not is_local:
+            moved = quarantine_remote_results(d, args.target, t0)
+            if moved:
+                print(f"[driver] moved {moved} result file(s) into "
+                      f"results_history/host_{args.target}/")
+                if verdict.startswith("REGRESSIONS"):
+                    verdict, detail = "FIRST-REMOTE-RUN", (
+                        f"{detail} — diffed against a LOCAL baseline; "
+                        f"disregard, this pack now has its own remote history")
+
         rows.append((pack, verdict, detail, el))
         print(f"[driver] {pack}: {verdict} {detail} ({el/60:.1f}m)")
         tail = "\n".join(out.strip().splitlines()[-6:])
