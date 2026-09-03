@@ -1312,6 +1312,30 @@ begin
                mbError, MB_OK);
       end;
 
+      // --- BROWSER_USE_RESTRICT_DOMAINS / BROWSER_USE_ALLOW_ALL_USERS (v2.0) ---
+      // The Browser Use service (portal RPA) shipped with these in dist\.env
+      // since 2026-06, but an UPGRADED install keeps its original .env, so any
+      // box whose .env predates the browser section ran on the code defaults:
+      // navigation confined to the portal's own host (every cross-host SSO
+      // redirect blocked — observed on the 10.0.0.6 test box 2026-09-03) and
+      // portal fetch limited to Developer+ users. Seed both with the shipped
+      // values so fresh and upgraded installs behave the same. The code
+      // default for RESTRICT_DOMAINS is now false as well; the allowlist is
+      // enabled explicitly (true + BROWSER_USE_ALLOWED_DOMAINS) per deployment.
+      if not EnsureEnvKeyExists(EnvConfigFile, 'BROWSER_USE_RESTRICT_DOMAINS', 'false') then
+      begin
+        MsgBox('Warning: Failed to write BROWSER_USE_RESTRICT_DOMAINS to .env.' + #13#10 +
+               'You may need to add it manually',
+               mbError, MB_OK);
+      end;
+
+      if not EnsureEnvKeyExists(EnvConfigFile, 'BROWSER_USE_ALLOW_ALL_USERS', 'true') then
+      begin
+        MsgBox('Warning: Failed to write BROWSER_USE_ALLOW_ALL_USERS to .env.' + #13#10 +
+               'You may need to add it manually',
+               mbError, MB_OK);
+      end;
+
     end
     else
     begin

@@ -104,9 +104,12 @@ MAX_SESSIONS = int(os.getenv("BROWSER_USE_MAX_SESSIONS", "5"))
 # LLM) to the portal's own domain plus any extras below. This blocks a malicious/compromised
 # portal page from steering the agent off-site to exfiltrate the authenticated session.
 # SSO/identity portals redirect to a separate login host — add those auth domains to
-# BROWSER_USE_ALLOWED_DOMAINS (e.g. "login.microsoftonline.com,*.okta.com") or set
-# BROWSER_USE_RESTRICT_DOMAINS=false for that deployment.
-RESTRICT_DOMAINS = os.getenv("BROWSER_USE_RESTRICT_DOMAINS", "true").lower() == "true"
+# BROWSER_USE_ALLOWED_DOMAINS (e.g. "login.microsoftonline.com,*.okta.com").
+# Default OFF (opt-in): the shipped .env has always said false, but the old code default of
+# true meant any install whose .env predated this key (upgrades keep their .env) silently ran
+# confined — 10.0.0.6 blocked every cross-host hop on 2026-09-03. Platform rule: default-open
+# gating; the allowlist is enabled explicitly with BROWSER_USE_RESTRICT_DOMAINS=true.
+RESTRICT_DOMAINS = os.getenv("BROWSER_USE_RESTRICT_DOMAINS", "false").lower() == "true"
 ALLOWED_DOMAINS_EXTRA = [
     d.strip() for d in os.getenv("BROWSER_USE_ALLOWED_DOMAINS", "").split(",") if d.strip()
 ]
