@@ -6260,6 +6260,41 @@ def internal_document_search():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+class _InvalidUserAssertion(Exception):
+    """An X-AIHub-User assertion was PRESENT but did not verify (forged,
+    expired, wrong audience, no signing secret). Routes answer a hard 403."""
+
+
+def _caller_identity():
+    """(user_id, role) from the OPTIONAL X-AIHub-User assertion (AUD_INTERNAL).
+
+    Shared by the identity-aware document / agent routes (doc-acl G1-G3,
+    2026-09-03). The reference semantics are the inline block in
+    internal_document_search_unified just below — keep the two identical:
+      * header ABSENT  -> (None, None) = unrestricted, today's posture. The
+        scheduler, automations and the email dispatcher have no user and
+        must keep working.
+      * header PRESENT and valid -> the claims' identity.
+      * header PRESENT and invalid -> raises _InvalidUserAssertion. Callers
+        MUST answer 403, never "treat as missing": a forged assertion that
+        degrades to unrestricted is worse than no ACL at all.
+    `sub` is minted as a STRING (shared_auth.sign_user_assertion); the ACL
+    resolvers int() it themselves, so it is passed through untouched.
+    """
+    assertion = request.headers.get("X-AIHub-User")
+    if not assertion:
+        return None, None
+    try:
+        import shared_auth
+        # verify_token returns (claims, error) — NOT a bare dict.
+        claims, verr = shared_auth.verify_token(assertion, shared_auth.AUD_INTERNAL)
+    except Exception as e:
+        raise _InvalidUserAssertion(f"verify failed: {e}")
+    if verr or not claims:
+        raise _InvalidUserAssertion(verr or "no claims")
+    return (claims.get("sub") or claims.get("user_id")), claims.get("role")
+
+
 @app.route("/api/internal/document-search-unified", methods=['POST'])
 @cross_origin()
 @internal_api_key_required()
@@ -6335,9 +6370,36 @@ def internal_document_records():
     Returns: {"status":"success","result":{ok, mode, text, rows|sets, coverage,
               fallback}} — `fallback: true` tells the agent to answer via
     search_documents instead (with the honesty caveat in `text`).
+
+    Identity (doc-acl G1, 2026-09-03): the OPTIONAL X-AIHub-User assertion
+    scopes the rows AND the COVERAGE denominator to the caller's v3 category
+    ACL, exactly like document-search-unified. Absent = unrestricted; forged =
+    403; zero grants = a TERMINAL `mode: "denied"` result — deliberately not
+    `fallback: true`, which would send the agent to search_documents for a
+    second (correct) refusal and an unclear answer.
     """
     try:
         data = request.get_json() or {}
+        try:
+            uid, role = _caller_identity()
+        except _InvalidUserAssertion:
+            return jsonify({"status": "error",
+                            "message": "invalid user assertion"}), 403
+
+        # Three-state allow list: None = unrestricted, [types] = filter,
+        # [] = DENY ALL (also what the resolver returns on ANY error).
+        # query_document_records treats [] as NO filter (`if allowed:` is
+        # falsy — fail-open), so deny-all must stop HERE and never reach it.
+        from doc_search_v3 import acl
+        allowed = acl.accessible_document_types(uid, role)
+        if acl.deny_all(allowed):
+            return jsonify({"status": "success", "result": {
+                "ok": True, "mode": "denied", "rows": [], "fallback": False,
+                "coverage": [],
+                "text": ("You do not have access to any document categories. "
+                         "An administrator can grant access on the Groups page."),
+            }})
+
         from document_records_query import query_document_records
         result = query_document_records(
             record_set=data.get("record_set"),
@@ -6345,6 +6407,7 @@ def internal_document_records():
             topic=data.get("topic"),
             document_type=data.get("document_type"),
             limit=data.get("limit") or 50,
+            allowed_document_types=allowed,
         )
         return jsonify({"status": "success", "result": result})
     except Exception as e:
