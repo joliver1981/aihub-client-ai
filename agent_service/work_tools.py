@@ -1292,7 +1292,7 @@ async def _user_directory() -> list:
     import asyncio
     import readthrough
 
-    def _read():
+    def _sql():
         conn = readthrough._db()
         try:
             cur = conn.cursor()
@@ -1301,6 +1301,12 @@ async def _user_directory() -> list:
                      "email": str(r[3] or "")} for r in cur.fetchall()]
         finally:
             conn.close()
+
+    def _read():
+        rows = readthrough.fetch_or_sql("users", _sql)
+        return [{"id": int(u["id"]), "name": str(u.get("name") or ""),
+                 "username": str(u.get("username") or ""), "email": str(u.get("email") or "")}
+                for u in (rows or [])]
     return await asyncio.to_thread(_read)
 
 

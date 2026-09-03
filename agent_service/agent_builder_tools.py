@@ -168,6 +168,16 @@ async def _sql(fn):
     return await asyncio.to_thread(_db_read, fn)
 
 
+async def _rt(op: str, sql_fn, **params):
+    """HTTP read-through on the main app first (works on installs, where this
+    process has no database credentials), the direct-SQL thunk otherwise."""
+    import readthrough
+
+    def _go():
+        return readthrough.fetch_or_sql(op, lambda: _db_read(sql_fn), **params)
+    return await asyncio.to_thread(_go)
+
+
 def _q_agents(cur) -> list:
     cur.execute("""
         SELECT a.id, a.description, a.objective, a.enabled,
@@ -202,7 +212,7 @@ def _q_agents(cur) -> list:
 
 
 async def _all_agents() -> list:
-    return await _sql(_q_agents)
+    return await _rt("agents", _q_agents)
 
 
 def _q_agent_detail(agent_id: int):
@@ -238,7 +248,7 @@ def _q_agent_detail(agent_id: int):
 
 
 async def _fetch_agent(agent_id: int) -> Optional[dict]:
-    return await _sql(_q_agent_detail(agent_id))
+    return await _rt("agent_detail", _q_agent_detail(agent_id), agent_id=int(agent_id))
 
 
 async def _resolve(ref) -> tuple:
@@ -643,7 +653,7 @@ async def get_agent_builder_options(args: dict[str, Any]) -> dict[str, Any]:
                 out.append("DOCUMENT TYPES: none yet — types appear as documents are "
                            "imported; an agent with no restriction sees all types.")
         if section in ("all", "groups"):
-            groups = await _sql(_q_groups)
+            groups = await _rt("groups", _q_groups)
             if groups:
                 out.append("GROUPS (for assign_agent_groups): "
                            + ", ".join(f"{g['name']} (id {g['id']})" for g in groups))
@@ -1251,7 +1261,7 @@ async def delete_agent_knowledge(args: dict[str, Any]) -> dict[str, Any]:
         return gate
     try:
         kid = int(args.get("knowledge_id") or 0)
-        row = await _sql(_q_knowledge_row(kid))
+        row = await _rt("knowledge_row", _q_knowledge_row(kid), knowledge_id=int(kid))
         if not row or not row.get("is_active"):
             return _text(f"No active knowledge item with knowledge_id {kid}. "
                          "get_agent_config lists an agent's knowledge_ids.",
@@ -1267,7 +1277,7 @@ async def delete_agent_knowledge(args: dict[str, Any]) -> dict[str, Any]:
             msg = data.get("message", data) if isinstance(data, dict) else data
             return _text(f"Remove FAILED (HTTP {status}): {msg} — nothing changed.",
                          is_error=True)
-        still = await _sql(_q_knowledge_row(kid))
+        still = await _rt("knowledge_row", _q_knowledge_row(kid), knowledge_id=int(kid))
         if still and still.get("is_active"):
             return _text(f"Remove reported success but {label} is still active — "
                          "report as UNVERIFIED.", is_error=True)
@@ -1304,7 +1314,7 @@ async def assign_agent_groups(args: dict[str, Any]) -> dict[str, Any]:
         if err:
             return _text(err, is_error=True)
         want = sorted({int(g) for g in (args.get("group_ids") or [])})
-        groups = await _sql(_q_groups)
+        groups = await _rt("groups", _q_groups)
         by_id = {g["id"]: g["name"] for g in groups}
         unknown = [g for g in want if g not in by_id]
         if unknown:
@@ -1320,7 +1330,9 @@ async def assign_agent_groups(args: dict[str, Any]) -> dict[str, Any]:
         to_remove = [g for g in have if g not in want]
         failures = []
         for gid in to_add + to_remove:
-            users, agents_in_group = await _sql(_q_group_membership(gid))
+            _m = await _rt("group_membership", _q_group_membership(gid), group_id=int(gid))
+            users, agents_in_group = ((_m["users"], _m["agents"]) if isinstance(_m, dict)
+                                      else _m)
             if gid in to_add and agent["id"] not in agents_in_group:
                 agents_in_group.append(agent["id"])
             if gid in to_remove:

@@ -381,20 +381,24 @@ async def get_my_contact_info(args: dict[str, Any]) -> dict[str, Any]:
                  f"{row['username'] or '—'}.")
 
 
+def _filter_users(rows: list, query: str) -> list:
+    q = " ".join(str(query or "").lower().split())
+    if not q:
+        return sorted(rows, key=lambda u: (u["name"] or u["username"]).lower())
+    toks = q.split()
+    return [u for u in rows
+            if q in u["name"].lower() or q == u["username"].lower()
+            or q in u["email"].lower()
+            or all(t in u["name"].lower() for t in toks)]
+
+
 def _q_find_users(query: str):
     def fn(cur):
         cur.execute("SELECT id, name, user_name, email, phone FROM [dbo].[User]")
         rows = [{"id": int(r[0]), "name": str(r[1] or "").strip(),
                  "username": str(r[2] or "").strip(), "email": str(r[3] or "").strip(),
                  "phone": str(r[4] or "").strip()} for r in cur.fetchall()]
-        q = " ".join(str(query or "").lower().split())
-        if not q:
-            return sorted(rows, key=lambda u: (u["name"] or u["username"]).lower())
-        toks = q.split()
-        return [u for u in rows
-                if q in u["name"].lower() or q == u["username"].lower()
-                or q in u["email"].lower()
-                or all(t in u["name"].lower() for t in toks)]
+        return _filter_users(rows, query)
     return fn
 
 
@@ -421,12 +425,23 @@ async def find_user_contact(args: dict[str, Any]) -> dict[str, Any]:
         import asyncio
         import readthrough
 
-        def _read():
+        def _sql():
             conn = readthrough._db()
             try:
                 return _q_find_users(q)(conn.cursor())
             finally:
                 conn.close()
+
+        def _read():
+            try:
+                users = readthrough.fetch("users")
+            except readthrough.ReadthroughUnavailable:
+                return _sql()
+            return _filter_users([{"id": int(u["id"]), "name": str(u.get("name") or "").strip(),
+                                   "username": str(u.get("username") or "").strip(),
+                                   "email": str(u.get("email") or "").strip(),
+                                   "phone": str(u.get("phone") or "").strip()}
+                                  for u in (users or [])], q)
         rows = await asyncio.to_thread(_read)
     except Exception as e:
         return _text(f"Could not read the user directory: {e}", is_error=True)

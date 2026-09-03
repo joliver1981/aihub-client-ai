@@ -154,6 +154,63 @@ not-found on every nonexistent-id probe. Neither defect reproduces from source
 (the dev tree has `code_exec/` on `sys.path` and the DB variables in `.env`),
 which is the whole argument for testing the installed build.
 
+### 1.9 Both defects fixed (2026-09-03) — what changed, and what did not
+
+**Defect 1, `code_exec` (interpreter lane dead on installs).** The Agent's
+build now stages a private copy of the package: `scripts/stage_code_exec.ps1`
+(same pattern and closure guard as the `command_center.tools` subset) is
+called from `build_agent_service.ps1`, so `dist\agent_service\code_exec\`
+ships with no `.iss` change. Two guarded fallbacks inside `code_exec/sdkwire.py`
+let the copy work without `CommonUtils` (source-run services never have it):
+the SDK dir is also looked up under `APP_ROOT\automations\sdk`, and the
+platform base URL falls back to the same `PROTOCOL/SERVICE_HOST/HOST_PORT`
+rules the other source-run modules use. Frozen exes are unaffected (their
+`CommonUtils` path is tried first and resolves to the same values). Proof:
+`tests_v2/unit/test_stage_code_exec.py` (4/4) and a scratch client layout
+running the STAGED copy with no repo root on the path: `code_exec` resolved
+from `dist\agent_service\code_exec`, `CommonUtils` absent, sandbox printed 42.
+
+**Defect 2, database credentials (builder tools, group visibility, pending
+approvals, user directory dead on installs).** Root cause, to answer the
+"same root folder?" question: the Agent has the same `APP_ROOT` and loads the
+same `{app}\.env` as every other service. A fresh install's `.env` simply has
+no `DATABASE_*` keys; the compiled services get them from a `_build_config`
+module baked inside each exe, and the loose copy on disk is deliberately
+trimmed to LLM keys. A source-run service therefore has no legitimate
+credential source, and copying the database password anywhere readable would
+have been a security regression. So the fix removes the need:
+- the main app gains one read-only internal endpoint,
+  `POST /api/internal/readthrough` (`@internal_api_key_required`, the
+  machine-bound key the services already use for the other `/api/internal/*`
+  routes), whose eight named ops run the SAME SELECTs the service used to run
+  itself, under the app's own credentials and tenant context. Fixed SQL with
+  bound parameters; nothing from the request reaches SQL text.
+- the service (`readthrough.fetch_or_sql`) asks that endpoint first and falls
+  back to its old direct-SQL path only when the endpoint is absent (404: an
+  older main app), the key is rejected (401) or the app is unreachable. A
+  server-side failure surfaces as an error, never a silent fallback.
+  `AGENT_READTHROUGH_HTTP=false` is the rollback switch.
+- callers changed: the five builder reads (`_all_agents`, `_fetch_agent`,
+  groups, group membership, knowledge row), `readthrough.user_group_ids` and
+  `workflow_pending`, `work_tools._user_directory`,
+  `platform_tools.find_user_contact`. The write paths already went over HTTP.
+
+Behaviour matrix: dev tree today → HTTP path, identical rows by construction;
+an install on the next build → HTTP path, works; an install whose main app is
+older (Latest7 today) → direct SQL exactly as before. No credentials move, no
+schema changes, no other service touched. Pinned by
+`tests_v2/unit/test_agent_readthrough_http.py` (8/8: HTTP wins, 404/401/
+unreachable → SQL, 500 → error, rollback switch).
+
+Live proof on the dev tree (2026-09-03, main app started by the standard v3
+batch on the patched code): the endpoint answered every op with the internal
+key (agents 309 rows, users 14, groups 18, pending approvals 74), 400 on an
+unknown op, 401 on a wrong key; the builder and directory tools driven through
+the Agent passed **15 / 15 with the HTTP path** and **15 / 15 with
+`AGENT_READTHROUGH_HTTP=false`** (direct SQL), including a real
+create → update → set tools → delete (confirmed, read back) of the throwaway
+agent. Same answers both ways, which is the no-regression bar.
+
 ---
 
 ## 2. Order of work from here

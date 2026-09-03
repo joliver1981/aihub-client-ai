@@ -31,9 +31,70 @@ from typing import Optional
 
 import httpx
 
-from agent_config import APP_ROOT, get_base_url, AI_HUB_API_KEY, logger
+from agent_config import APP_ROOT, get_base_url, AI_HUB_API_KEY, get_internal_api_key, logger
 
 _HEADERS = {"X-API-Key": AI_HUB_API_KEY, "Connection": "close"}
+
+
+# ---------------------------------------------------------------------------
+# HTTP read-through (2026-09-03) — the main app runs the fixed SELECTs
+# ---------------------------------------------------------------------------
+# WHY: the direct-SQL path below needs DATABASE_* in this process's environment.
+# That is true in the dev tree (.env) and false on every install: there the
+# credentials live only inside the frozen exes' baked _build_config, and the
+# loose copy on disk is trimmed to LLM keys on purpose. So on a client every
+# direct read failed with "Login failed for user ''" (pack-20 per-tool smoke,
+# Latest7). POST /api/internal/readthrough runs the same queries inside the main
+# app under its own credentials, for callers holding the machine-bound
+# internal key. Order: HTTP first; direct SQL only when the route is absent
+# (older main app), the key is rejected, or the app is unreachable — i.e. the
+# pre-change behaviour, unchanged wherever it used to work.
+# AGENT_READTHROUGH_HTTP=false turns the HTTP path off (rollback switch).
+
+class ReadthroughUnavailable(Exception):
+    """The HTTP read-through is not there / not usable: fall back to SQL."""
+
+
+def http_enabled() -> bool:
+    return os.getenv("AGENT_READTHROUGH_HTTP", "true").strip().lower() != "false"
+
+
+def fetch(op: str, **params):
+    """Run one named read-only op on the main app and return its data.
+    Raises ReadthroughUnavailable for 401/404/unreachable (callers fall back
+    to direct SQL) and RuntimeError for a real server-side failure."""
+    if not http_enabled():
+        raise ReadthroughUnavailable("disabled by AGENT_READTHROUGH_HTTP")
+    headers = dict(_HEADERS)
+    try:
+        headers["X-Internal-API-Key"] = get_internal_api_key()
+    except Exception:
+        pass
+    try:
+        with httpx.Client(timeout=30) as client:
+            r = client.post(f"{get_base_url()}/api/internal/readthrough",
+                            json={"op": op, "params": params}, headers=headers)
+    except Exception as e:
+        raise ReadthroughUnavailable(f"main app unreachable: {e}")
+    if r.status_code in (401, 404):
+        raise ReadthroughUnavailable(f"HTTP {r.status_code}")
+    try:
+        body = r.json() or {}
+    except Exception:
+        body = {}
+    if r.status_code >= 400 or body.get("status") != "success":
+        raise RuntimeError(f"readthrough '{op}' failed: HTTP {r.status_code} "
+                           f"{(body.get('message') or r.text)[:200]}")
+    return body.get("data")
+
+
+def fetch_or_sql(op: str, sql_fn, **params):
+    """HTTP read-through, else the given direct-SQL thunk (pre-change path)."""
+    try:
+        return fetch(op, **params)
+    except ReadthroughUnavailable as e:
+        logger.debug(f"readthrough '{op}' via HTTP unavailable ({e}); direct SQL")
+        return sql_fn()
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +144,7 @@ def _db():
 
 
 def user_group_ids(user_id: int) -> list:
-    try:
+    def _sql():
         conn = _db()
         try:
             cur = conn.cursor()
@@ -92,6 +153,8 @@ def user_group_ids(user_id: int) -> list:
             return [int(r[0]) for r in cur.fetchall()]
         finally:
             conn.close()
+    try:
+        return [int(g) for g in (fetch_or_sql("user_group_ids", _sql, user_id=int(user_id)) or [])]
     except Exception as e:
         logger.warning(f"user_group_ids unavailable: {e}")
         return []
@@ -100,7 +163,7 @@ def user_group_ids(user_id: int) -> list:
 def workflow_pending(user_id: int) -> list:
     """Pending ApprovalRequests visible to this user — the same visibility rule
     as /api/workflow/user-approvals: direct, group-member, or unassigned."""
-    try:
+    def _sql():
         conn = _db()
         try:
             cur = conn.cursor()
@@ -122,6 +185,8 @@ def workflow_pending(user_id: int) -> list:
             return [dict(zip(cols, row)) for row in cur.fetchall()]
         finally:
             conn.close()
+    try:
+        return list(fetch_or_sql("workflow_pending", _sql, user_id=int(user_id)) or [])
     except Exception as e:
         logger.warning(f"workflow_pending unavailable: {e}")
         return []

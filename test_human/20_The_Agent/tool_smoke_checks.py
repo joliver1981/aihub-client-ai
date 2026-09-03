@@ -74,13 +74,18 @@ def probes(ctx):
          ("get_agent_builder_options", {}, "read", True),
          ("get_agent_config", {"agent": "zz-pack20-none"}, "lookup", False),
          ("create_general_agent", {"name": "pack20-smoke-agent"}, "lifecycle", True),
-         ("update_general_agent", {"agent": "pack20-smoke-agent", "description": "smoke"}, "lifecycle", True),
-         ("set_agent_tools", {"agent": "pack20-smoke-agent", "tool_names": []}, "lifecycle", None),
+         # real schema props (the first dev run passed 'description' and got a
+         # validation error): update takes name/objective/enabled; tools take
+         # core_tools/custom_tools/mode
+         ("update_general_agent", {"agent": "pack20-smoke-agent", "objective": "pack20 smoke objective"}, "lifecycle", True),
+         ("set_agent_tools", {"agent": "pack20-smoke-agent", "core_tools": [], "mode": "replace"}, "lifecycle", None),
          ("set_agent_document_types", {"agent": "pack20-smoke-agent", "document_types": []}, "lifecycle", None),
          ("assign_agent_groups", {"agent": "pack20-smoke-agent", "group_ids": []}, "lifecycle", None),
          ("add_agent_knowledge", {"agent": "pack20-smoke-agent", "path": "C:/pack20-smoke-none.txt"}, "lookup", False),
          ("delete_agent_knowledge", {"knowledge_id": 999999}, "lookup", False),
-         ("delete_general_agent", {"agent": "pack20-smoke-agent"}, "lifecycle", True)],
+         # confirmed=true: the delete tools are two-step by design; without it the
+         # throwaway object would outlive the smoke
+         ("delete_general_agent", {"agent": "pack20-smoke-agent", "confirmed": True}, "lifecycle", True)],
         # --- automations
         [("create_automation", {"name": "pack20_smoke_auto"}, "lifecycle", True),
          ("save_automation_code", {"automation_id": "<id returned by create_automation>",
@@ -92,7 +97,7 @@ def probes(ctx):
          ("promote_automation", {"automation_id": 999999}, "lookup", False),
          ("schedule_automation", {"automation_id": 999999, "cron": "0 9 * * 1"}, "lookup", False),
          ("decide_automation_checkpoint", {"run_id": 999999, "checkpoint_id": 999999, "decision": "reject"}, "lookup", False),
-         ("delete_automation", {"automation_id": "<same id from create_automation>"}, "lifecycle", True)],
+         ("delete_automation", {"automation_id": "<same id from create_automation>", "confirmed": True}, "lifecycle", True)],
         # --- code flows
         [("list_code_flows", {}, "read", True),
          ("get_code_flow", {"name": "zz-pack20-none"}, "lookup", False),
@@ -108,7 +113,7 @@ def probes(ctx):
          ("dry_run_code_flow", {"name": "pack20-smoke-flow"}, "lifecycle", None),
          ("run_code_flow", {"name": "zz-pack20-none"}, "lookup", False),
          ("schedule_code_flow", {"name": "zz-pack20-none", "cron": "0 9 * * 1"}, "lookup", False),
-         ("delete_code_flow", {"name": "pack20-smoke-flow"}, "lifecycle", True)],
+         ("delete_code_flow", {"name": "pack20-smoke-flow", "confirmed": True}, "lifecycle", True)],
         # --- documents / files
         [("list_documents", {}, "read", True),
          ("query_document_records", {}, "read", None),
@@ -132,8 +137,8 @@ def probes(ctx):
          ("rename_view", {"name": "pack20-smoke-view", "new_name": "pack20-smoke-view2"}, "lifecycle", None),
          ("schedule_view_refresh", {"name": "zz-pack20-none"}, "lookup", False),
          ("schedule_view_email", {"name": "zz-pack20-none", "to": "nobody@example.invalid"}, "lookup", False),
-         ("delete_view", {"name": "pack20-smoke-view2"}, "lifecycle", None),
-         ("delete_view", {"name": "pack20-smoke-view"}, "lifecycle", None)],
+         ("delete_view", {"name": "pack20-smoke-view2", "confirmed": True}, "lifecycle", None),
+         ("delete_view", {"name": "pack20-smoke-view", "confirmed": True}, "lifecycle", None)],
         # --- integrations / mcp
         [("list_integrations", {}, "read", True),
          ("list_mcp_servers", {}, "read", True),

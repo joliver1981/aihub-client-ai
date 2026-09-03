@@ -6361,6 +6361,189 @@ def internal_tabular_query():
 # ─── End Internal API Endpoints ──────────────────────────────────────────────
 
 
+# ---------------------------------------------------------------------------
+# Internal read-through for the SOURCE-RUN Agent service (2026-09-03)
+# ---------------------------------------------------------------------------
+# WHY: agent_service/readthrough.py opened the app database directly with the
+# DATABASE_* environment variables. Those exist in the dev tree's .env, but on
+# an install they live only inside the frozen exes' baked _build_config (the
+# loose copy on disk is deliberately trimmed to LLM keys), so every direct read
+# the service makes - agent-builder tools, group visibility, pending approvals,
+# the user directory - failed with "Login failed for user ''" (pack-20 per-tool
+# smoke against Latest7). These ops run the SAME SELECTs here, under the app's
+# own credentials and tenant context, for a caller holding the machine-bound
+# internal key. Read-only by construction: every op is a fixed SELECT with bound
+# parameters, and nothing from the request body reaches SQL text. The service
+# falls back to its direct-SQL path when this route is absent (older main app).
+
+def _rt_date(v, fmt=None):
+    if v is None:
+        return None
+    if fmt and hasattr(v, "strftime"):
+        return v.strftime(fmt)
+    return str(v)
+
+
+def _rt_agents(_params):
+    rows = query_app_database("""
+        SELECT a.id, a.description, a.objective, a.enabled,
+               ISNULL(a.is_data_agent, 0) AS is_data_agent,
+               ISNULL(a.allow_personal_connections, 1) AS allow_personal_connections,
+               a.create_date
+        FROM [dbo].[Agents] a
+        ORDER BY a.id""") or []
+    out = [{"id": int(r["id"]), "name": r.get("description") or "",
+            "objective": r.get("objective") or "", "enabled": bool(r.get("enabled")),
+            "is_data_agent": bool(r.get("is_data_agent")),
+            "allow_personal_connections": bool(r.get("allow_personal_connections")),
+            "created": _rt_date(r.get("create_date"), "%Y-%m-%d")} for r in rows]
+    by_agent = {}
+    for g in query_app_database("SELECT agent_id, group_id FROM [dbo].[AgentGroups]") or []:
+        by_agent.setdefault(int(g["agent_id"]), []).append(int(g["group_id"]))
+    conns = {}
+    try:
+        for c in query_app_database(
+                "SELECT t.agent_id, c.connection_name FROM [dbo].[AgentConnections] t "
+                "JOIN [dbo].[Connections] c ON c.id = t.connection_id") or []:
+            conns.setdefault(int(c["agent_id"]), []).append(str(c["connection_name"]))
+    except Exception:
+        pass
+    for a in out:
+        a["group_ids"] = by_agent.get(a["id"], [])
+        a["connections"] = conns.get(a["id"], [])
+    return out
+
+
+def _rt_agent_detail(params):
+    aid = int(params.get("agent_id"))
+    rows = query_app_database("""
+        SELECT a.id, a.description, a.objective, a.enabled,
+               ISNULL(a.is_data_agent, 0) AS is_data_agent,
+               ISNULL(a.allow_personal_connections, 1) AS allow_personal_connections,
+               a.create_date
+        FROM [dbo].[Agents] a WHERE a.id = ?""", (aid,)) or []
+    if not rows:
+        return None
+    r = rows[0]
+    agent = {"id": int(r["id"]), "name": r.get("description") or "",
+             "objective": r.get("objective") or "", "enabled": bool(r.get("enabled")),
+             "is_data_agent": bool(r.get("is_data_agent")),
+             "allow_personal_connections": bool(r.get("allow_personal_connections")),
+             "created": _rt_date(r.get("create_date"), "%Y-%m-%d %H:%M")}
+    core, custom = [], []
+    for tr in query_app_database(
+            "SELECT tool_name, ISNULL(custom_tool, 0) AS custom_tool FROM [dbo].[AgentTools] "
+            "WHERE agent_id = ? ORDER BY tool_name", (aid,)) or []:
+        (custom if tr.get("custom_tool") else core).append(str(tr["tool_name"]))
+    agent["core_tools"], agent["custom_tools"] = core, custom
+    agent["document_types"] = [str(d["document_type"]) for d in query_app_database(
+        "SELECT document_type FROM [dbo].[AgentDocumentTypes] WHERE agent_id = ? "
+        "ORDER BY document_type", (aid,)) or []]
+    agent["groups"] = [{"id": int(g["id"]), "name": str(g["group_name"])} for g in query_app_database(
+        "SELECT g.id, g.group_name FROM [dbo].[AgentGroups] ag "
+        "JOIN [dbo].[Groups] g ON g.id = ag.group_id WHERE ag.agent_id = ? "
+        "ORDER BY g.group_name", (aid,)) or []]
+    agent["group_ids"] = [g["id"] for g in agent["groups"]]
+    return agent
+
+
+def _rt_groups(_params):
+    return [{"id": int(g["id"]), "name": str(g["group_name"])} for g in query_app_database(
+        "SELECT id, group_name FROM [dbo].[Groups] ORDER BY group_name") or []]
+
+
+def _rt_group_membership(params):
+    gid = int(params.get("group_id"))
+    users = [int(u["user_id"]) for u in query_app_database(
+        "SELECT user_id FROM [dbo].[UserGroups] WHERE group_id = ?", (gid,)) or []]
+    agents = [int(a["agent_id"]) for a in query_app_database(
+        "SELECT agent_id FROM [dbo].[AgentGroups] WHERE group_id = ?", (gid,)) or []]
+    return {"users": users, "agents": agents}
+
+
+def _rt_knowledge_row(params):
+    kid = int(params.get("knowledge_id"))
+    rows = query_app_database("""
+        SELECT ak.knowledge_id, ak.agent_id, ak.document_id, ak.description,
+               d.filename, d.document_type, d.page_count, ak.is_active
+        FROM [dbo].[AgentKnowledge] ak
+        LEFT JOIN [dbo].[Documents] d ON d.document_id = ak.document_id
+        WHERE ak.knowledge_id = ?""", (kid,)) or []
+    if not rows:
+        return None
+    r = rows[0]
+    return {"knowledge_id": int(r["knowledge_id"]), "agent_id": int(r["agent_id"]),
+            "document_id": r.get("document_id"), "description": r.get("description") or "",
+            "filename": r.get("filename") or "", "document_type": r.get("document_type") or "",
+            "page_count": r.get("page_count"),
+            "is_active": bool(r["is_active"]) if r.get("is_active") is not None else True}
+
+
+def _rt_user_group_ids(params):
+    uid = int(params.get("user_id"))
+    return [int(g["group_id"]) for g in query_app_database(
+        "SELECT group_id FROM UserGroups WHERE user_id = ?", (uid,)) or []]
+
+
+def _rt_workflow_pending(params):
+    uid = int(params.get("user_id"))
+    rows = query_app_database("""
+        SELECT request_id, title, description, status, requested_at,
+               due_date, priority, approval_data, assigned_to_type,
+               assigned_to_id
+        FROM ApprovalRequests
+        WHERE status = 'Pending' AND (
+              (assigned_to_type = 'user'  AND assigned_to_id = ?)
+           OR (assigned_to_type = 'group' AND assigned_to_id IN
+                (SELECT group_id FROM UserGroups WHERE user_id = ?))
+           OR assigned_to_type = 'unassigned'
+           OR assigned_to_type IS NULL)
+        ORDER BY priority DESC, requested_at DESC""", (uid, uid)) or []
+    # datetimes as str(value) - exactly what the service's own str() produced
+    return [{k: (_rt_date(v) if hasattr(v, "strftime") else v) for k, v in r.items()}
+            for r in rows]
+
+
+def _rt_users(_params):
+    return [{"id": int(r["id"]), "name": str(r.get("name") or "").strip(),
+             "username": str(r.get("user_name") or "").strip(),
+             "email": str(r.get("email") or "").strip(),
+             "phone": str(r.get("phone") or "").strip()} for r in query_app_database(
+        "SELECT id, name, user_name, email, phone FROM [dbo].[User]") or []]
+
+
+_READTHROUGH_OPS = {
+    "agents": _rt_agents, "agent_detail": _rt_agent_detail, "groups": _rt_groups,
+    "group_membership": _rt_group_membership, "knowledge_row": _rt_knowledge_row,
+    "user_group_ids": _rt_user_group_ids, "workflow_pending": _rt_workflow_pending,
+    "users": _rt_users,
+}
+
+
+@app.route("/api/internal/readthrough", methods=['POST'])
+@cross_origin()
+@internal_api_key_required()
+def internal_readthrough():
+    """Named, read-only app-database queries for the source-run Agent service
+    (see the block comment above). Body: {"op": <name>, "params": {...}}."""
+    body = request.get_json(silent=True) or {}
+    op = str(body.get("op") or "")
+    fn = _READTHROUGH_OPS.get(op)
+    if fn is None:
+        return jsonify({"status": "error", "message": f"unknown readthrough op '{op}'",
+                        "ops": sorted(_READTHROUGH_OPS)}), 400
+    params = body.get("params") or {}
+    if not isinstance(params, dict):
+        return jsonify({"status": "error", "message": "params must be an object"}), 400
+    try:
+        return jsonify({"status": "success", "op": op, "data": fn(params)})
+    except (TypeError, ValueError) as e:
+        return jsonify({"status": "error", "message": f"bad params for '{op}': {e}"}), 400
+    except Exception as e:
+        logger.error(f"[readthrough] {op} failed: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/add/column", methods = ['GET', 'POST'])
 @cross_origin()
 @developer_required(api=True)

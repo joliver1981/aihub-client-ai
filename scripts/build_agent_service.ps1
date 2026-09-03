@@ -47,6 +47,12 @@ Write-Host "  staged $(Get-ChildItem $svcDst -Recurse -File | Measure-Object | S
 # the build if a new command_center.* import escapes the shipped set.
 & (Join-Path $PSScriptRoot "stage_cc_tools_subset.ps1") -Dest $svcDst -Repo $Repo
 
+# Private copy of the shared code_exec package (code-interpreter backend) for the same
+# reason: it lives at the repo root and inside the frozen exes, and nothing shipped it for
+# the source-run Agent, so run_python / export_data / manipulate_pdf died on every install
+# with "No module named 'code_exec'" (pack-20 per-tool smoke, 2026-09-03). Closure-checked.
+& (Join-Path $PSScriptRoot "stage_code_exec.ps1") -Dest $svcDst -Repo $Repo
+
 if ($SkipEnv) {
     Write-Host "=== -SkipEnv: leaving $envDst as-is ===" -ForegroundColor Yellow
     return
