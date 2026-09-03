@@ -390,6 +390,6 @@ Both §6 (the bridge) and the honesty wording (§7, reframed) shipped in one com
 ### 12.6 Loose ends (new)
 
 - Deleting a server on the admin page disconnects only the legacy gateway connection; per-user connections for that server idle until the gateway restarts (harmless — the catalog 404s before any call).
-- The dry-run auth middleware reads `X-API-Key`, not `X-Internal-API-Key`; send the internal key as `X-API-Key` (The Agent does; the live script was fixed to).
+- ~~The dry-run auth middleware reads `X-API-Key`, not `X-Internal-API-Key`~~ — **retracted.** The middleware reuses `role_decorators._get_api_key_from_request`, which accepts `Authorization: Bearer`, `X-API-Key` AND `X-Internal-API-Key` (in that order); either header works. The one `[DRY RUN] Blocked` line during the live check was the deliberate no-service-key negative probe, which should be flagged. Nothing to change.
 - The main app has no `/health` route; `/login` is its liveness probe.
 - `AgentMCPServers (232 → 54)` orphan row from §9 is still there.
