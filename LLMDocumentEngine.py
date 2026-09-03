@@ -3397,6 +3397,27 @@ class LLMDocumentProcessor:
             sql_conn.commit()
             _st['commit'] = time.perf_counter() - _t
             self.logger.info(f"Stored document {document_id} in SQL database")
+
+            # Field catalog (document-search page type-ahead, 2026-09-03):
+            # fold this document's distinct field paths into the per-type
+            # DocumentFieldCatalog with exact recounts, so the page never
+            # GROUP BYs DocumentFields at render time. Best effort, after the
+            # document's own commit — a catalog problem must never fail an
+            # ingest (the page falls back to a bounded live read).
+            _t = time.perf_counter()
+            try:
+                import document_field_catalog as _dfc
+                _touched = _dfc.record_document(cursor, document_id, document_type)
+                sql_conn.commit()
+                self.logger.info(f"Field catalog: {_touched} row(s) for {document_id} "
+                                 f"({document_type})")
+            except Exception as _cat_err:
+                try:
+                    sql_conn.rollback()
+                except Exception:
+                    pass
+                self.logger.warning(f"Field catalog update skipped for {document_id}: {_cat_err}")
+            _st['field_catalog'] = time.perf_counter() - _t
             # Name the statement kinds that took the time. WARNING above the
             # slow threshold so a stalled store is visible without DEBUG logs.
             try:
