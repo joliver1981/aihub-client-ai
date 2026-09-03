@@ -1,6 +1,6 @@
 # Handoff — Make My Connections deployable (cloud OAuth redirect broker)
 
-**Status:** PHASE 1 BUILT (2026-09-02, both repos, committed locally — see §0a). Still needed from James: WI-0 client secret, a DDL login for migration 020, and approval to push `aihub-api` (auto-deploys the broker). Phase 2 not started.
+**Status:** PHASE 1 BUILT (2026-09-02) and the broker is DEPLOYED to the **p01 slot** (2026-09-03, `d54d69d`; production answers 404 on the broker paths until the slot swap) — see §0a. Still needed from James: WI-0 client secret, the slot swap, and a DDL login for migration 020. Phase 2 not started.
 **Spans two repos:** `C:\src\aihub-client-ai-dev` (on-prem AI Hub) and `C:\src\aihub-api` (cloud API → `https://ai-hub-api.azurewebsites.net`).
 **Branching:** do NOT create branches. Commit to `main` in each repo, promptly.
 **⚠ `aihub-api` pushes auto-deploy to Azure.** Do not push there until the endpoint is tested locally.
@@ -16,7 +16,7 @@ inputs only James can supply (the Azure client secret; a DDL-capable SQL login).
 
 | WI | Where | Notes |
 |---|---|---|
-| WI-1 broker | `aihub-api/project/api/mcp_oauth_broker.py`, `mcp_oauth_state.py`, registered in `project/__init__.py` | `GET /api/mcp/oauth/callback`, `POST /api/mcp/oauth/verify` (admin self-test), `GET /api/mcp/oauth/health`. Stateless; per-tenant and per-IP limits via the existing `TenantRateLimiter`; plain escaped error pages; never logs code/state. **Committed locally, NOT pushed** — pushing deploys to Azure. |
+| WI-1 broker | `aihub-api/project/api/mcp_oauth_broker.py`, `mcp_oauth_state.py`, registered in `project/__init__.py` | `GET /api/mcp/oauth/callback`, `POST /api/mcp/oauth/verify` (admin self-test), `GET /api/mcp/oauth/health`. Stateless; per-tenant and per-IP limits via the existing `TenantRateLimiter`; plain escaped error pages; never logs code/state. Pushed as `d54d69d` (2026-09-03); GitHub Actions run 33754504731 deployed it to the **p01 slot** (`https://ai-hub-api-p01.azurewebsites.net`). Production (`ai-hub-api.azurewebsites.net`) returns 404 on the broker paths until the slot is swapped. |
 | WI-2 pinning | `builder_mcp/routes/mcp_routes.py`, `builder_mcp/agent_integration/oauth_state.py` | `_oauth_registered_redirect_uri()` resolves server override → `OAUTH_REDIRECT_BASE_URL` → `AI_HUB_API_URL` → hard default; `_oauth_redirect_uri()` demoted to the return address; the token exchange repeats the registered URI; signed state; session keyed by nonce with pending entries pruned to 3; pre-flight refusal (409) when no client secret (`OAUTH_REQUIRE_CLIENT_SECRET`, default true). |
 | WI-3 role gate | same | `oauth_authorize` is now `@api_key_or_session_required()`; role ≥ 2 enforced inside the `client_credentials` branch only. Live-verified as a role-1 user. |
 | WI-4 publish switch | `migrations/020_mcp_servers_available_to_users.sql`, `builder_mcp/agent_integration/mcp_server_visibility.py`, listing + authorize enforcement, admin CRUD | Column missing → visible everywhere (the live state here: the app login has no ALTER). The edit form shows a "migration 020 not applied" note until it is. |
@@ -33,6 +33,7 @@ inputs only James can supply (the Azure client secret; a DDL-capable SQL login).
 5. **Tenant id on-prem** comes from the local `SESSION_CONTEXT(N'TenantId')` after `sp_setTenantContext` (1 here, equal to the cloud's), falling back to `agent_email_routes.get_numeric_tenant_id()`. A wrong id fails closed at the broker; **Test broker** makes that visible before any user clicks Connect.
 6. The main app runs under `aihub2.1` (`python wsgi.py`), not `aihubant` (§16 corrected). Restart only the app: stop the owner of :5001 and its `cmd /k` parent, then start `cmd /k "title AIHub-DEV Main App && call C:\Users\james\miniconda3\Scripts\activate.bat aihub2.1 && python wsgi.py"` from the tree.
 7. Migration tests: `MCPServers` and `Groups` were added to `EXTERNAL_TABLES` (the 013/016 FK checks already failed for that reason). The 014→016 numbering-gap failure predates this work and was left alone.
+8. **Services started from an agent tool session die when that session's tool host exits.** The 20:46 main-app restart (`Start-Process` from the tool shell) and a 21:25 restart of The Agent were both gone by the next morning, while the 9:07 windows James launched survived. Start services detached instead: `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'cmd.exe /k "color 0A && title AIHub-DEV Main App && call C:\Users\james\miniconda3\Scripts\activate.bat && conda activate aihub2.1 && python wsgi.py"'; CurrentDirectory = 'C:\src\aihub-client-ai-dev' }` (The Agent: `agent_service`, env `aihub-agent`, `python main.py`). Both were restarted that way on 2026-09-03.
 
 ### Verification evidence (2026-09-02, this box, app restarted from this tree)
 
@@ -44,11 +45,14 @@ inputs only James can supply (the Azure client secret; a DDL-capable SQL login).
 | `tests_v2/live/mcp_servers_ui_check.py` — headless Chromium, admin page edit modal | 13 PASS, no page/console errors |
 | pack 15 `runner.py --only mcp --skip-wf14 --skip-llm` | CLEAN |
 | `tests_v2/unit` + `api` + `security` (3,466 pass) | 62 failures, all pre-existing and in unrelated modules (ops routes, CC chat security, Excel extraction, …); two modules fail to collect for a missing `claude_agent_sdk` in `aihub2.1` |
+| **p01 live** — `aihub-api/tests/test_mcp_oauth_broker_live.py https://ai-hub-api-p01.azurewebsites.net` without credentials (T6 matrix: malformed / forged / unknown tenant / missing / provider error → refused, no `Location`) | 7/7 |
+| **p01 live** — same script with this install's real `API_KEY` + tenant 1: 302 to the return address with code+state; `verify` → `ok:true, tenant_id:1` (the cloud looked the key up in `Tenants`) | 9/9 |
+| **On-prem → p01, the button IT will click** — server 30's Redirect URI override set to the p01 callback (`tests_v2/live/mcp_redirect_override_tool.py set …`), `GET /api/mcp/oauth/broker_check` → `ok:true, tenant_id:1, broker_tenant_id:1, reason:verified`; the headless "Test broker" reads "Broker verified this installation (tenant 1)"; override cleared afterwards, credential keys unchanged | verified |
 
 ### What James needs to do, in order
 
 1. **WI-0** — create a client secret on app registration `fd11daaa-…`, paste it into server 30, Save. The status line under the field turns green ("A client secret is on file"). Register `https://ai-hub-api.azurewebsites.net/api/mcp/oauth/callback` under the registration's **Web** platform (the Copy button gives the exact string).
-2. **Approve the `aihub-api` push** (one additive commit). After the deploy: `python tests/test_mcp_oauth_broker_live.py` (no credentials → the T6 matrix against Azure), then **Test broker** on the MCP Servers page must say "Broker verified this installation (tenant 1)".
+2. **Swap the p01 slot to production** (the push is done and verified on p01). Until the swap, the default redirect URI shown on the MCP Servers page (production host) fails **Test broker** with HTTP 404; to work against p01 meanwhile use the per-server Redirect URI override or `OAUTH_REDIRECT_BASE_URL=https://ai-hub-api-p01.azurewebsites.net` (`tests_v2/live/mcp_redirect_override_tool.py set|clear|check` automates the override). After the swap, **Test broker** with the default URI must say "Broker verified this installation (tenant 1)".
 3. **Apply migration 020** with a DDL-capable login (`TenantAppUser` cannot). Until then every enabled OAuth server is visible and the switch is inert — the form says so.
 4. Then T3/T5/T7 for real: a role-1 user on a second machine → Connect → Microsoft → back → "✔ Connected" → a GeneralAgent with `allow_personal_connections=1` reads that user's mail.
 
