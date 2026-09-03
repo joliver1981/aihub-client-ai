@@ -188,6 +188,9 @@ def main():
     ap.add_argument("--seed-verify", action="store_true",
                     help="--seed, then ask the oracle agent the pack-15 question")
     ap.add_argument("--only", default=None, help="substring match on pack dir name")
+    ap.add_argument("--skip", default=None,
+                    help="comma-separated substrings of pack dirs to leave out "
+                         "(e.g. --skip 20_The_Agent while that pack is being edited)")
     ap.add_argument("--timeout", type=int, default=3600)
     args = ap.parse_args()
 
@@ -207,6 +210,9 @@ def main():
         seed_rc = seed_target(args.target, env, args.seed_verify)
 
     selected = [p for p in PACKS if not args.only or args.only in p[0]]
+    skips = [s.strip() for s in (args.skip or "").split(",") if s.strip()]
+    if skips:
+        selected = [p for p in selected if not any(s in p[0] for s in skips)]
     rows = []
     for pack, py, extra, supports_comp, remote_ok in selected:
         d = os.path.join(TEST_HUMAN, pack)

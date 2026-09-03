@@ -119,7 +119,47 @@ def now_stamp():
     return dt.datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def sign_token(user_id=13, username="admin", role=3):
+_ADMIN_ID = None
+
+
+def resolve_admin_id(base):
+    """The TARGET's admin user id, read from /get/users (double-encoded body).
+
+    CC trusts the token's user_id and stamps it on everything the turn creates.
+    13 is the dev tree's admin; the installed box's admin is 1 and has no user
+    13 at all, so a token signed as 13 there made every created automation /
+    schedule land on a nonexistent owner — pack 19's judge kept citing an
+    "owner-account configuration error" (2026-09-03). Falls back to 13."""
+    global _ADMIN_ID
+    if _ADMIN_ID is not None:
+        return _ADMIN_ID
+    _ADMIN_ID = 13
+    try:
+        s = requests.Session()
+        r = s.get(f"{base}/login", timeout=20)
+        hid = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
+        hid.update(dict(re.findall(r'<input[^>]*name="([^"]+)"[^>]*type="hidden"[^>]*value="([^"]*)"', r.text)))
+        d = {"username": "admin", "password": "admin", "submit": "Login"}
+        d.update(hid)
+        s.post(f"{base}/login", data=d, allow_redirects=True, timeout=30)
+        b = s.get(f"{base}/get/users", timeout=30).json()
+        if isinstance(b, str):
+            b = json.loads(b)
+        rows = b if isinstance(b, list) else ((b or {}).get("users") or (b or {}).get("data") or [])
+        if isinstance(rows, str):
+            rows = json.loads(rows)
+        for u in rows or []:
+            if isinstance(u, dict) and (u.get("user_name") or u.get("username") or "").lower() == "admin":
+                _ADMIN_ID = int(u.get("id") or u.get("user_id") or 13)
+                break
+    except Exception:
+        pass
+    return _ADMIN_ID
+
+
+def sign_token(user_id=None, username="admin", role=3):
+    if user_id is None:
+        user_id = resolve_admin_id(APP_BASE)
     sys.path.insert(0, REPO)
     sys.path.insert(0, os.path.join(REPO, "command_center_service"))
     try:

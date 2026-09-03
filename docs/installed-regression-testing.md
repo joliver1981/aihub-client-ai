@@ -58,6 +58,17 @@ nothing. The driver runs it for you: `--seed` / `--seed-verify`.
   binds it to `0.0.0.0` and checks for the inbound firewall rule (adding the
   rule needs an elevated prompt; the script prints the exact command).
 
+### 1.2b Command Center tokens carry the target's admin id (found 2026-09-03)
+
+Packs 16 and 19 signed their CC tokens as user 13 — the dev tree's admin. The
+installed box's admin is user 1 and has no user 13, and CC stamps the token's
+user id on everything a turn creates, so every automation or schedule CC built
+on the box belonged to a nonexistent owner. Pack 19's judge reported an
+"owner-account configuration error" on all three scenarios and it looked like
+a product defect. Both packs now resolve the admin id from the target's
+`/get/users` before signing (fallback 13); packs 20 and 24 already signed as
+user 1.
+
 ### 1.3 Transient connect failures no longer read as regressions
 
 On 09-02 five pack-17 checks and pack 20's health check ERRORed on a single
@@ -107,6 +118,42 @@ pack changes above (`suite_runs/SUITE_10.0.0.6_20260902_212522.md`).
 Net: every remaining red on the installed box is a product or configuration
 finding with the reason in the row, and none of them is the rig.
 
+### 1.7 Latest7 on the same box (2026-09-03, fixtures kept across the upgrade)
+
+Seed dry-run after the upgrade: everything still present, nothing created.
+Sweep with `--seed-verify --competency --skip 20_The_Agent`, pack 20 run
+separately with the new `R-*` rows (§2.7).
+
+| pack | Latest5 (09-02) | Latest7 (09-03) | reading |
+|---|---|---|---|
+| 15 Platform Regression | 52 PASS / 2 FAIL / 47 SKIP | **CLEAN** 54 PASS / 47 SKIP / 2 XFAIL / 3 XPASS | the Data Explorer pin FAILs are gone — Latest7 carries fbda297 |
+| 24 Installed Smoke | 3 PASS / 3 FAIL | **CLEAN** 6 PASS | `data_export` packaging defect fixed on the box; The Agent answers over the relay |
+| 16 CC Agent Matrix | 15 PASS / 4 FAIL / 5 SKIP | **CLEAN** 19 PASS / 5 SKIP | CC → seeded data agent works; b1/b2/b5/b12 now PASS on the install |
+| 17 Scheduling Matrix | CLEAN | **CLEAN** 16 PASS / 2 XFAIL / 1 XPASS | |
+| 18 AuthZ Matrix | CLEAN | **CLEAN** 9 PASS / 6 SKIP / 1 XFAIL / 1 XPASS | |
+| 19 CC Tier C | 3 FAIL | 3 FAIL (no artifact in any scenario) | same result as the dev tree; rerun with the admin-id fix (§1.2b) changed nothing, so it is the pre-existing tier-C competency gap, not the rig |
+| 20 The Agent | BLOCKED (wrong gate) | 61 / 96 PASS, `R-*` 9 / 11 | relay confirmed (`A0-4k` = relay). Rich output on the install: maps, choropleth, geocoding, chart+KPI, grounded chart, vision, SELECT-only gate all PASS; **R-7 export_data and R-9 manipulate_pdf deliver no file** on the box (both fell back to run_python) — the per-tool smoke (§2.8) captures their tool errors. The other 33 FAILs are one cascade (the agent's `save_view` did not persist tiles, so ten view rows 404 on a view that never existed), local-only checks (a SKILL.md on disk, log files), and shipped-off posture (email not set up, role-1 access off, model defaults differ) — triage in §2.9. |
+
+Local dev tree, `R-*` standalone (haiku, byok): 10 / 11 PASS — R-1..R-4 and
+R-6..R-9 real, R-10 opt-in SKIP; R-5 fails only because the local main app was
+down at the time (the probe cannot reach a connection without it).
+
+### 1.8 Per-tool smoke on Latest7: two whole-feature defects in five minutes
+
+`tool_smoke_checks.py` standalone against the box, 95 tools, 310 s:
+**87 / 97 PASS**, every tool was called, and the ten reds split cleanly.
+
+| tools | result on the install | root cause |
+|---|---|---|
+| `run_python`, `export_data`, `manipulate_pdf` | handler crashes: `No module named 'code_exec'` | `code_exec/` is a repo-root package that `agent_service/code_tools.py` imports for the interpreter lane. Neither `scripts/build_agent_service.ps1`, `stage_cc_tools_subset.ps1` nor the v5 `.iss` stage it, so **The Agent's code-interpreter lane (and everything built on it: exports, PDF tools, inline plots) is dead on every install**. This is R-7/R-9's root cause. Fix shape: stage a service-local copy like the `command_center.tools` subset, with the same closure guard. |
+| `list_agents`, `get_agent_builder_options`, `create/update/delete_general_agent` | ODBC `Login failed for user ''` | `agent_service/readthrough.py::_db()` opens the app database directly from `DATABASE_SERVER/NAME/UID/PWD` env vars. The installed service does not see those (the main app keeps its DB credentials elsewhere), so UID is empty. **The agent-builder tools are dead on installs.** Eight modules import `readthrough`; only the builder tools failed in the smoke, so the others fall back or take another path — worth a look. |
+| `wire_steps`, `unwire_steps` | honest 400 "both from and to must be existing step ids" | my probe passed step names; the tools take step ids. Probe fixed (placeholders now say "step id of s1"). |
+
+The other 84 tools answered with their documented shape, including the honest
+not-found on every nonexistent-id probe. Neither defect reproduces from source
+(the dev tree has `code_exec/` on `sys.path` and the DB variables in `.env`),
+which is the whole argument for testing the installed build.
+
 ---
 
 ## 2. Order of work from here
@@ -119,37 +166,70 @@ finding with the reason in the row, and none of them is the rig.
    `netsh advfirewall firewall add rule name="AIHub SFTP test rig" dir=in action=allow protocol=TCP localport=2222,2121,60000-60099`
 5. **Port the 12 disk-verified pack-14 checks to the variables API** (§1.5).
    Half a day; removes the last `engine-box disk not reachable` SKIP class.
-6. **Configure an Anthropic key on the test-install box** (BYOK or the relay)
-   — pack 20 is BLOCKED until then, and so is The Agent for any tester there.
-7. **NEW — pack 20 coverage for The Agent's recent features.** Pack 20 today
-   has no check that touches maps, generated images, charts/KPI fences, vision,
-   data export or PDF manipulation (passes 2–4 shipped with live probes but no
-   regression rows). Add a `R-*` (rich output) group, graded on the persisted
-   block/artifact, never on prose:
-   - `R-1` `render_map`: a "map of our 15 stores" turn yields a stored map block
-     (Leaflet fence) with ≥15 markers; offline mode (`AGENT_GEOCODING=false`)
-     uses state centroids, so it must PASS without Nominatim.
-   - `R-2` `geocode_places`: online → real lat/lon for a known city; offline →
-     honest "geocoding disabled" with no invented coordinates.
-   - `R-3` choropleth: a per-state metric request produces a choropleth block
-     keyed by state, values matching the AIRDB2 oracle.
-   - `R-4` `generate_image`: with a BYOK OpenAI key an image block is stored
-     under `/api/files` and renders inline; without the key the tool refuses
-     honestly (no placeholder image, no fake URL).
-   - `R-5` `aihub-chart` / `aihub-kpi` fences: a "chart sales by category"
-     turn stores a Chart.js fence whose dataset matches the oracle; the
-     category-axis `callback: undefined` trap must not reappear.
-   - `R-6` `read_file` vision: an attached PNG is described via image blocks
-     (the SDK forwards them); a text file is still read whole.
-   - `R-7` `export_data` rows and SQL lanes: a CSV/XLSX export is a real file
-     with the oracle row count; a non-SELECT statement is refused (the
-     interpreter lane's SELECT-only gate).
-   - `R-8` `manipulate_pdf`: merge/split/rotate produce a valid PDF with the
-     expected page count.
-   Each row: tool used (from the SSE `tool` events) **and** artifact verified
-   through the API, same rule as A1/PT. Run in both the dev tree and the
-   installed box; the installed box needs step 6 first.
-8. **Evaluate on-box execution as the target state (§4).** Cheaper than the
+6. **CORRECTED (james 2026-09-03): The Agent on an install uses the RELAY,
+   never a local Anthropic key.** `/health` reports `anthropic_key_source:
+   "none"` until the first turn arms the relay; after a turn on Latest7 it
+   reads `relay` and the turn answers. The BLOCKED gate that keyed on the
+   pre-turn health was wrong and is gone; pack 20 now records the key source
+   *after* its first turn (`A0-4k`: relay | byok | env | encrypted, never
+   none). The Agent also ships OFF on installs (front door, all-users) — the
+   packs drive the service directly on :5111 and grade the shipped posture.
+7. **BUILT (2026-09-03) — pack 20 `R-*` rich-output rows**
+   (`test_human/20_The_Agent/rich_output_checks.py`, called by the runner
+   before its report; runnable standalone against local or a box). Graded on
+   the persisted block/artifact, never on prose; posture-aware, so an honest
+   refusal is the PASS where a capability is legitimately off:
+   - `R-0` posture: a real turn answers; key source after it (relay on an
+     install), `allow_all_users`, model — informational.
+   - `R-1` `render_map` from place names → stored block (`/api/blocks`) with 3
+     CONUS markers and an "approximate/geocoded" disclosure; offline posture
+     (`AGENT_GEOCODING=false`) → honest refusal, no invented positions.
+   - `R-2` choropleth: NJ/TX/CA normalized to state names, Ontario carried as
+     `unmapped` and disclosed in the reply (bundled GeoJSON, no geocoder).
+   - `R-3` `geocode_places`: two real CONUS coordinate pairs online; offline →
+     refusal with **no** decimal coordinate pairs anywhere in the reply.
+   - `R-4` `aihub-chart` + `aihub-kpi` fences carry the user's exact four
+     numbers (labels set and sorted series compared, KPI cards present).
+   - `R-5` grounded chart: `probe_connection_query` on the seeded `AIRDB2`
+     connection, stores per state, series sums to the oracle 15.
+   - `R-6` vision: the committed `fixtures/r6_bars.png` is uploaded through
+     `/api/uploads`, attached to the turn, read via `read_file`, and "Beta"
+     (the tallest bar) is named.
+   - `R-7` `export_data(rows_json)` → the delivered `.xlsx` is downloaded and
+     parsed (zip + sheet XML): 4 rows × 2 columns.
+   - `R-8` SELECT-only gate: a `CREATE TABLE` through `export_data` is refused,
+     no CSV is delivered, and the probe table is proven absent on the database
+     through the main app's connection API (and dropped if it ever appears).
+   - `R-9` `manipulate_pdf`: the 4-page fixture is uploaded; info says 4 and
+     the extracted 1-2 PDF parses to 2 pages.
+   - `R-10` `generate_image`: opt-in with `PACK20_IMAGE=1` (real money);
+     otherwise SKIP. With the flag: inline image line + PNG > 5 KB, or the
+     honest "no OpenAI API key" refusal on a box without one.
+   Every row: tool call seen in the SSE `tool` events **and** artifact verified
+   through the API, same rule as A1/PT.
+8. **BUILT (2026-09-03) — pack 20 `T-*` per-tool smoke**
+   (`test_human/20_The_Agent/tool_smoke_checks.py`, runs after `R-*`;
+   `PACK20_SKIP_TOOL_SMOKE=1` leaves it out). Every one of the 95 mounted
+   tools is called once with fixed, harmless arguments and graded on its own
+   `tool_result` event: not called, or a traceback / "No module named" /
+   internal error in the result, is a FAIL; an honest not-found on a
+   nonexistent id is a PASS. Read tools are called for real; mutating tools
+   are called on nonexistent ids (nothing changes); creates run as
+   create→use→delete of `pack20-smoke-*` objects; the eight tools that send
+   mail, raise work, save skills/portals or spend money are marked
+   "exercised by A2/A3/A6/PT/R-10" so nothing is unaccounted for. `T-0`
+   compares the target's mounted inventory with the expected set — builds
+   after 2026-09-03 emit it from the SDK's init message (`brain.py`, names
+   only); older builds say the event is not available.
+9. **Pack 20 remote triage.** Pack 20 was written for the dev box; on an
+   install, three kinds of row need the same treatment packs 15/16 got:
+   local-only rows (SKILL.md on disk, log files) SKIP remotely; posture rows
+   (agent email not configured, role-1 access off, model defaults) grade the
+   shipped posture instead of assuming the dev tree's; and cascades (ten view
+   rows that 404 because one `save_view` failed) should collapse to the one
+   root row. Until then, read the 61/96 as "35 rows to triage", not "35
+   defects".
+10. **Evaluate on-box execution as the target state (§4).** Cheaper than the
    write-up assumed: every install already ships `{app}\python-bundle`
    (Python 3.11 with `requests`), and packs 15/16/17/18 need nothing else.
    Recommended shape: copy `test_human/` to the box, run

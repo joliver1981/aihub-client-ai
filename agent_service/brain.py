@@ -723,13 +723,30 @@ async def run_turn(prompt: str, session_id: Optional[str],
                                                          skill_names=skill_names)):
             if isinstance(message, SystemMessage):
                 if getattr(message, "subtype", "") == "init":
-                    sid = (getattr(message, "data", {}) or {}).get("session_id")
+                    init_data = getattr(message, "data", {}) or {}
+                    sid = init_data.get("session_id")
                     if sid:
                         new_session_id = sid
                         user_ctx["session_id"] = sid
                         if not marked:
                             mark_inflight(sid)
                             marked = sid
+                    # Mounted-tool inventory (names only, no schemas, no
+                    # secrets): the SDK's init carries the tools this turn
+                    # can actually call and the MCP servers it connected.
+                    # The per-tool smoke (pack 20 T-*) compares it with the
+                    # build's expected set, so a tool that silently fell off
+                    # an install is one row, not a mystery.
+                    try:
+                        names = [str(n).replace("mcp__aihub__", "")
+                                 for n in (init_data.get("tools") or [])]
+                        servers = [{"name": s.get("name"), "status": s.get("status")}
+                                   if isinstance(s, dict) else str(s)
+                                   for s in (init_data.get("mcp_servers") or [])]
+                        yield {"type": "init", "tools": names, "mcp_servers": servers,
+                               "model": init_data.get("model")}
+                    except Exception:
+                        pass
             elif isinstance(message, AssistantMessage):
                 for block in message.content:
                     if hasattr(block, "text") and getattr(block, "text", None):

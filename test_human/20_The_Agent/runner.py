@@ -168,20 +168,14 @@ def main():
         check("A0-1", "health endpoint up", False, err)
         _write_report(checks)
         sys.exit(1)
+    # NOTE (james 2026-09-03): anthropic_key_present=false / key_source="none"
+    # before the first turn is NORMAL on an install — the relay is armed per
+    # turn by ensure_anthropic_key() (source becomes "relay" after A0-4), and
+    # a box is never expected to hold a raw Anthropic key. Never gate on it;
+    # the first real turn is the only honest probe.
     check("A0-1", "health endpoint up, correct service/model",
           h.get("status") == "ok" and h.get("service") == "agent_service",
           json.dumps(h))
-    if h.get("anthropic_key_present") is False:
-        # Neither a product defect nor a rig problem: the TARGET has no Anthropic
-        # key (no BYOK, no relay), so every turn below would fail for that one
-        # reason. Say it once, as BLOCKED, instead of 30 FAILs that read like
-        # thirty broken features.
-        reason = (f"target {BASE} has no Anthropic key "
-                  f"(anthropic_key_source={h.get('anthropic_key_source')!r}) — configure "
-                  f"BYOK or the relay on the box, then rerun")
-        print(f"[BLOCKED] {reason}")
-        _write_report(checks, blocked=reason)
-        sys.exit(3)
 
     # A0-2 auth gate: no token -> 401
     r = requests.post(f"{BASE}/api/chat", json={"message": "hi"}, timeout=10)
@@ -205,6 +199,19 @@ def main():
           "list_data_connections" in used and result_of(ev).get("ok")
           and len(text.strip()) > 0,
           f"tools={used} text={text[:200]!r}")
+    # A0-4k key posture AFTER a real turn: relay on installs (no raw key on the
+    # box), byok/env/encrypted on a dev box. "none" here means the turn ran
+    # without any source — the one state that is a real configuration defect.
+    try:
+        h2 = requests.get(f"{BASE}/health", timeout=10).json()
+        src = h2.get("anthropic_key_source")
+        check("A0-4k", "Anthropic key source after the first turn is a real one "
+                       "(relay | byok | env | encrypted), never 'none'",
+              src in ("relay", "byok", "env", "encrypted"),
+              f"key_source={src!r} key_present={h2.get('anthropic_key_present')} "
+              f"model={h2.get('model')}")
+    except Exception as e:
+        check("A0-4k", "key posture after the first turn", False, e)
 
     # A0-5 schema journey (same session — continuity)
     ev, text = chat_turn(token, "Pick one of those connections and show me a few of "
@@ -2944,6 +2951,31 @@ def main():
                   f"tools={tools_used(ev7)} text={txt7[:180]!r}")
     except Exception as e:
         check("U-7", "role-1 live fabrication probe", False, e)
+
+    # ------------------------------------------------------------------
+    # R — rich output (maps, charts/KPI, vision, export, PDF, images), graded
+    # on stored blocks and downloaded files. Posture-aware: see the module.
+    # ------------------------------------------------------------------
+    try:
+        import rich_output_checks
+        rich_output_checks.run(check, BASE, token, app_base=MAIN)
+    except Exception as e:
+        check("R-*", "rich-output module", False, e)
+
+    # ------------------------------------------------------------------
+    # T — per-tool smoke: every mounted tool called once with harmless
+    # arguments, graded on its own tool_result (james 2026-09-03: the class
+    # of defect to catch is a whole tool dead on an install, not a wrong
+    # answer). PACK20_SKIP_TOOL_SMOKE=1 leaves it out (~10-15 min of turns).
+    # ------------------------------------------------------------------
+    if os.getenv("PACK20_SKIP_TOOL_SMOKE", "") != "1":
+        try:
+            import tool_smoke_checks
+            tool_smoke_checks.run(check, BASE, token, app_base=MAIN)
+        except Exception as e:
+            check("T-*", "per-tool smoke module", False, e)
+    else:
+        check("T-*", "per-tool smoke", True, "SKIP: PACK20_SKIP_TOOL_SMOKE=1")
 
     _write_report(checks)
     if not all(c["ok"] for c in checks):
