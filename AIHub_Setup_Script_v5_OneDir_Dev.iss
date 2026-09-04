@@ -278,6 +278,40 @@ begin
     Log('Successfully appended ' + Key + ' to ' + FilePath);
 end;
 
+function ForceEnvKeyValue(const FilePath, Key, Value: String): Boolean;
+var
+  Existing: String;
+  LineToAdd: String;
+begin
+  // Makes Key resolve to Value in the .env WITHOUT rewriting the file: the
+  // platform's loaders (python-dotenv) let a LATER line win over an earlier
+  // one, so a preserved legacy line such as THE_AGENT_ENABLED=false is simply
+  // overridden by the appended line. Idempotent: ReadEnvFileFromPath returns
+  // the LAST value, so nothing is appended once it already reads Value.
+  // Whole-file rewrites are avoided on purpose (encoding round-trips of a
+  // client's hand-edited .env are not worth the risk for one key).
+  Result := True;
+  Existing := ReadEnvFileFromPath(FilePath, Key);
+  if Existing = Value then
+  begin
+    Log('Env key already resolves as wanted: ' + Key + '=' + Value);
+    Exit;
+  end;
+  if Existing <> '' then
+    Log('Env key ' + Key + ' currently ' + Existing + '; appending an overriding line')
+  else
+    Log('Env key ' + Key + ' missing; appending ' + Key + '=' + Value);
+  LineToAdd := #13#10 + '# ' + Key + ' set by the installer (a later line overrides an earlier one)' +
+               #13#10 + Key + '=' + Value + #13#10;
+  if not SaveStringToFile(FilePath, LineToAdd, True) then
+  begin
+    Log('ERROR: Failed to append ' + Key + ' to ' + FilePath);
+    Result := False;
+  end
+  else
+    Log('Successfully appended ' + Key + '=' + Value + ' to ' + FilePath);
+end;
+
 procedure ReadOnlyCheckBoxClick(Sender: TObject);
 begin
   LocalUserEdit.ReadOnly := ReadOnlyCheckBox.Checked;
@@ -1265,6 +1299,27 @@ begin
       begin
         MsgBox('Warning: Failed to write CC_PICKER_CONNECTIONS to .env.' + #13#10 +
                'You may need to add it manually',
+               mbError, MB_OK);
+      end;
+
+      // --- THE_AGENT_ENABLED / THE_AGENT_MODE (2026-09-04) ---
+      // Every client arrives by UPGRADE, and an upgrade keeps the existing .env,
+      // so a preserved file predating these keys (or one carrying the legacy
+      // false) never turned The Agent on - the upgraded test server showed no
+      // nav entry and no routing. Force BOTH (an appended line overrides). Safe for
+      // clients: the nav entry, /the-agent and the '/' redirect are all gated to
+      // Developers/Admins unless AGENT_ALLOW_ALL_USERS=true (seeded false below),
+      // so regular users see exactly what they see today.
+      if not ForceEnvKeyValue(EnvConfigFile, 'THE_AGENT_ENABLED', 'true') then
+      begin
+        MsgBox('Warning: Failed to write THE_AGENT_ENABLED to .env.' + #13#10 +
+               'You may need to set it manually: THE_AGENT_ENABLED=true',
+               mbError, MB_OK);
+      end;
+      if not ForceEnvKeyValue(EnvConfigFile, 'THE_AGENT_MODE', 'true') then
+      begin
+        MsgBox('Warning: Failed to write THE_AGENT_MODE to .env.' + #13#10 +
+               'You may need to set it manually: THE_AGENT_MODE=true',
                mbError, MB_OK);
       end;
 

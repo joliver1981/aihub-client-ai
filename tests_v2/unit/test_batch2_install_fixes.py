@@ -146,6 +146,27 @@ def test_installer_seeds_the_all_users_key():
     assert "EnsureEnvKeyExists(EnvConfigFile, 'AGENT_ALLOW_ALL_USERS', 'false')" in iss
 
 
+def test_installer_forces_the_front_door_flags_on_upgrade():
+    """Every client arrives by upgrade and keeps its .env; a preserved file that
+    predates the keys (or carries the legacy false) must still end up with
+    THE_AGENT_ENABLED/THE_AGENT_MODE resolving true. Append-only on purpose."""
+    iss = _read("AIHub_Setup_Script_v5_OneDir_Dev.iss")
+    assert "function ForceEnvKeyValue(const FilePath, Key, Value: String): Boolean;" in iss
+    assert "ForceEnvKeyValue(EnvConfigFile, 'THE_AGENT_ENABLED', 'true')" in iss
+    assert "ForceEnvKeyValue(EnvConfigFile, 'THE_AGENT_MODE', 'true')" in iss
+    body = iss[iss.index("function ForceEnvKeyValue"):iss.index("procedure ReadOnlyCheckBoxClick")]
+    assert "SaveStringToFile(FilePath, LineToAdd, True)" in body     # append, never rewrite
+    assert "LoadFromFile" not in body and "SaveToFile" not in body
+
+
+def test_dotenv_lets_a_later_line_override_an_earlier_one(tmp_path):
+    """The property the installer's append-only override relies on."""
+    from dotenv import dotenv_values
+    f = tmp_path / "t.env"
+    f.write_text("THE_AGENT_ENABLED=false\nX=1\nTHE_AGENT_ENABLED=true\n")
+    assert dotenv_values(str(f))["THE_AGENT_ENABLED"] == "true"
+
+
 # ---------------------------------------------------------- CC prompt
 
 def test_cc_discover_before_asking_sentence_is_single_and_concise():
