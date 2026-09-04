@@ -159,6 +159,16 @@ def test_installer_forces_the_front_door_flags_on_upgrade():
     assert "LoadFromFile" not in body and "SaveToFile" not in body
 
 
+def test_iss_pascal_never_starts_a_line_with_a_char_code():
+    """Inno's preprocessor reads a line that begins with '#' as a directive: a
+    wrapped Pascal expression whose continuation started with #13#10 broke the
+    installer compile ("Unknown preprocessor directive", 2026-09-04)."""
+    iss = _read("AIHub_Setup_Script_v5_OneDir_Dev.iss")
+    offenders = [n + 1 for n, ln in enumerate(iss.splitlines())
+                 if ln.lstrip().startswith("#") and ln.lstrip()[1:2].isdigit()]
+    assert offenders == [], f"lines beginning with a #NN char code: {offenders}"
+
+
 def test_dotenv_lets_a_later_line_override_an_earlier_one(tmp_path):
     """The property the installer's append-only override relies on."""
     from dotenv import dotenv_values

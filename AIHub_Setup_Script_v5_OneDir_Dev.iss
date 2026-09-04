@@ -301,8 +301,7 @@ begin
     Log('Env key ' + Key + ' currently ' + Existing + '; appending an overriding line')
   else
     Log('Env key ' + Key + ' missing; appending ' + Key + '=' + Value);
-  LineToAdd := #13#10 + '# ' + Key + ' set by the installer (a later line overrides an earlier one)' +
-               #13#10 + Key + '=' + Value + #13#10;
+  LineToAdd := #13#10 + '# ' + Key + ' set by the installer (a later line overrides an earlier one)' + #13#10 + Key + '=' + Value + #13#10;
   if not SaveStringToFile(FilePath, LineToAdd, True) then
   begin
     Log('ERROR: Failed to append ' + Key + ' to ' + FilePath);
