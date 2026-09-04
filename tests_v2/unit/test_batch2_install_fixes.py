@@ -134,6 +134,13 @@ def test_home_redirect_obeys_the_developer_gate():
     assert "AGENT_ALLOW_ALL_USERS" in cond and "role', 0) or 0) >= 2" in cond
 
 
+def test_logout_clears_the_sticky_classic_choice():
+    src = _read("app.py")
+    i = src.index('@app.route("/logout")')
+    body = src[i:src.index("return redirect", i)]
+    assert "logout_user()" in body and "session.pop('classic_mode', None)" in body
+
+
 def test_installer_seeds_the_all_users_key():
     iss = _read("AIHub_Setup_Script_v5_OneDir_Dev.iss")
     assert "EnsureEnvKeyExists(EnvConfigFile, 'AGENT_ALLOW_ALL_USERS', 'false')" in iss

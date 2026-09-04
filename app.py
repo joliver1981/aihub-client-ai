@@ -1548,6 +1548,11 @@ def login():
 def logout():
     #track_logout()  # telemetry
     logout_user()
+    # The sticky "classic" choice (?classic=1) lives in the session and used to
+    # survive a logout, so a Developer who had picked Classic once was never
+    # routed into The Agent again, even after signing back in (james,
+    # 2026-09-03). Logging out ends that choice; the next sign-in starts clean.
+    session.pop('classic_mode', None)
     return redirect(url_for('home'))
 #####################
 # END AUTH ROUTES
