@@ -3135,21 +3135,77 @@
           "(no extra data)";
       }
       sec.appendChild(kv); detailEl.appendChild(sec);
+
+      // Review items (non-blocking automation exceptions) vs checkpoint
+      // GATES (a paused run): same decide endpoint, different meaning —
+      // approve on a review item accepts THIS document, reject excludes it;
+      // nothing is paused or aborted. Label accordingly.
+      const isReview = item.source === "automation" && item.verb === "review";
+
+      // BRD-10 fix-and-approve parity with classic My Approvals: when the
+      // automation declared correctable fields, render them editable. Only
+      // CHANGED values are sent as `corrections`; the automation re-validates
+      // them against its reference data before using any of them.
+      const corrOrig = {};
+      const corrInputs = [];
+      const correctable = (isReview && p.correctable && typeof p.correctable === "object")
+        ? p.correctable : null;
+      if (correctable && Object.keys(correctable).length) {
+        const cs0 = el("div", "dsection");
+        cs0.appendChild(el("div", "dlabel", "Review & correct extracted data"));
+        cs0.appendChild(el("div", "hint",
+          "Fix any wrong value, then Approve. Corrections are re-validated against the " +
+          "employee master before anything is imported; an untouched form means the " +
+          "extracted data was right."));
+        const grid = el("div", "kv");
+        Object.entries(correctable).forEach(([k, v]) => {
+          corrOrig[k] = String(v == null ? "" : v);
+          const row = el("div"); row.style.cssText = "display:flex;gap:8px;align-items:center;margin:4px 0";
+          const lab = el("label", "", k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+                                       .replace(/^Form Type$/, "Document Type"));
+          lab.style.minWidth = "140px";
+          const inp = el("input"); inp.type = "text"; inp.value = corrOrig[k];
+          inp.dataset.field = k; inp.style.flex = "1";
+          corrInputs.push(inp);
+          row.append(lab, inp); grid.appendChild(row);
+        });
+        cs0.appendChild(grid); detailEl.appendChild(cs0);
+      }
+      const collectCorrections = () => {
+        const out = {};
+        corrInputs.forEach(inp => {
+          const v = String(inp.value || "").trim();
+          if (v && v !== corrOrig[inp.dataset.field]) out[inp.dataset.field] = v;
+        });
+        return Object.keys(out).length ? out : null;
+      };
+
       const cm = commentBox();
       const cs = el("div", "dsection"); cs.appendChild(cm); detailEl.appendChild(cs);
       const ok = el("button", "btn primary",
+                    isReview ? "Approve" :
                     item.source === "automation" ? "Approve — proceed" : "Approve");
-      ok.onclick = () => post("/api/work/decide",
-        { source: item.source, id: item.id, decision: "approved",
-          comments: cm.value, title: item.title },
-        detailEl, "Approved — the paused run resumes.");
+      ok.onclick = () => {
+        const body = { source: item.source, id: item.id, decision: "approved",
+                       comments: cm.value, title: item.title };
+        const corr = collectCorrections();
+        if (corr) body.corrections = corr;
+        post("/api/work/decide", body, detailEl,
+             isReview ? (corr ? "Approved with corrections — recorded for the running batch."
+                              : "Approved — recorded for the running batch.")
+                      : "Approved — the paused run resumes.");
+      };
       const no = el("button", "btn danger",
+                    isReview ? "Reject" :
                     item.source === "automation" ? "Reject — abort" : "Reject");
       no.onclick = () => post("/api/work/decide",
         { source: item.source, id: item.id, decision: "rejected",
-          comments: cm.value, title: item.title }, detailEl, "Rejected.");
+          comments: cm.value, title: item.title }, detailEl,
+        isReview ? "Rejected — excluded from this batch." : "Rejected.");
       actions.append(ok, no);
-      actions.appendChild(el("span", "hint", "Your decision resumes the paused run"));
+      actions.appendChild(el("span", "hint",
+        isReview ? "Approve = accept this document (with any corrections); Reject = exclude it from this batch"
+                 : "Your decision resumes the paused run"));
     } else if (p.kind === "agent_email_reply") {
       // Drafted outbound email — render as an EMAIL review, not a payload
       // dump (James 2026-08-09): To/From/Subject rows + editable body,

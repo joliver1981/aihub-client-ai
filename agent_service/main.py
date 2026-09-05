@@ -491,7 +491,14 @@ async def work_list(request: Request):
             "payload": {"run_id": ad.get("run_id"),
                         "checkpoint_id": ad.get("checkpoint_id"),
                         "automation_id": ad.get("automation_id"),
+                        "automation_name": ad.get("automation_name"),
+                        "kind": ad.get("kind"),
                         "dry_run": ad.get("dry_run"),
+                        # BRD-10 fix-and-approve parity with classic My Approvals
+                        # (james 2026-09-03): the automation's correctable
+                        # fields ride through so the UI can render them.
+                        "correctable": (ad.get("correctable")
+                                        if isinstance(ad.get("correctable"), dict) else None),
                         "attachments": ad.get("attachments") or []}})
     for row in await readthrough.email_pending():
         items.append({
