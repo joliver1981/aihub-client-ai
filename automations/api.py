@@ -27,14 +27,17 @@ import re
 import threading
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from functools import wraps
+from pathlib import Path
 from typing import Dict, Optional
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 from flask_login import current_user, login_required
 
 import config as cfg
-from .manager import AutomationManager, validate_manifest
+from .manager import (AutomationManager, validate_manifest,
+                      LIFECYCLE_EPHEMERAL, LIFECYCLE_KEEP)
 from .runner import AutomationRunner
 
 logger = logging.getLogger(__name__)
@@ -515,6 +518,238 @@ def _deactivate_automation_schedules(automation_id: str) -> int:
         raise
     finally:
         conn.close()
+
+
+# ------------------------------------------------- ephemeral sweep (2026-09-05)
+#
+# The Agent builds one-off automations when a task needs a human checkpoint
+# (run_python has no aihub.checkpoint), and they used to outlive the
+# conversation: 33 active / 346 soft-deleted rows in the dev tenant, the two
+# newest being exactly such one-offs. An automation created with
+# ephemeral=true is pre-approved for deletion — the agent deletes it right
+# after its run — and this sweep catches the abandoned ones. Same shape as the
+# orphan-run reaper: guarded, report-first, kill switch, and it only ever
+# SOFT-deletes through _delete_automation_impl (disk is never touched; the
+# folder stays as the audit trail).
+
+_EPHEMERAL_GRACE_HOURS_DEFAULT = 24.0
+_EPHEMERAL_SWEEP_INTERVAL_MIN_DEFAULT = 360.0
+_EPHEMERAL_SWEEP_FIRST_PASS_DELAY_S = 90
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    return str(os.getenv(name, str(default))).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, "") or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _automation_has_active_schedule(automation_id: str) -> bool:
+    """True when at least one ACTIVE scheduler job targets this automation
+    (same join _deactivate_automation_schedules flips)."""
+    conn = _get_manager()._db_conn()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT COUNT(*) FROM ScheduledJobs j
+               JOIN ScheduledJobParameters p
+                 ON p.ScheduledJobId = j.ScheduledJobId
+                AND p.ParameterName = 'automation_id' AND p.ParameterValue = ?
+               WHERE j.JobType = 'automation' AND j.IsActive = 1""",
+            automation_id,
+        )
+        row = cursor.fetchone()
+        return bool(row and int(row[0] or 0) > 0)
+    finally:
+        conn.close()
+
+
+def _agent_views_db_path() -> str:
+    """The Agent's My Work / Views store (agent_service/workitem_store.DB_PATH
+    = <APP_ROOT>/data/agent/mywork.db). Derived from the manager's own base
+    path so no extra import is needed; AUTOMATIONS_AGENT_VIEWS_DB overrides."""
+    override = os.getenv("AUTOMATIONS_AGENT_VIEWS_DB")
+    if override:
+        return override
+    app_root = os.path.dirname(os.path.dirname(os.path.abspath(_get_manager().base_path)))
+    return os.path.join(app_root, "data", "agent", "mywork.db")
+
+
+def _referenced_by_view_tile(automation_id: str, name: str) -> Optional[bool]:
+    """Is this automation pinned to a saved View tile (tile type 'automation',
+    referenced by id OR name)? None = could not check — the sweep then leaves
+    the automation alone (fail closed). Read-only sqlite access."""
+    path = _agent_views_db_path()
+    if not os.path.isfile(path):
+        return False
+    try:
+        import sqlite3
+        uri = Path(path).resolve().as_uri() + "?mode=ro"
+        c = sqlite3.connect(uri, uri=True, timeout=5)
+        try:
+            rows = c.execute("SELECT tiles FROM views").fetchall()
+        finally:
+            c.close()
+    except Exception as e:
+        logger.warning(f"[ephemeral-sweep] could not read the views store ({path}): {e}")
+        return None
+    want = {str(automation_id or "").strip().lower(), str(name or "").strip().lower()}
+    want.discard("")
+    for (tiles,) in rows:
+        try:
+            for t in json.loads(tiles or "[]"):
+                if (isinstance(t, dict) and t.get("type") == "automation"
+                        and str(t.get("automation") or "").strip().lower() in want):
+                    return True
+        except Exception:
+            return None  # an unreadable tiles blob: be conservative
+    return False
+
+
+def _parse_utc(raw) -> Optional[datetime]:
+    """DB timestamps are UTC (GETUTCDATE) and travel as naive ISO strings."""
+    if not raw:
+        return None
+    if isinstance(raw, datetime):
+        dt = raw
+    else:
+        try:
+            dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _ephemeral_last_activity(auto: Dict, runner) -> Optional[datetime]:
+    """Newest of the row's created/updated stamps and its latest run's
+    start/finish. None = nothing to measure against (left alone)."""
+    stamps = [dt for dt in (_parse_utc(auto.get("updated_at")),
+                            _parse_utc(auto.get("created_at"))) if dt]
+    try:
+        for run in (runner.list_runs(auto["automation_id"], 1) or []):
+            stamps += [dt for dt in (_parse_utc(run.get("finished_at")),
+                                     _parse_utc(run.get("started_at"))) if dt]
+    except Exception as e:
+        logger.warning(f"[ephemeral-sweep] run lookup failed for "
+                       f"{auto.get('automation_id')}: {e}")
+        return None
+    return max(stamps) if stamps else None
+
+
+def sweep_ephemeral_automations(grace_hours: Optional[float] = None,
+                                dry_run: bool = False) -> Dict:
+    """Soft-delete abandoned EPHEMERAL automations.
+
+    Eligible = flagged in the working manifest AND never promoted AND no run in
+    flight AND no active schedule AND not pinned to a View tile AND idle longer
+    than the grace period (AUTOMATIONS_EPHEMERAL_GRACE_HOURS, default 24).
+    Everything else is reported with the reason it was left alone. Never
+    touches disk; deletes go through _delete_automation_impl like the button.
+    """
+    if grace_hours is None:
+        grace_hours = _env_float("AUTOMATIONS_EPHEMERAL_GRACE_HOURS",
+                                 _EPHEMERAL_GRACE_HOURS_DEFAULT)
+    grace_hours = max(0.0, float(grace_hours))
+    grace = timedelta(hours=grace_hours)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    mgr = _get_manager()
+    runner = _get_runner()
+    swept, skipped = [], []
+
+    try:
+        in_flight = {r.get("automation_id") for r in (runner.list_active_runs() or [])}
+    except Exception as e:
+        logger.warning(f"[ephemeral-sweep] could not list active runs — pass aborted: {e}")
+        return {"swept": [], "skipped": [], "count": 0, "dry_run": dry_run,
+                "grace_hours": grace_hours, "error": f"could not list active runs: {e}"}
+
+    for auto in mgr.list_automations():
+        if auto.get("lifecycle") != LIFECYCLE_EPHEMERAL:
+            continue
+        aid, name = auto["automation_id"], auto.get("name")
+        entry = {"automation_id": aid, "name": name}
+
+        if int(auto.get("pinned_version") or 0) > 0:
+            skipped.append({**entry, "reason": "promoted (a promoted automation is a keeper)"})
+            continue
+        if aid in in_flight:
+            skipped.append({**entry, "reason": "run in flight"})
+            continue
+        try:
+            if _automation_has_active_schedule(aid):
+                skipped.append({**entry, "reason": "active schedule"})
+                continue
+        except Exception as e:
+            skipped.append({**entry, "reason": f"could not check schedules ({e})"})
+            continue
+        pinned = _referenced_by_view_tile(aid, name)
+        if pinned is None:
+            skipped.append({**entry, "reason": "could not check View tiles"})
+            continue
+        if pinned:
+            skipped.append({**entry, "reason": "pinned to a View tile"})
+            continue
+        last = _ephemeral_last_activity(auto, runner)
+        if last is None:
+            skipped.append({**entry, "reason": "no activity timestamp"})
+            continue
+        idle = now - last
+        idle_h = round(idle.total_seconds() / 3600, 1)
+        if idle < grace:
+            skipped.append({**entry, "reason": f"within grace ({idle_h}h idle < {grace_hours}h)"})
+            continue
+        entry["idle_hours"] = idle_h
+        if dry_run:
+            swept.append({**entry, "action": "would_delete"})
+            continue
+        resp, code = _delete_automation_impl(aid)
+        if code == 200:
+            swept.append({**entry, "action": "deleted",
+                          "schedules_deactivated": resp.get("schedules_deactivated", 0)})
+            logger.info(f"[ephemeral-sweep] soft-deleted abandoned ephemeral automation "
+                        f"'{name}' ({aid}) after {idle_h}h idle")
+        else:
+            skipped.append({**entry, "reason": f"delete refused (HTTP {code}): {resp.get('error')}"})
+
+    return {"swept": swept, "skipped": skipped, "count": len(swept),
+            "dry_run": dry_run, "grace_hours": grace_hours}
+
+
+def start_ephemeral_sweeper() -> Optional[threading.Thread]:
+    """Periodic sweep, started by app.py next to the orphan-run reaper.
+    Kill switch AUTOMATIONS_EPHEMERAL_SWEEP=false; cadence
+    AUTOMATIONS_EPHEMERAL_SWEEP_INTERVAL_MINUTES (default 360, floor 5);
+    first pass 90s after boot so the reaper's startup sweep settles first."""
+    if not _env_flag("AUTOMATIONS_EPHEMERAL_SWEEP", True):
+        logger.info("[ephemeral-sweep] disabled (AUTOMATIONS_EPHEMERAL_SWEEP=false)")
+        return None
+    interval_min = max(5.0, _env_float("AUTOMATIONS_EPHEMERAL_SWEEP_INTERVAL_MINUTES",
+                                       _EPHEMERAL_SWEEP_INTERVAL_MIN_DEFAULT))
+
+    def _loop():
+        time.sleep(_EPHEMERAL_SWEEP_FIRST_PASS_DELAY_S)
+        while True:
+            try:
+                report = sweep_ephemeral_automations()
+                if report.get("count"):
+                    logger.info(f"[ephemeral-sweep] soft-deleted {report['count']} abandoned "
+                                f"ephemeral automation(s): {[s['name'] for s in report['swept']]}")
+                else:
+                    logger.info(f"[ephemeral-sweep] nothing to sweep "
+                                f"({len(report.get('skipped') or [])} ephemeral left alone)")
+            except Exception as e:
+                logger.warning(f"[ephemeral-sweep] pass failed (will retry next interval): {e}")
+            time.sleep(interval_min * 60)
+
+    t = threading.Thread(target=_loop, daemon=True, name="automation-ephemeral-sweep")
+    t.start()
+    return t
 
 
 # ---------------------------------------------------------- code / manifest
@@ -1104,6 +1339,16 @@ def reap_stale_runs():
     living supervisor are finalized; anything genuinely live is untouched."""
     reaped = _get_runner().reap_orphan_runs()
     return jsonify({"reaped": reaped, "count": len(reaped)})
+
+
+@automations_bp.route("/api/sweep_ephemeral", methods=["POST"])
+@automations_gate
+def sweep_ephemeral_route():
+    """Manual pass of the ephemeral-automation sweep (the same function the
+    background thread runs). Body: {"dry_run": bool, "grace_hours": float}."""
+    body = request.get_json(silent=True) or {}
+    return jsonify(sweep_ephemeral_automations(
+        grace_hours=body.get("grace_hours"), dry_run=bool(body.get("dry_run", False))))
 
 
 @automations_bp.route("/api/runs/<run_id>/abort", methods=["POST"])
@@ -1975,16 +2220,25 @@ def internal_manage():
             auto["versions"] = mgr.list_versions(aid)
             auto["manifest"] = mgr.get_manifest(aid)
             auto["code"] = mgr.get_code(aid)
+            auto["lifecycle"] = mgr.lifecycle_of(aid)
             return jsonify({"automation": auto})
 
         if action == "create":
+            # Ephemeral (The Agent's one-offs, 2026-09-05): the flag rides in
+            # the manifest, no environment is provisioned (a throwaway never
+            # needs its own venv), and the row is pre-approved for deletion +
+            # swept when abandoned — see sweep_ephemeral_automations.
+            ephemeral = bool(payload.get("ephemeral"))
             ok, auto, error = mgr.create_automation(
                 name=payload.get("name", ""), description=payload.get("description", ""),
-                owner_user_id=user_id, environment_id=payload.get("environment_id"))
+                owner_user_id=user_id, environment_id=payload.get("environment_id"),
+                lifecycle=LIFECYCLE_EPHEMERAL if ephemeral else None)
             if not ok:
                 return jsonify({"error": error}), 400
+            auto["lifecycle"] = LIFECYCLE_EPHEMERAL if ephemeral else LIFECYCLE_KEEP
             warning = None
-            if not payload.get("environment_id") and payload.get("provision_environment", True):
+            if (not ephemeral and not payload.get("environment_id")
+                    and payload.get("provision_environment", True)):
                 _provision_environment_async(auto)
                 warning = ("dedicated environment is being provisioned in the background; "
                            "runs use the bundled Python until it is ready")
@@ -2083,6 +2337,14 @@ def internal_manage():
                 grace_s=int(payload.get("grace_s", 300)),
                 stale_s=int(payload.get("stale_s", 180)))
             return jsonify({"reaped": reaped, "count": len(reaped)})
+
+        if action == "sweep_ephemeral":
+            # Ops/tests: the same pass the background thread runs. dry_run
+            # reports what WOULD go; grace_hours=0 sweeps every eligible one.
+            report = sweep_ephemeral_automations(
+                grace_hours=payload.get("grace_hours"),
+                dry_run=bool(payload.get("dry_run", False)))
+            return jsonify(report)
 
         return jsonify({"error": f"unknown action '{action}'"}), 400
     except Exception as e:

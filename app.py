@@ -13710,6 +13710,17 @@ if getattr(cfg, "AUTOMATIONS_ENABLED", False):
     threading.Thread(target=_automation_reaper_startup, daemon=True,
                      name="automation-reaper").start()
 
+# Ephemeral-automation sweep (james 2026-09-05): The Agent's one-offs are
+# created with ephemeral=true and deleted by the agent after their run; this
+# periodic pass soft-deletes the abandoned ones (never touches disk). Kill
+# switch AUTOMATIONS_EPHEMERAL_SWEEP=false — see automations/api.py.
+if getattr(cfg, "AUTOMATIONS_ENABLED", False):
+    try:
+        from automations.api import start_ephemeral_sweeper as _start_ephemeral_sweeper
+        _start_ephemeral_sweeper()
+    except Exception as _sweep_err:
+        logger.warning(f"[ephemeral-sweep] not started (will not affect the app): {_sweep_err}")
+
 # Import code flows blueprint (multi-step Code Flows — a workflow of Code Step nodes)
 from codeflows.api import code_flows_bp
 app.register_blueprint(code_flows_bp)

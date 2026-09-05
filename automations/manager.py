@@ -39,6 +39,10 @@ logger = logging.getLogger(__name__)
 MAX_TIMEOUT_SECONDS = 604800
 DEFAULT_TIMEOUT_SECONDS = 600
 
+# Lifecycle (2026-09-05): lives in the working manifest.json, never a column.
+LIFECYCLE_KEEP = "keep"            # default — the row is a keeper
+LIFECYCLE_EPHEMERAL = "ephemeral"  # one-off; pre-approved for deletion, swept when abandoned
+
 VALID_OUTPUT_KINDS = {"file", "sftp_upload", "ftp_upload", "http_upload"}
 VALID_INPUT_TYPES = {"string", "int", "float", "bool", "path"}
 VALID_TRIGGERS = {"manual", "api", "dry_run", "schedule", "workflow", "email", "webhook"}
@@ -306,12 +310,20 @@ END
     # ------------------------------------------------------------------- CRUD
 
     def create_automation(self, name: str, description: str, owner_user_id: int,
-                          environment_id: Optional[str] = None) -> Tuple[bool, Optional[Dict], Optional[str]]:
+                          environment_id: Optional[str] = None,
+                          lifecycle: Optional[str] = None) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """Create the DB row + folder skeleton. Returns (ok, automation, error).
 
         environment_id: pass an existing agent-environment id, or None — the
         API layer provisions a dedicated environment (one env per automation)
         and PATCHes it in; runs without one fall back to the bundle python.
+
+        lifecycle: None / 'keep' (default) or 'ephemeral' — a one-off that
+        exists only to run once (The Agent's data fixes behind a checkpoint,
+        throwaway probes). Recorded in the working manifest, NOT a DB column:
+        validate_manifest tolerates unknown keys and Azure tenants have no DDL
+        rights. Ephemeral rows are pre-approved for deletion and swept when
+        abandoned (automations/api.py sweep_ephemeral_automations).
         """
         name = (name or "").strip()
         if not name or len(name) > 200:
@@ -335,6 +347,8 @@ END
                 "packages": [],
                 "outputs": [],
             }
+            if lifecycle == LIFECYCLE_EPHEMERAL:
+                skeleton_manifest["lifecycle"] = LIFECYCLE_EPHEMERAL
             with open(os.path.join(adir, "manifest.json"), "w", encoding="utf-8") as f:
                 json.dump(skeleton_manifest, f, indent=2)
             with open(os.path.join(adir, "main.py"), "w", encoding="utf-8") as f:
@@ -394,7 +408,36 @@ END
         return self._db_get_automation(automation_id)
 
     def list_automations(self) -> List[Dict]:
-        return self._db_list_automations()
+        rows = self._db_list_automations()
+        for r in rows:
+            try:
+                r["lifecycle"] = self.lifecycle_of(r["automation_id"])
+            except Exception:
+                r["lifecycle"] = LIFECYCLE_KEEP
+        return rows
+
+    # ------------------------------------------------------------- lifecycle
+
+    def lifecycle_of(self, automation_id: str) -> str:
+        """'ephemeral' when the WORKING manifest carries the flag, else 'keep'.
+        Missing/unreadable manifest reads as 'keep' — the safe direction (a
+        keeper is never swept)."""
+        m = self.get_manifest(automation_id) or {}
+        return LIFECYCLE_EPHEMERAL if m.get("lifecycle") == LIFECYCLE_EPHEMERAL else LIFECYCLE_KEEP
+
+    def _clear_lifecycle_flag(self, automation_id: str) -> None:
+        """Promotion means 'keep': drop the ephemeral flag from the working
+        manifest. Version manifests are immutable history and stay as saved."""
+        m = self.get_manifest(automation_id)
+        if not m or m.get("lifecycle") != LIFECYCLE_EPHEMERAL:
+            return
+        m.pop("lifecycle", None)
+        path = os.path.join(self.automation_dir(automation_id), "manifest.json")
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(m, f, indent=2)
+        except Exception as e:
+            logger.warning(f"promote({automation_id}): could not clear the ephemeral flag: {e}")
 
     def delete_automation(self, automation_id: str) -> Tuple[bool, Optional[str]]:
         """Soft delete: DB row survives for run-history joins; files stay on
@@ -426,8 +469,15 @@ END
             )
 
         adir = self.automation_dir(automation_id)
+        existing = self.get_manifest(automation_id) or {}
         if manifest is None:
-            manifest = self.get_manifest(automation_id) or {}
+            manifest = existing
+        elif (isinstance(manifest, dict) and manifest.get("lifecycle") is None
+              and existing.get("lifecycle") == LIFECYCLE_EPHEMERAL):
+            # The ephemeral flag is sticky across saves: a client that does not
+            # know about it must not silently turn a one-off into a keeper.
+            # Only promotion clears it.
+            manifest = dict(manifest, lifecycle=LIFECYCLE_EPHEMERAL)
         ok, errors = validate_manifest(manifest)
         if not ok:
             return False, None, errors
@@ -523,4 +573,7 @@ END
         if target not in self.list_versions(automation_id):
             return False, None, f"version v{target} does not exist"
         self._db_update_automation(automation_id, {"pinned_version": target})
+        # Pinning a version is the user's way of saying "keep this" — an
+        # ephemeral one-off stops being ephemeral the moment it is promoted.
+        self._clear_lifecycle_flag(automation_id)
         return True, target, None

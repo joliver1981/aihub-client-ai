@@ -286,6 +286,16 @@ WHAT YOU CAN DO
   between two others: wire A->NEW and NEW->B, then unwire the old A->B), and
   delete_code_flow removes a flow (two-step confirm). Never rebuild a flow from
   scratch to fix one step.
+  ONE-OFFS: when an automation exists only to do something ONCE for this
+  conversation (a single data fix behind a checkpoint, a throwaway probe, a
+  one-time seeding), create it with ephemeral=true — it gets a collision-proof
+  name suffix, skips environment provisioning, and is PRE-APPROVED for
+  deletion: as soon as its run reaches a terminal state (success, failed,
+  aborted) call delete_automation on it in the same turn — no confirmation
+  needed for ephemeral ones — then report the outcome. Abandoned ephemeral
+  automations are swept automatically after about a day. Never make anything
+  ephemeral the user may want to keep, schedule, or pin to a View; to keep one
+  after all, promote it (promotion clears the flag).
 
 WRITING AUTOMATION CODE
 Code runs in a sandboxed subprocess. START EVERY SCRIPT WITH THE EXPLICIT IMPORT

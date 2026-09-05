@@ -20,6 +20,7 @@ Honesty doctrine carried over verbatim from CC (AIHUB-0058/0040/0045 lessons):
 import json
 import os
 import re
+import uuid
 import asyncio
 from typing import Any
 
@@ -165,7 +166,54 @@ async def _run_action(action: str, automation_ref: str, inputs_json: str,
     if status >= 400 and not data.get("run_id"):
         return _text(f"{action} failed (HTTP {status}): {data.get('error', data)}",
                      is_error=True)
-    return _text(_summarize_run(data))
+    summary = _summarize_run(data)
+    if str(data.get("status")) in _TERMINAL_RUN_STATUSES:
+        summary += await _ephemeral_epilogue(auto_id)
+    return _text(summary)
+
+
+# ---------------------------------------------------------------------------
+# Ephemeral one-offs (2026-09-05)
+#
+# The agent reaches for an automation whenever a one-off needs a human
+# checkpoint (run_python has none) — and those rows used to outlive the
+# conversation. ephemeral=true on create marks the row (manifest flag, no
+# environment provisioned, collision-proof name) and PRE-APPROVES its deletion;
+# the run tools remind the model to delete it once the run is terminal, and
+# the server sweeps abandoned ones after a grace period.
+# ---------------------------------------------------------------------------
+
+_TERMINAL_RUN_STATUSES = frozenset(
+    {"success", "failed", "unverified", "aborted", "skipped", "error"})
+_EPHEMERAL_SUFFIX_RE = re.compile(r"-adhoc-[0-9a-f]{6}$")
+
+
+def _ephemeral_name(name: str) -> str:
+    """Soft-deleted names free up, so two one-offs with the same natural name
+    would collide; a short suffix keeps them unique and visibly ad hoc."""
+    base = str(name or "").strip()
+    if _EPHEMERAL_SUFFIX_RE.search(base):
+        return base
+    suffix = f"-adhoc-{uuid.uuid4().hex[:6]}"
+    return base[:200 - len(suffix)].rstrip("-. ") + suffix
+
+
+def _is_ephemeral(automation: dict) -> bool:
+    a = automation or {}
+    if a.get("lifecycle") == "ephemeral":
+        return True
+    return (a.get("manifest") or {}).get("lifecycle") == "ephemeral"
+
+
+async def _ephemeral_epilogue(auto_id: str) -> str:
+    """Appended to a TERMINAL run report for an ephemeral automation — the
+    concrete next step, so a one-off never lingers."""
+    got, gstat = await _manage("get", {"automation_id": auto_id}, timeout=30)
+    if gstat < 400 and _is_ephemeral(got.get("automation") or {}):
+        return ("\n⏳ This automation is EPHEMERAL (a one-off) and its run has finished — "
+                "delete it now with delete_automation (pre-approved; no confirmation "
+                "needed), then report the outcome above to the user.")
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -175,12 +223,23 @@ async def _run_action(action: str, automation_ref: str, inputs_json: str,
 @tool(
     "create_automation",
     "Create a new (empty) automation. Code is added separately with "
-    "save_automation_code. Names must be unique.",
+    "save_automation_code. Names must be unique. Set ephemeral=true for a "
+    "ONE-OFF — something that exists only to run once for this conversation "
+    "(a single data fix behind a checkpoint, a throwaway probe, a one-time "
+    "seeding): the name gets a collision-proof suffix, no environment is "
+    "provisioned, and it is PRE-APPROVED for deletion — call delete_automation "
+    "on it as soon as its run reaches a terminal state (no user confirmation "
+    "needed for ephemeral ones); abandoned ephemeral automations are swept "
+    "automatically after about a day. Never mark anything ephemeral that the "
+    "user may want to keep, schedule, or pin to a View; promoting clears the flag.",
     {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Unique name, <=200 chars"},
             "description": {"type": "string"},
+            "ephemeral": {"type": "boolean",
+                          "description": "true = one-off/throwaway that will be "
+                                         "deleted after its run (default false)"},
         },
         "required": ["name"],
         "additionalProperties": False,
@@ -189,16 +248,29 @@ async def _run_action(action: str, automation_ref: str, inputs_json: str,
 async def create_automation(args: dict[str, Any]) -> dict[str, Any]:
     if not _authoring_allowed():
         return _text(_DENIED, is_error=True)
-    data, status = await _manage("create", {"name": str(args["name"]).strip(),
-                                            "description": args.get("description") or ""},
-                                 timeout=60)
+    name = str(args["name"]).strip()
+    ephemeral = bool(args.get("ephemeral"))
+    payload: dict[str, Any] = {"name": name,
+                               "description": args.get("description") or ""}
+    if ephemeral:
+        payload["name"] = _ephemeral_name(name)
+        payload["ephemeral"] = True
+        payload["provision_environment"] = False
+    data, status = await _manage("create", payload, timeout=60)
     if status >= 400:
         return _text(f"Create failed (HTTP {status}): {data.get('error', data)}",
                      is_error=True)
     a = data.get("automation") or {}
-    msg = (f"Created automation '{a.get('name')}' — automation_id "
-           f"{a.get('automation_id')} (v0, nothing saved or promoted yet). "
-           "Next: save_automation_code, then dry_run_automation.")
+    if ephemeral:
+        msg = (f"Created EPHEMERAL automation '{a.get('name')}' — automation_id "
+               f"{a.get('automation_id')} (v0; one-off, no environment provisioned, "
+               "pre-approved for deletion). Next: save_automation_code, then "
+               "dry_run_automation; once the run reaches a terminal state, "
+               "delete_automation it in this same turn (no confirmation needed).")
+    else:
+        msg = (f"Created automation '{a.get('name')}' — automation_id "
+               f"{a.get('automation_id')} (v0, nothing saved or promoted yet). "
+               "Next: save_automation_code, then dry_run_automation.")
     if data.get("warning"):
         msg += f"\nNote: {data['warning']}"
     return _text(msg)
@@ -299,6 +371,7 @@ async def get_automation(args: dict[str, Any]) -> dict[str, Any]:
         f"Automation '{a.get('name')}' — id {a.get('automation_id')}",
         f"status {a.get('status')} | current v{a.get('current_version')} | "
         f"pinned v{a.get('pinned_version')} | versions {a.get('versions')}",
+        f"lifecycle: {'ephemeral (one-off, pre-approved for deletion)' if _is_ephemeral(a) else 'keep'}",
         f"description: {a.get('description', '')}",
         f"manifest: {json.dumps(a.get('manifest') or {})[:600]}",
         "--- code (current) ---",
@@ -379,6 +452,10 @@ async def check_automation_run(args: dict[str, Any]) -> dict[str, Any]:
     events = data.get("events") or []
     for ev in events[-5:]:
         lines.append(f"  event: {json.dumps(ev)[:200]}")
+    if str(run.get("status")) in _TERMINAL_RUN_STATUSES and run.get("automation_id"):
+        epilogue = await _ephemeral_epilogue(str(run["automation_id"]))
+        if epilogue:
+            lines.append(epilogue.strip())
     return _text("\n".join(lines))
 
 
@@ -512,9 +589,12 @@ async def decide_automation_checkpoint(args: dict[str, Any]) -> dict[str, Any]:
         if estat < 400:
             last = ev.get("run") or {}
             if str(last.get("status")) in terminal:
-                return _text(f"Checkpoint {args['decision']} recorded. "
-                             f"Run finished: **{last.get('status')}** "
-                             f"(exit {last.get('exit_code')}).")
+                msg = (f"Checkpoint {args['decision']} recorded. "
+                       f"Run finished: **{last.get('status')}** "
+                       f"(exit {last.get('exit_code')}).")
+                if last.get("automation_id"):
+                    msg += await _ephemeral_epilogue(str(last["automation_id"]))
+                return _text(msg)
         await asyncio.sleep(3)
     return _text(f"Checkpoint {args['decision']} recorded. Run is still "
                  f"'{last.get('status', 'running')}' — use check_automation_run "
@@ -525,7 +605,9 @@ async def decide_automation_checkpoint(args: dict[str, Any]) -> dict[str, Any]:
     "delete_automation",
     "Delete an automation (soft delete; schedules are deactivated first). "
     "TWO-STEP: first call without confirmed to get a confirmation summary; "
-    "call again with confirmed=true only after the user explicitly confirms.",
+    "call again with confirmed=true only after the user explicitly confirms. "
+    "EXCEPTION: an EPHEMERAL one-off (created with ephemeral=true) is "
+    "pre-approved — it is deleted on the first call, no confirmation needed.",
     {
         "type": "object",
         "properties": {
@@ -542,9 +624,10 @@ async def delete_automation(args: dict[str, Any]) -> dict[str, Any]:
     auto_id, err = await _resolve_automation(args["automation_id"])
     if err:
         return _text(err, is_error=True)
-    if not args.get("confirmed"):
-        got, gstat = await _manage("get", {"automation_id": auto_id}, timeout=30)
-        a = (got.get("automation") or {}) if gstat < 400 else {}
+    got, gstat = await _manage("get", {"automation_id": auto_id}, timeout=30)
+    a = (got.get("automation") or {}) if gstat < 400 else {}
+    ephemeral = _is_ephemeral(a)
+    if not args.get("confirmed") and not ephemeral:
         return _text("⚠️ CONFIRMATION REQUIRED — nothing was deleted.\n"
                      f"Target: '{a.get('name', auto_id)}' (id {auto_id}), "
                      f"pinned v{a.get('pinned_version')}. Deleting deactivates its "
@@ -554,8 +637,10 @@ async def delete_automation(args: dict[str, Any]) -> dict[str, Any]:
     if status >= 400:
         return _text(f"Delete failed (HTTP {status}): {data.get('error', data)}",
                      is_error=True)
-    return _text(f"Deleted '{data.get('name')}' — {data.get('schedules_deactivated', 0)} "
-                 "schedule(s) deactivated. Run history is retained.")
+    tag = " (ephemeral one-off — pre-approved, no confirmation needed)" if ephemeral else ""
+    return _text(f"Deleted '{data.get('name')}'{tag} — "
+                 f"{data.get('schedules_deactivated', 0)} schedule(s) deactivated. "
+                 "Run history is retained.")
 
 
 # ---------------------------------------------------------------------------
