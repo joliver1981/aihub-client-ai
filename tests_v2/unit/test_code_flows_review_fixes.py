@@ -29,7 +29,8 @@ class _StubRunner:
         self.calls = []
 
     def run_code_step(self, code, manifest, step_name, inputs=None,
-                      environment_id=None, run_id=None, workdir=None):
+                      environment_id=None, run_id=None, workdir=None,
+                      requested_by=None):
         self.calls.append({"step_name": step_name, "inputs": inputs or {}, "workdir": workdir})
         if isinstance(self._results, list):
             r = self._results[min(self._i, len(self._results) - 1)]

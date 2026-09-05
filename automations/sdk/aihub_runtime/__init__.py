@@ -138,6 +138,47 @@ def _token_scope():
         return ([], [])
 
 
+def _token_claims():
+    """Unverified base64 read of this run's own token payload — flavor and
+    names only, never values; the server verifies signature+scope on every
+    call. {} when there is no token or it is unreadable."""
+    token = _os.environ.get("AIHUB_RUN_TOKEN") or ""
+    try:
+        import base64 as _b64
+        seg = token.split(".")[1]
+        seg += "=" * (-len(seg) % 4)
+        claims = _json.loads(_b64.urlsafe_b64decode(seg.encode("ascii")).decode("utf-8"))
+        return claims if isinstance(claims, dict) else {}
+    except Exception:
+        return {}
+
+
+_CHAT_AUDIENCE = "code-interpreter-run"   # shared_auth.AUD_CODE_RUN
+_PLATFORM_RUN_VERBS = ("send_email", "checkpoint", "review_item", "review_decisions",
+                       "llm", "ai_extract")
+
+
+def _chat_lane_block(verb):
+    """Why `verb` cannot run here, or None. The platform-run verbs act on
+    behalf of a supervised platform run (a saved Automation or a Code Flow
+    step) and the platform refuses a chat run_python token at their
+    endpoints — say that plainly at the call instead of surfacing
+    'HTTP 403 wrong audience' from deep inside a script."""
+    if _token_claims().get("aud") == _CHAT_AUDIENCE:
+        return (f"aihub.{verb}() is not available from a chat run_python execution — it acts "
+                "on behalf of a saved Automation or Code Flow run. Use the chat's own tools "
+                "for this (e.g. its email tool with the file you produced).")
+    return None
+
+
+def _http_error_detail(e):
+    """The platform's {'error': ...} message from an HTTPError body, or ''."""
+    try:
+        return str(_json.loads(e.read().decode("utf-8")).get("error", "") or "")
+    except Exception:
+        return ""
+
+
 def help():  # noqa: A001 - deliberate, reads naturally in scripts
     """Print the SDK cheat sheet plus the connection/secret NAMES this run can
     resolve (names only — values are only ever resolved server-side)."""
@@ -149,7 +190,7 @@ def help():  # noqa: A001 - deliberate, reads naturally in scripts
         "  aihub.query(conn_name, sql, params=None) -> list of dict rows (parameterized SQL)",
         "  aihub.input(name, default=None) / aihub.inputs() -> run inputs",
         "  aihub.log(message)              -> line in the run log",
-        "  aihub.send_email(to, subject, body='', html_body=None, files=None)",
+        "  aihub.send_email(to, subject, body='', html_body=None, files=None) -> True/False (raises on a 4xx)",
         "  aihub.checkpoint(message, files=None, assignee=None) -> pause for human approval",
         "  aihub.review_item(message, ...) / aihub.review_decisions(ids) -> My Approvals bridge",
         "  aihub.llm(prompt, system=None, images=None) -> str  |  aihub.ai_extract(prompt, schema=None, ...)",
@@ -157,6 +198,16 @@ def help():  # noqa: A001 - deliberate, reads naturally in scripts
         "Connections this run can resolve: " + (", ".join(sorted(conns)) if conns else "(none)"),
         "Secrets this run can resolve:     " + (", ".join(sorted(secs)) if secs else "(none)"),
     ]
+    if _token_claims().get("aud") == _CHAT_AUDIENCE:
+        lines.append("")
+        lines.append("THIS IS A CHAT run_python EXECUTION: " + ", ".join(_PLATFORM_RUN_VERBS)
+                     + " are NOT available here (they act for a saved Automation / Code Flow "
+                       "run and raise if called) — use the chat's own tools instead.")
+    elif _os.environ.get("AIHUB_CHECKPOINTS_ENABLED") == "0":
+        lines.append("")
+        lines.append("THIS IS A CODE FLOW STEP: checkpoint() auto-approves and review_item() is "
+                     "skipped (no supervised run to pause against — promote to an Automation for "
+                     "human gates); send_email / llm / ai_extract / query work normally.")
     print("\n".join(lines))
 
 
@@ -299,6 +350,9 @@ def _ai_call(body):
     if not token:
         raise AutomationRuntimeError("aihub.llm/ai_extract require the run token "
                                      "(AIHUB_RUN_TOKEN missing)")
+    blocked = _chat_lane_block("llm/ai_extract")
+    if blocked:
+        raise AutomationRuntimeError(blocked)
     body["token"] = token
     try:
         res = _runtime_post("/automations/api/runtime/ai", body)
@@ -382,6 +436,10 @@ def review_item(message, title=None, files=None, assignee=None, assignee_group=N
     token = __os.environ.get("AIHUB_RUN_TOKEN")
     if not token:
         log("review item skipped: no run token")
+        return None
+    blocked = _chat_lane_block("review_item")
+    if blocked:
+        log(f"review item skipped: {blocked}")
         return None
     body = {"token": token, "message": str(message)}
     if title:
@@ -474,10 +532,18 @@ def send_email(to, subject, body="", html_body=None, files=None):
     model keys). `to` is an address, a list, or a ';'/',' separated string;
     `files` are workdir-relative attachments (<=10 files, 8 MB total).
 
-    Returns True if the platform accepted the send, else False — delivery
-    failure is REPORTED, never fatal, because a batch that produced a good CSV
-    must not be lost to a mail outage (BRD 7.3 treats email delivery failure as
-    a reportable exception)."""
+    Returns True if the platform accepted the send, False when delivery failed
+    for an OPERATIONAL reason (mail provider down, transport error, a 5xx) —
+    that failure is REPORTED, never fatal, because a batch that produced a good
+    CSV must not be lost to a mail outage (BRD 7.3 treats email delivery
+    failure as a reportable exception).
+
+    RAISES AutomationRuntimeError when the send can never work as written: no
+    run token / runtime URL, a chat run_python execution, or a 4xx from the
+    platform (bad recipients, a missing attachment, a token the platform will
+    not honour). Those are configuration/contract errors, not outages —
+    swallowing them is how a Code Flow step reported '✓ success' while every
+    email silently went nowhere (docs/handoff-codeflow-send-email-403.md)."""
     import os as __os
     if isinstance(to, str):
         to = [p.strip() for p in _re.split(r"[;,]", to) if p.strip()]
@@ -487,8 +553,12 @@ def send_email(to, subject, body="", html_body=None, files=None):
         return False
     token = __os.environ.get("AIHUB_RUN_TOKEN")
     if not token:
-        log(f"email skipped (no run token): {subject}")
-        return False
+        raise AutomationRuntimeError(
+            "aihub.send_email() needs the platform run token (AIHUB_RUN_TOKEN missing) — "
+            "this process was not started by the automation runner, so nothing can be sent")
+    blocked = _chat_lane_block("send_email")
+    if blocked:
+        raise AutomationRuntimeError(blocked)
     payload = {"token": token, "to": to, "subject": str(subject), "body": str(body or "")}
     if html_body:
         payload["html_body"] = str(html_body)
@@ -496,14 +566,25 @@ def send_email(to, subject, body="", html_body=None, files=None):
         payload["files"] = [str(f) for f in files]
     try:
         res = _runtime_post("/automations/api/runtime/notify_email", payload)
-        if res.get("sent"):
-            log(f"email sent to {len(to)} recipient(s): {subject}")
-            return True
-        log(f"email NOT sent ({res.get('error', 'unknown error')}): {subject}")
+    except AutomationRuntimeError:
+        raise  # no runtime URL: not started by the runner — a contract error
+    except _urlerror.HTTPError as e:
+        detail = _http_error_detail(e)
+        if 400 <= e.code < 500:
+            raise AutomationRuntimeError(
+                f"email rejected by the platform (HTTP {e.code}"
+                f"{': ' + detail if detail else ''}) — a configuration/contract error, "
+                "not a mail outage; nothing was sent") from None
+        log(f"email could not be sent (continuing): HTTP {e.code} {detail}".rstrip())
         return False
     except Exception as e:
         log(f"email could not be sent (continuing): {e}")
         return False
+    if res.get("sent"):
+        log(f"email sent to {len(to)} recipient(s): {subject}")
+        return True
+    log(f"email NOT sent ({res.get('error', 'unknown error')}): {subject}")
+    return False
 
 
 def _runtime_post(path, body):
@@ -557,6 +638,9 @@ def checkpoint(message, poll_seconds=2, files=None, assignee=None, assignee_grou
     if not token:
         raise AutomationRuntimeError(
             "checkpoint() requires the run token (AIHUB_RUN_TOKEN missing)")
+    blocked = _chat_lane_block("checkpoint")
+    if blocked:
+        raise AutomationRuntimeError(blocked)
     body = {"token": token, "message": str(message)}
     if files:
         if not isinstance(files, (list, tuple)):

@@ -157,19 +157,32 @@ def sign_automation_run_token(automation_id: str, run_id: str,
                               connections: Optional[list] = None,
                               secrets: Optional[list] = None,
                               ttl_seconds: int = 900,
-                              secret: Optional[str] = None) -> str:
+                              secret: Optional[str] = None,
+                              extra: Optional[Dict[str, Any]] = None) -> str:
     """Mint a token scoped to ONE automation run, carrying an ALLOWLIST of the
     connection/secret names the run's manifest declares. The aihub_runtime SDK
     (inside the automation subprocess) forwards this opaque token to the main
     app's /automations/api/runtime/resolve endpoint, which verifies it and
     resolves credentials server-side — credential values never enter the
-    generated code, argv, or the subprocess environment."""
+    generated code, argv, or the subprocess environment.
+
+    `extra` adds claims the runtime endpoints use to recognise a token flavor
+    that has NO AutomationRuns row — an inline Code Flow step mints
+    {kind: "codestep", workdir, name, user_id} so the run-token endpoints
+    (notify_email, ai, ...) can prove liveness from the step's heartbeat
+    instead of a DB row (see automations.api._live_run_from_token). Reserved
+    claim names (automation_id, run_id, connections, secrets, aud, exp, iat)
+    cannot be overridden."""
     payload = {
         "automation_id": automation_id,
         "run_id": run_id,
         "connections": list(connections or []),
         "secrets": list(secrets or []),
     }
+    for k, v in (extra or {}).items():
+        if k in payload or k in ("aud", "exp", "iat"):
+            continue
+        payload[k] = v
     return _encode(payload, AUD_AUTOMATION_RUN, ttl_seconds, secret)
 
 

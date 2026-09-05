@@ -100,7 +100,7 @@ def delete_code_flow(name):
 @code_flows_bp.route("/api/<name>/dry_run", methods=["POST"])
 @code_flows_gate
 def dry_run_code_flow(name):
-    result = _get_manager().dry_run(name)
+    result = _get_manager().dry_run(name, requested_by=getattr(current_user, "id", None))
     code = 200 if result.get("status") != "error" else 400
     return jsonify(result), code
 
@@ -247,7 +247,7 @@ def internal_manage():
             return jsonify({"ok": True})
 
         if action in ("dry_run", "run"):
-            result = mgr.dry_run(name)
+            result = mgr.dry_run(name, requested_by=user_id)
             code = 200 if result.get("status") != "error" else 400
             return jsonify(result), code
 

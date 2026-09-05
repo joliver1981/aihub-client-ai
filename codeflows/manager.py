@@ -327,7 +327,10 @@ class CodeFlowManager:
 
     # ------------------------------------------------------------------- run
 
-    def dry_run(self, name: str, runner=None) -> Dict:
+    def dry_run(self, name: str, runner=None, requested_by: Optional[int] = None) -> Dict:
+        """`requested_by` = the user who triggered the walk; it rides in each
+        step's run token so platform-side effects (the email a step sends)
+        carry who asked for them."""
         loaded = self._load_defn(name)
         if not loaded:
             return {"status": "error", "error": "code flow not found"}
@@ -339,13 +342,13 @@ class CodeFlowManager:
             runner = AutomationRunner(tenant_id=self.tenant_id, connection_string=self.connection_string)
         workdir = get_app_path("automations", f"tenant_{self.tenant_id}", "_codeflow_runs",
                                compiler.new_step_id())
-        return compiler.dry_run_walk(defn, runner, workdir)
+        return compiler.dry_run_walk(defn, runner, workdir, requested_by=requested_by)
 
-    def run(self, name: str, runner=None) -> Dict:
+    def run(self, name: str, runner=None, requested_by: Optional[int] = None) -> Dict:
         """v0 interactive run == the in-process walk (synchronous full trace).
         The DURABLE/scheduled path runs the saved code-flow WORKFLOW through the
         engine (JobType 'workflow', TargetId = this flow's workflow_id)."""
-        return self.dry_run(name, runner=runner)
+        return self.dry_run(name, runner=runner, requested_by=requested_by)
 
     def workflow_id(self, name: str) -> Optional[int]:
         loaded = self._db_load(name)

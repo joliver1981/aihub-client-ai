@@ -22,11 +22,15 @@ HIDDEN_SHEETS_CLAUSE = """\
 SDK_CLAUSE = """\
 - Platform data: `import aihub_runtime as aihub` then
   aihub.query("CONNECTION_NAME", "SELECT ...", [params]) for SQL against a
-  platform Connection, aihub.send_email(...), aihub.checkpoint("msg") to pause
-  for human approval, aihub.llm(prompt) / aihub.ai_extract(...) for in-script
-  AI. Call aihub.help() to print the full verb list and the connection names
+  platform Connection (also aihub.connection / aihub.secret for declared
+  names). Call aihub.help() to print the verb list and the connection names
   available to this run. NEVER print credential values; use the SDK so
-  credentials stay out of your code entirely."""
+  credentials stay out of your code entirely.
+- NOT available from run_python: aihub.send_email(), aihub.checkpoint(),
+  aihub.review_item(), aihub.llm() / aihub.ai_extract() act on behalf of a
+  saved Automation or Code Flow run and RAISE here. To email a file you
+  produced, use the chat's own email tool with the returned artifact; do the
+  reasoning yourself instead of calling aihub.llm."""
 
 RUN_PYTHON_DOCTRINE_GA = f"""
 

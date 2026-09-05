@@ -574,6 +574,14 @@ def _cf_list_arg(raw: str, what: str):
         return None, f"{what} is not valid JSON (expected an array)"
 
 
+def _stdout_tail(text: str, max_lines: int = 6, max_chars: int = 400) -> str:
+    """Last few non-empty stdout lines, '|'-joined and capped, for the walk
+    summary (port of CC codeflow_tools._stdout_tail)."""
+    lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
+    out = " | ".join(lines[-max_lines:])
+    return ("…" + out[-max_chars:]) if len(out) > max_chars else out
+
+
 def _summarize_walk(data: dict) -> str:
     """Port of CC summarize_walk — handled fail-edges never read as clean pass."""
     if data.get("status") == "error":
@@ -597,6 +605,13 @@ def _summarize_walk(data: dict) -> str:
             lines.append("    🚫 declared a remote transfer but NO network egress was "
                          "observed — nothing was transferred (do NOT report this "
                          "upload as attempted or done)")
+        # The step's stdout carries the platform's own honest signals ("[aihub]
+        # email NOT sent …", "[aihub] checkpoint auto-approved …"). Showing it
+        # only for failed steps is how a '✓ success' hid a never-sent email —
+        # surface a tail for EVERY step, success included.
+        out = _stdout_tail(s.get("stdout_tail") or "")
+        if out:
+            lines.append("    stdout: " + out)
         if s.get("status") in ("failed", "error", "unverified") and s.get("stderr_tail"):
             lines.append("    stderr: " + str(s["stderr_tail"])[-500:])
     return "\n".join(lines)
@@ -660,7 +675,8 @@ async def create_code_flow(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "add_code_step",
     "Add a Python step to a code flow. Same aihub SDK as automations "
-    "(aihub.query/connection/secret/input/log/checkpoint/send_email). Declare "
+    "(aihub.query/connection/secret/input/log/send_email/llm; checkpoint "
+    "auto-approves in a step — no supervised run to pause). Declare "
     "connections/secrets/packages the step uses as JSON arrays.",
     {
         "type": "object",

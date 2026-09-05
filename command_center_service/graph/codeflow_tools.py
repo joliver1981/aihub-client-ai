@@ -56,13 +56,23 @@ def manage(action: str, user_context: Dict[str, Any],
                 "error": f"could not reach the code flows service: {e}"}
 
 
+def _stdout_tail(text: str, max_lines: int = 6, max_chars: int = 400) -> str:
+    """Last few non-empty stdout lines, '|'-joined and capped, for the walk
+    summary."""
+    lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
+    out = " | ".join(lines[-max_lines:])
+    return ("…" + out[-max_chars:]) if len(out) > max_chars else out
+
+
 def summarize_walk(result: Dict[str, Any]) -> str:
     """Honest multi-step summary of a run walk for the chat — one line per step
-    with its outcome, files produced, and (on failure) the stderr tail so the
-    dev can fix the offending step. The walk EXECUTES every step for real with
-    live credentials, so the header says so; and a top-line 'success' is
-    annotated when a step failed but was handled by a fail-edge, so a handled
-    failure can never read as a clean pass."""
+    with its outcome, files produced, a stdout tail (EVERY step — the SDK's
+    own "[aihub] email NOT sent" line lives there, and hiding it on success
+    is how a never-sent email read as '✓ success'), and (on failure) the
+    stderr tail so the dev can fix the offending step. The walk EXECUTES every
+    step for real with live credentials, so the header says so; and a top-line
+    'success' is annotated when a step failed but was handled by a fail-edge,
+    so a handled failure can never read as a clean pass."""
     status = result.get("status", "?")
     if status == "error":
         return f"Code flow could not run: {result.get('error')}"
@@ -92,6 +102,9 @@ def summarize_walk(result: Dict[str, Any]) -> str:
         if s.get("no_egress_transfer"):
             lines.append("    🚫 declared a remote transfer but NO network egress was observed — "
                          "nothing was transferred (do NOT report this upload as attempted or done)")
+        out = _stdout_tail(s.get("stdout_tail") or "")
+        if out:
+            lines.append("    stdout: " + out)
         if s.get("status") in ("failed", "error", "unverified"):
             tail = (s.get("stderr_tail") or s.get("error") or "").strip()
             if tail:

@@ -318,12 +318,14 @@ def _next_step(edges: List[Dict], current: str, success: bool) -> Optional[str]:
     return None
 
 
-def dry_run_walk(defn: Dict, runner, base_workdir: str, max_steps: int = 50) -> Dict:
+def dry_run_walk(defn: Dict, runner, base_workdir: str, max_steps: int = 50,
+                 requested_by: Optional[int] = None) -> Dict:
     """Execute the code-flow graph IN-PROCESS via runner.run_code_step, honoring
     pass/fail edges. Returns {status, steps:[{step_id,name,status,...}],
     variables}. `status` is 'success' only if the walk reached a natural end
     with no failed step outside a handled fail-edge; 'failed' if a step failed
-    with nowhere to route; 'error' on a definition problem."""
+    with nowhere to route; 'error' on a definition problem. `requested_by` =
+    the triggering user, threaded into each step's run token."""
     ok, errors = validate_definition(defn)
     if not ok:
         return {"status": "error", "error": "; ".join(errors), "steps": []}
@@ -357,6 +359,7 @@ def dry_run_walk(defn: Dict, runner, base_workdir: str, max_steps: int = 50) -> 
             # uuid-workdir-per-execution and avoids counting a prior visit's
             # files as this visit's output.
             workdir=os.path.join(base_workdir, f"{current}_{visits[current]}"),
+            requested_by=requested_by,
         )
         status = result.get("status", "error")
         workdir = result.get("workdir") or ""

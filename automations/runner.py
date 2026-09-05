@@ -549,14 +549,17 @@ class AutomationRunner:
 
     def _mint_run_token(self, automation_id: str, run_id: str,
                         connections: List[str], secrets: List[str],
-                        ttl_seconds: int) -> Optional[str]:
+                        ttl_seconds: int, extra: Optional[Dict] = None) -> Optional[str]:
         """Sign a run-scoped credential token. None (with a warning) when the
         signing secret/PyJWT is unavailable — the caller decides whether the
-        run can proceed."""
+        run can proceed. `extra` = additional claims (the Code Flow step flavor
+        carries kind/workdir/name/user_id so the runtime endpoints can prove
+        liveness without an AutomationRuns row)."""
         try:
             from shared_auth import sign_automation_run_token
             return sign_automation_run_token(automation_id, run_id,
-                                             connections, secrets, ttl_seconds)
+                                             connections, secrets, ttl_seconds,
+                                             extra=extra)
         except Exception as e:
             logger.warning(f"run-token signing unavailable: {e}")
             return None
@@ -752,17 +755,24 @@ class AutomationRunner:
                       workdir: str, inputs: Dict, timeout: int, dry_run: bool,
                       samples_dir: Optional[str] = None,
                       force_env_inject: bool = False,
-                      checkpoints_supported: bool = True) -> Dict:
+                      checkpoints_supported: bool = True,
+                      token_extra: Optional[Dict] = None) -> Dict:
         """Shared executor for BOTH a promoted Automation and an inline Code
         Flow step. `identity` = {id, name, version, environment_id}. Runs the
         code in an environment with the aihub_runtime SDK, supervises it (live
         events, honest cancellation), verifies declared outputs, returns the
         honest tri-state outcome. `force_env_inject` delivers credential VALUES
-        as env vars — the Code Flow step path uses it because a workflow step
-        has no live AutomationRuns row for the token/resolve endpoint (v0).
-        `checkpoints_supported` is False for that same Code Flow path: without a
-        live run row there is nothing to pause/resume against, so aihub.checkpoint()
-        auto-approves with an honest log line instead of 403-ing at the gate."""
+        as env vars — the Code Flow step path uses it (v0 delivery; the step's
+        token also resolves, see below). `checkpoints_supported` is False for
+        the Code Flow path: a step has no supervised run to pause/resume
+        against (no Mission Control row, no decide path), so aihub.checkpoint()
+        auto-approves with an honest log line instead of 403-ing at the gate.
+        `token_extra` = extra run-token claims; the Code Flow step passes
+        {kind: "codestep", workdir, ...} so the run-token endpoints
+        (notify_email / ai / review_items_status / resolve) accept the step's
+        token with liveness proven by the step's heartbeat — without it every
+        one of those calls 403'd and aihub.send_email() silently never sent
+        (docs/handoff-codeflow-send-email-403.md)."""
         ident = identity["id"]
         name = identity.get("name") or ident
         version = identity.get("version", 1)
@@ -837,7 +847,8 @@ class AutomationRunner:
                             stdout="", stderr=error, footer="outcome: failed (pre-flight)")
             return {"status": "failed", "error": error, "workdir": workdir}
 
-        token = self._mint_run_token(ident, run_id, conn_names, secret_names, ttl_seconds=timeout + 900)
+        token = self._mint_run_token(ident, run_id, conn_names, secret_names,
+                                     ttl_seconds=timeout + 900, extra=token_extra)
         if token:
             env["AIHUB_RUN_TOKEN"] = token
             env["AIHUB_RUNTIME_URL"] = self._runtime_base_url()
@@ -875,8 +886,13 @@ class AutomationRunner:
         for root, _dirs, files in os.walk(workdir):
             for fn in files:
                 rel = os.path.relpath(os.path.join(root, fn), workdir)
+                # _heartbeat is the supervisor's liveness file, written AFTER
+                # pre_run_files was taken — without this exclusion it was swept
+                # as an output of every run (walk summaries listed it, and
+                # ${step_files[0]} could hand a timestamp to the next step).
                 if (rel not in pre_run_files
-                        and rel not in (_RUN_LOG_NAME, _EGRESS_LOG_NAME, _EVENTS_FILE)
+                        and rel not in (_RUN_LOG_NAME, _EGRESS_LOG_NAME, _EVENTS_FILE,
+                                        _HEARTBEAT_NAME)
                         and not os.path.basename(rel).startswith("checkpoint_")):
                     output_files.append(rel)
         output_files.sort()
@@ -960,12 +976,18 @@ class AutomationRunner:
 
     def run_code_step(self, code: str, manifest: Dict, step_name: str,
                       inputs: Optional[Dict] = None, environment_id: Optional[str] = None,
-                      run_id: Optional[str] = None, workdir: Optional[str] = None) -> Dict:
+                      run_id: Optional[str] = None, workdir: Optional[str] = None,
+                      requested_by: Optional[int] = None) -> Dict:
         """Execute an INLINE Code Flow step — LLM-authored Python that lives in
         a workflow node, not a promoted Automation asset — through the shared
-        executor. No AutomationRuns row (the workflow engine tracks the step);
-        credentials are delivered as env vars (v0), since there is no live run
-        row backing the token/resolve endpoint for this ephemeral execution."""
+        executor. No AutomationRuns row (the table's FK to Automations makes
+        one impossible for an ephemeral step, and the workflow engine tracks
+        the step anyway); credentials are delivered as env vars (v0). The
+        step's run token carries {kind: "codestep", workdir, name, user_id}
+        so the run-token endpoints prove liveness from <workdir>/_heartbeat —
+        aihub.send_email() / aihub.llm() work from a step exactly as from a
+        promoted automation. `requested_by` = the user who triggered the walk
+        (audit trail on the email / approval rows; None from the engine)."""
         run_id = run_id or str(uuid.uuid4())
         if workdir is None:
             workdir = get_app_path("automations", f"tenant_{self.tenant_id}",
@@ -974,13 +996,17 @@ class AutomationRunner:
         resolved_inputs, err = resolve_inputs(manifest, inputs)
         if err:
             return {"status": "error", "error": err, "run_id": run_id, "workdir": workdir}
+        token_extra = {"kind": "codestep",
+                       "workdir": os.path.realpath(workdir),
+                       "name": step_name,
+                       "user_id": requested_by}
         result = self._execute_code(
             code=code, manifest=manifest,
             identity={"id": f"codestep-{run_id}", "name": step_name, "version": 1,
                       "environment_id": environment_id},
             run_id=run_id, workdir=workdir, inputs=resolved_inputs, timeout=timeout,
             dry_run=False, samples_dir=None, force_env_inject=True,
-            checkpoints_supported=False)
+            checkpoints_supported=False, token_extra=token_extra)
         result["run_id"] = run_id
         return result
 

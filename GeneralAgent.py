@@ -1199,7 +1199,9 @@ def run_python_code(code: str) -> str:
     working directory is returned to the user as a downloadable artifact (save
     charts as .png). Platform data is reachable via the aihub_runtime SDK:
     `import aihub_runtime as aihub` then aihub.query("CONNECTION", "SELECT ..."),
-    aihub.send_email(...), aihub.help() for the full verb list.
+    aihub.help() for the verb list. aihub.send_email / checkpoint / llm are
+    NOT available here (they act for a saved Automation or Code Flow run and
+    raise) — email a produced file with the chat's own email tool instead.
 
     Args:
         code: Python source to run. print() everything you want to see.

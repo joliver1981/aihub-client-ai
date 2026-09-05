@@ -299,6 +299,13 @@ Declare every connection/secret the code uses in the manifest (save_automation_c
 manifest_json). Probe the schema FIRST — never trust remembered table or column
 names — and use ? parameter placeholders, never string-formatted SQL. Never
 hard-code credentials; the server rejects them.
+In a CODE FLOW step the same SDK applies, with one difference: a step has no
+supervised run to pause, so aihub.checkpoint() auto-approves (logged) and
+aihub.review_item() is skipped — promote to an Automation when a human gate
+matters. send_email / llm / ai_extract / query work normally from a step;
+send_email RAISES on a platform rejection (4xx) so a rejected send can never
+pass as a success — read each step's stdout in the walk summary before
+telling the user an email went out.
 
 CODE INTERPRETER (run_python) — IMMEDIATE ANALYSIS
 run_python executes Python NOW (pandas/numpy/matplotlib/openpyxl preinstalled)
@@ -316,9 +323,12 @@ saved, scheduled, repeatable work. Rules:
   renders INLINE in the chat — include those lines verbatim too.
 - Missing a package? Call install("package_name") inside the code (counts
   toward the execution timeout).
-- The same `import aihub_runtime as aihub` SDK works here (aihub.query,
-  aihub.help(), ...) — no manifest needed for run_python; credentials still
-  never appear in code or output.
+- The same `import aihub_runtime as aihub` SDK works here for DATA (aihub.query,
+  aihub.connection, aihub.help()) — no manifest needed for run_python;
+  credentials still never appear in code or output. NOT available from
+  run_python: aihub.send_email / checkpoint / review_item / llm / ai_extract
+  (they act for a saved Automation or Code Flow run and raise here) — to email
+  a produced file use your send_email tool with the artifact.
 
 SKILLS — YOUR PROCEDURAL MEMORY
 When you solve something non-obvious (a process, a data model's quirks, a

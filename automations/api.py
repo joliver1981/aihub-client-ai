@@ -940,6 +940,105 @@ def _run_workdir(run: Dict) -> Optional[str]:
     return os.path.dirname(log_path) if log_path else None
 
 
+# ------------------------------------------ run-token → live run (chokepoint)
+
+# Liveness window for an inline Code Flow step's run token. The supervising
+# runner touches <workdir>/_heartbeat every _STATUS_POLL_SECONDS (2s) while the
+# step's child process is alive; a heartbeat older than this means the step has
+# ended (or its supervisor died) and the token is dead — the same "useless once
+# the run finishes" property a promoted automation gets from its AutomationRuns
+# row leaving LIVE_STATUSES.
+_CODESTEP_LIVE_SECONDS = 30
+
+
+def _codestep_run_from_claims(claims: Dict) -> tuple:
+    """(run_dict, None) for a LIVE inline Code Flow step token, else (None, why).
+
+    A Code Flow step cannot have an AutomationRuns row (the table's FK points
+    at Automations and a step is not one), so the runner registers the step IN
+    ITS TOKEN: {kind: "codestep", workdir, name, user_id}. Liveness is the
+    step's heartbeat file, which only the supervising runner maintains and only
+    while the child is running. The dict is shaped like a DB run row so every
+    run-token endpoint treats both flavors identically."""
+    workdir = claims.get("workdir")
+    if not isinstance(workdir, str) or not workdir or not os.path.isabs(workdir):
+        return None, "code step token carries no workdir"
+    workdir = os.path.realpath(workdir)
+    if not os.path.isdir(workdir):
+        return None, "code step workdir no longer exists"
+    try:
+        age = time.time() - os.path.getmtime(os.path.join(workdir, "_heartbeat"))
+    except OSError:
+        return None, "code step is not running (no heartbeat)"
+    if age > _CODESTEP_LIVE_SECONDS:
+        return None, f"code step is no longer running (heartbeat {age:.0f}s stale)"
+    return {
+        "run_id": claims.get("run_id", ""),
+        "automation_id": claims.get("automation_id", ""),
+        "name": claims.get("name") or claims.get("automation_id", ""),
+        "status": "running",
+        "trigger_source": "code_flow",
+        "requested_by": claims.get("user_id"),
+        "log_path": os.path.join(workdir, "run.log"),
+        "codestep": True,
+    }, None
+
+
+def _live_run_from_claims(claims: Dict, allow_codestep: bool = True) -> tuple:
+    """(run, None) when the verified claims belong to a LIVE run, else
+    (None, (response, status)). Two flavors, one rule each:
+
+      * promoted Automation run — its AutomationRuns row is in LIVE_STATUSES
+        and matches the token's automation_id;
+      * inline Code Flow step (kind='codestep') — the step's heartbeat is
+        fresh (see _codestep_run_from_claims). allow_codestep=False refuses
+        the flavor and says WHY: the human-gate endpoints need a supervised
+        run (Mission Control row + decide path) that a step does not have."""
+    if claims.get("kind") == "codestep":
+        if not allow_codestep:
+            return None, (jsonify({
+                "error": "not available to an inline Code Flow step: this call needs a "
+                         "supervised Automation run to pause/resume against (promote the "
+                         "flow to an Automation for human gates)"}), 403)
+        run, why = _codestep_run_from_claims(claims)
+        if not run:
+            return None, (jsonify({"error": f"run token does not match a live run: {why}"}), 403)
+        return run, None
+    run = _get_runner().get_run(claims.get("run_id", ""))
+    from .runner import LIVE_STATUSES
+    if (not run or run.get("automation_id") != claims.get("automation_id")
+            or run.get("status") not in LIVE_STATUSES):
+        return None, (jsonify({"error": "run token does not match a live run"}), 403)
+    return run, None
+
+
+def _live_run_from_token(token, allow_codestep: bool = True) -> tuple:
+    """Verify a run token and resolve it to a LIVE run: (run, claims, None) or
+    (None, None, (response, status)). ONE chokepoint for every run-token
+    endpoint (checkpoint / review_item / review_items_status / notify_email /
+    ai / resolve). Before it existed each endpoint did the DB lookup inline
+    and a Code Flow step's token 403'd at all of them — aihub.send_email()
+    from a step returned False and the walk summary still read '✓ success'
+    (docs/handoff-codeflow-send-email-403.md)."""
+    from shared_auth import verify_automation_run_token
+    claims, err = verify_automation_run_token(token or "")
+    if err:
+        return None, None, (jsonify({"error": f"invalid run token: {err}"}), 403)
+    run, fail = _live_run_from_claims(claims, allow_codestep=allow_codestep)
+    if fail:
+        return None, None, fail
+    return run, claims, None
+
+
+def _run_display_name(run: Dict) -> str:
+    """Human name for a run's owner: the Automation's name, or the Code Flow
+    step's name (a step has no Automations row to look up)."""
+    if run.get("codestep"):
+        return run.get("name") or run.get("automation_id", "")
+    auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
+    return auto.get("name") or run.get("automation_id", "")
+
+
 def _read_events(run: Dict, after: int = 0, limit: int = 500):
     """Tail the run's events.jsonl sidecar starting after seq `after`."""
     workdir = _run_workdir(run)
@@ -1097,15 +1196,11 @@ def runtime_checkpoint():
     else:
         token, message = request.args.get("token"), None
 
-    from shared_auth import verify_automation_run_token
-    claims, err = verify_automation_run_token(token or "")
-    if err:
-        return jsonify({"error": f"invalid run token: {err}"}), 403
-    run = _get_runner().get_run(claims.get("run_id", ""))
-    from .runner import LIVE_STATUSES
-    if (not run or run.get("automation_id") != claims.get("automation_id")
-            or run.get("status") not in LIVE_STATUSES):
-        return jsonify({"error": "run token does not match a live run"}), 403
+    # Human gates need a SUPERVISED run (Mission Control row + decide path);
+    # an inline Code Flow step has none, and its SDK auto-approves instead.
+    run, _claims, fail = _live_run_from_token(token, allow_codestep=False)
+    if fail:
+        return fail
     workdir = _run_workdir(run)
     if not workdir:
         return jsonify({"error": "run has no workdir"}), 409
@@ -1166,15 +1261,11 @@ def runtime_review_item():
     if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
         return jsonify({"error": "Automations feature is disabled"}), 403
     data = request.get_json(silent=True) or {}
-    from shared_auth import verify_automation_run_token
-    claims, err = verify_automation_run_token(data.get("token") or "")
-    if err:
-        return jsonify({"error": f"invalid run token: {err}"}), 403
-    run = _get_runner().get_run(claims.get("run_id", ""))
-    from .runner import LIVE_STATUSES
-    if (not run or run.get("automation_id") != claims.get("automation_id")
-            or run.get("status") not in LIVE_STATUSES):
-        return jsonify({"error": "run token does not match a live run"}), 403
+    # Same rule as checkpoint: a review row is decided against a supervised
+    # run; the Code Flow step SDK skips review_item with an honest log line.
+    run, _claims, fail = _live_run_from_token(data.get("token"), allow_codestep=False)
+    if fail:
+        return fail
     workdir = _run_workdir(run)
     if not workdir:
         return jsonify({"error": "run has no workdir"}), 409
@@ -1236,15 +1327,9 @@ def runtime_review_items_status():
     if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
         return jsonify({"error": "Automations feature is disabled"}), 403
     data = request.get_json(silent=True) or {}
-    from shared_auth import verify_automation_run_token
-    claims, err = verify_automation_run_token(data.get("token") or "")
-    if err:
-        return jsonify({"error": f"invalid run token: {err}"}), 403
-    run = _get_runner().get_run(claims.get("run_id", ""))
-    from .runner import LIVE_STATUSES
-    if (not run or run.get("automation_id") != claims.get("automation_id")
-            or run.get("status") not in LIVE_STATUSES):
-        return jsonify({"error": "run token does not match a live run"}), 403
+    run, _claims, fail = _live_run_from_token(data.get("token"))
+    if fail:
+        return fail
     ids = data.get("request_ids")
     if not isinstance(ids, list) or not ids or len(ids) > 200:
         return jsonify({"error": "request_ids must be a list of 1..200 ids"}), 400
@@ -1285,19 +1370,16 @@ def runtime_notify_email():
     """SDK side of aihub.send_email() — the platform sends on the script's
     behalf so an automation never carries mail credentials (same principle as
     runtime/ai for model keys). Optional workdir-relative attachments reuse the
-    checkpoint containment rule. Auth: run token, like runtime/review_item."""
+    checkpoint containment rule. Auth: run token, like runtime/review_item —
+    BOTH flavors: a promoted Automation run and an inline Code Flow step
+    (the step flavor used to 403 here, so every "build it and email it to
+    me" code flow reported success and delivered nothing)."""
     if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
         return jsonify({"error": "Automations feature is disabled"}), 403
     data = request.get_json(silent=True) or {}
-    from shared_auth import verify_automation_run_token
-    claims, err = verify_automation_run_token(data.get("token") or "")
-    if err:
-        return jsonify({"error": f"invalid run token: {err}"}), 403
-    run = _get_runner().get_run(claims.get("run_id", ""))
-    from .runner import LIVE_STATUSES
-    if (not run or run.get("automation_id") != claims.get("automation_id")
-            or run.get("status") not in LIVE_STATUSES):
-        return jsonify({"error": "run token does not match a live run"}), 403
+    run, _claims, fail = _live_run_from_token(data.get("token"))
+    if fail:
+        return fail
     workdir = _run_workdir(run)
     if not workdir:
         return jsonify({"error": "run has no workdir"}), 409
@@ -1330,14 +1412,13 @@ def runtime_notify_email():
             "content_type": _EMAIL_MEDIA_TYPES.get(
                 os.path.splitext(a["name"])[1].lower(), "application/octet-stream")})
 
-    auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
-    auto_name = auto.get("name") or run.get("automation_id", "")
+    auto_name = _run_display_name(run)
     try:
         import notification_client
         res = notification_client.send_email_notification(
             to=to, subject=subject, body=(data.get("body") or ""),
             html_body=data.get("html_body") or None,
-            agent_name=f"automation:{auto_name}",
+            agent_name=f"{'code-flow-step' if run.get('codestep') else 'automation'}:{auto_name}",
             attachments=attachments or None)
     except Exception as e:
         # Notification failure must not kill the batch (BRD 7.3 lists email
@@ -1415,15 +1496,9 @@ def runtime_ai():
     if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
         return jsonify({"error": "Automations feature is disabled"}), 403
     data = request.get_json(silent=True) or {}
-    from shared_auth import verify_automation_run_token
-    claims, err = verify_automation_run_token(data.get("token") or "")
-    if err:
-        return jsonify({"error": f"invalid run token: {err}"}), 403
-    run = _get_runner().get_run(claims.get("run_id", ""))
-    from .runner import LIVE_STATUSES
-    if (not run or run.get("automation_id") != claims.get("automation_id")
-            or run.get("status") not in LIVE_STATUSES):
-        return jsonify({"error": "run token does not match a live run"}), 403
+    run, _claims, fail = _live_run_from_token(data.get("token"))
+    if fail:
+        return fail
     workdir = _run_workdir(run)
     if not workdir:
         return jsonify({"error": "run has no workdir"}), 409
@@ -1838,11 +1913,10 @@ def runtime_resolve():
         return jsonify({"error": f"{kind} '{name}' is not declared in {scope_word}"}), 403
 
     if token_flavor == "automation":
-        from .runner import LIVE_STATUSES
-        run = _get_runner().get_run(claims.get("run_id", ""))
-        if (not run or run.get("status") not in LIVE_STATUSES
-                or run.get("automation_id") != claims.get("automation_id")):
-            return jsonify({"error": "run token does not match a live run"}), 403
+        # promoted run (DB row) or inline Code Flow step (heartbeat) — one rule
+        _run, fail = _live_run_from_claims(claims)
+        if fail:
+            return fail
 
     if kind == "connection":
         value = _get_runner()._resolve_connection(name)
