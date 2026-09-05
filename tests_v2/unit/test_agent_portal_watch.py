@@ -414,6 +414,11 @@ def test_poll_run_arms_on_pause_and_disarms_on_collect():
     assert "PAUSED" in text and "cobrowse/run-t1" in text
     assert "AUTOMATIC FOLLOW-UP IS ON" in text and "WAKE YOU IN THIS CONVERSATION" in text
     assert "When they say they're done" not in text
+    # the take-over BUTTON reference rides along on an interactive turn (the
+    # link above it is the surface; test_agent_portal_tools covers the spec)
+    assert "```aihub-action" in text and '"ref"' in text
+    import shutil
+    shutil.rmtree(os.path.join(APP_ROOT, "data", "agent", "blocks", str(UID)), ignore_errors=True)
     w = portal_watch.get("run-t1")
     assert w and w["status"] == "active" and w["phase"] == "paused" and w["session_id"] == "sess-tool-1"
     assert w["label"] == "Vantage" and w["reason"] == "a 2FA code"

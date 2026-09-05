@@ -11,7 +11,9 @@ test_agent_portal_tools.py) or under pytest in an env with claude_agent_sdk;
 in an env WITHOUT the SDK (main-app pytest sweep) every test self-skips.
 """
 import asyncio
+import json
 import os
+import re
 import shutil
 import sys
 import uuid
@@ -32,6 +34,7 @@ try:
     from command_center.tools import portal_workflows as cc_wf    # noqa: E402
     import local_secrets             # noqa: E402
     import workitem_store            # noqa: E402
+    import rich_blocks               # noqa: E402
     HAVE_SDK = True
 except ImportError as e:             # main-env pytest sweep: no claude_agent_sdk
     HAVE_SDK = False
@@ -89,9 +92,27 @@ _SAVED_ENTRY = {"slug": "acme", "name": "Acme", "url": "http://portal.local/logi
 
 
 def _cleanup_user_files():
-    d = os.path.join(APP_ROOT, "data", "agent", "users", str(TEST_UID))
-    if os.path.isdir(d):
-        shutil.rmtree(d, ignore_errors=True)
+    for d in (os.path.join(APP_ROOT, "data", "agent", "users", str(TEST_UID)),
+              os.path.join(APP_ROOT, "data", "agent", "blocks", str(TEST_UID))):
+        if os.path.isdir(d):
+            shutil.rmtree(d, ignore_errors=True)
+
+
+_ACTION_FENCE = re.compile(r"```aihub-action\n(\{.*?\})\n```", re.S)
+
+
+def _action_block(text):
+    """The stored action spec referenced by the ONE aihub-action fence in
+    text (None when there is no fence) — mirrors the chat's resolve path."""
+    m = _ACTION_FENCE.findall(text)
+    if not m:
+        return None
+    assert len(m) == 1, text
+    ref = json.loads(m[0])
+    assert set(ref) == {"ref"}, ref             # a reference, never an inline URL
+    hit = rich_blocks.get_block(TEST_UID, ref["ref"])
+    assert hit and hit["kind"] == "action", hit
+    return hit["spec"]
 
 
 # ---------------------------------------------------------------- registration
@@ -183,22 +204,71 @@ def test_fetch_saved_portal_stages_download():
 
 def test_fetch_needs_human_returns_takeover_link_immediately():
     _as_user()
-    with patched(cc_pf,
-                 start_portal_fetch=lambda *a, **k: {"run_id": "r-2fa"},
+    try:
+        with patched(cc_pf,
+                     start_portal_fetch=lambda *a, **k: {"run_id": "r-2fa"},
+                     get_portal_result=lambda rid, t=15: {
+                         "done": False, "needs_human": True, "reason": "a 2FA code"},
+                     cobrowse_link=lambda rid: f"http://main/portal-workflows/cobrowse/{rid}"), \
+             patched(portal_tools, WAIT_SECONDS=10), patched(portal_watch, ENABLED=False):
+            with patched(cc_reg, lookup_portal=lambda uid, n: dict(_SAVED_ENTRY)):
+                res = _run(_tool("portal_fetch"),
+                           {"portal_name": "acme", "task": "download"})
+        t = _txt(res)
+        assert "PAUSED" in t
+        assert "http://main/portal-workflows/cobrowse/r-2fa" in t
+        assert "run_id: r-2fa" in t and "check_portal_run" in t
+        assert "do NOT claim" in t or "Do NOT claim" in t
+        # (the watch-ON default — result auto-delivered to the conversation instead
+        #  of "say when you're done" — is covered by test_agent_portal_watch.py)
+        # Take-over BUTTON (2026-09-05): an interactive turn also carries a stored
+        # aihub-action reference the chat renders as a button — the link stays.
+        spec = _action_block(t)
+        assert spec == {"action": "open_url",
+                        "url": "http://main/portal-workflows/cobrowse/r-2fa",
+                        "label": portal_tools.TAKEOVER_BUTTON_LABEL}, spec
+        assert "paste the 3-line block below" in t
+    finally:
+        _cleanup_user_files()
+
+
+def test_needs_human_button_failure_keeps_the_link():
+    """The button is decoration: when the block store fails (unwritable data
+    dir, disk full …) the pause text is exactly today's — link + run_id, no
+    fence, no error."""
+    _as_user()
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+
+    with patched(rich_blocks, store_block=boom), \
+         patched(cc_pf,
+                 start_portal_fetch=lambda *a, **k: {"run_id": "r-nb"},
                  get_portal_result=lambda rid, t=15: {
                      "done": False, "needs_human": True, "reason": "a 2FA code"},
                  cobrowse_link=lambda rid: f"http://main/portal-workflows/cobrowse/{rid}"), \
          patched(portal_tools, WAIT_SECONDS=10), patched(portal_watch, ENABLED=False):
         with patched(cc_reg, lookup_portal=lambda uid, n: dict(_SAVED_ENTRY)):
-            res = _run(_tool("portal_fetch"),
-                       {"portal_name": "acme", "task": "download"})
+            res = _run(_tool("portal_fetch"), {"portal_name": "acme", "task": "download"})
     t = _txt(res)
-    assert "PAUSED" in t
-    assert "http://main/portal-workflows/cobrowse/r-2fa" in t
-    assert "run_id: r-2fa" in t and "check_portal_run" in t
-    assert "do NOT claim" in t or "Do NOT claim" in t
-    # (the watch-ON default — result auto-delivered to the conversation instead
-    #  of "say when you're done" — is covered by test_agent_portal_watch.py)
+    assert not res.get("is_error")
+    assert "PAUSED" in t and "http://main/portal-workflows/cobrowse/r-nb" in t
+    assert "run_id: r-nb" in t
+    assert "aihub-action" not in t and "paste the 3-line block" not in t
+
+
+def test_action_fence_never_raises_and_rejects_junk():
+    try:
+        assert rich_blocks.action_fence(TEST_UID, "", "x") == ""
+        assert rich_blocks.action_fence(TEST_UID, "http://main/p", "x", action="run_js") == ""
+        f = rich_blocks.action_fence(TEST_UID, " http://main/p ", "  Go  " + "z" * 100)
+        spec = _action_block(f)
+        assert spec["url"] == "http://main/p" and spec["action"] == "open_url"
+        assert len(spec["label"]) == rich_blocks.ACTION_LABEL_MAX
+        with patched(rich_blocks, store_block=lambda *a, **k: (_ for _ in ()).throw(OSError("ro"))):
+            assert rich_blocks.action_fence(TEST_UID, "http://main/p", "x") == ""
+    finally:
+        _cleanup_user_files()
 
 
 def test_fetch_budget_exhausted_is_honest():
@@ -437,6 +507,9 @@ def test_headless_takeover_raises_work_item():
     assert "My Work item (#42)" in t
     assert made["verb"] == "do_offline" and made["payload"]["kind"] == "portal_takeover"
     assert made["addressed_user"] == TEST_UID and "cobrowse/r-h" in made["summary"]
+    # headless has no chat UI and its prose lands in My Work summaries as raw
+    # markdown — no button fence there, ever
+    assert "aihub-action" not in t and "cobrowse/r-h" in t
 
 
 def test_interactive_takeover_raises_nothing():

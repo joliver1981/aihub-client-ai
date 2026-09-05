@@ -261,6 +261,10 @@
   .rblock .rsub{font-family:var(--mono);font-size:10.5px;color:var(--text3);margin-top:6px}
   .rblock.rerror{border-color:rgba(255,107,107,.45)}
   .rblock.rerror pre{margin:.3em 0 0;max-height:180px;overflow:auto;font-size:11px}
+  .md a.rbtn{display:inline-flex;align-items:center;gap:6px;margin:.35em 0 .6em;padding:8px 15px;
+             border-radius:9px;border:1px solid var(--accent);background:var(--accent);
+             color:var(--accent-ink);font-weight:600;font-size:12.5px;text-decoration:none;cursor:pointer}
+  .md a.rbtn:hover{filter:brightness(1.08);color:var(--accent-ink)}
   .rchart{position:relative;height:260px;width:100%}
   .rchart canvas{width:100%!important;height:100%!important}
   .rkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin:.6em 0}
@@ -701,7 +705,7 @@
     // DOMPurify. Returning false falls back to marked's own code renderer.
     marked.use({ renderer: { code(code, infostring, escaped) {
       const lang = String(infostring || "").trim().toLowerCase();
-      if (lang !== "aihub-chart" && lang !== "aihub-kpi" && lang !== "aihub-map") return false;
+      if (lang !== "aihub-chart" && lang !== "aihub-kpi" && lang !== "aihub-map" && lang !== "aihub-action") return false;
       const raw = escaped ? String(code)
                           : String(code).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       return '<div class="rblock-src" data-kind="' + lang.slice(6) + '">' + raw + '</div>\n';
@@ -1072,27 +1076,62 @@
     }
     return RB_REF_CACHE.get(ref);
   }
+  // Action blocks (2026-09-05): a SERVER-authored button — today the portal
+  // take-over pause ("Take over the browser"). Strictly additive: the plain
+  // link is always in the text above it, so every doubt renders NOTHING
+  // (never an error box): an inline spec the model typed itself, an unknown
+  // action, a stored block that is gone, or a URL that is not this hub's
+  // cobrowse page (http(s), the main app's port, the cobrowse path).
+  const RB_COBROWSE_PATH = /^\/portal-workflows\/cobrowse\/[A-Za-z0-9_-]{8,64}$/;
+  function rbTakeoverUrl(raw) {
+    let u;
+    try { u = new URL(String(raw || "")); } catch { return null; }
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    if (u.username || u.password) return null;
+    const port = u.port || (u.protocol === "https:" ? "443" : "80");
+    let mp = "";
+    try { mp = String(mainPort || localStorage.getItem("agent_main_port") || ""); } catch {}
+    if (!mp || port !== mp) return null;
+    if (!RB_COBROWSE_PATH.test(u.pathname)) return null;
+    return u.href;
+  }
+  function mountAction(host, spec) {
+    try {
+      const url = (spec && spec.action === "open_url") ? rbTakeoverUrl(spec.url) : null;
+      if (!url) { host.remove(); return; }
+      const label = String(spec.label || "Open").slice(0, 60);
+      const a = rbEl("a", "rbtn", label + " ↗");
+      a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+      host.replaceWith(a);
+    } catch (e) { try { host.remove(); } catch {} }
+  }
   function mountKind(kind, host, spec) {
     if (kind === "chart") mountChart(host, spec);
     else if (kind === "map") mountMap(host, spec);
+    else if (kind === "action") mountAction(host, spec);
     else mountKpi(host, spec);
   }
   function mountRichBlocks(root) {
     root.querySelectorAll(".rblock-src").forEach(src => {
       const kind = src.dataset.kind;
+      const quiet = kind === "action";          // buttons fail silently, always
       const spec = rbParse(src.textContent);
-      if (!spec) { src.replaceWith(rbFallback(kind, src.textContent, "invalid JSON")); return; }
+      if (!spec) { quiet ? src.remove() : src.replaceWith(rbFallback(kind, src.textContent, "invalid JSON")); return; }
       if (typeof spec.ref === "string" && spec.ref) {
-        const ph = rbEl("div", "rblock");
-        ph.appendChild(rbEl("div", "rsub", "loading " + kind + " …"));
+        const ph = quiet ? rbEl("div") : rbEl("div", "rblock");
+        if (!quiet) ph.appendChild(rbEl("div", "rsub", "loading " + kind + " …"));
         src.replaceWith(ph);
         rbResolveRef(spec.ref).then(d => {
           if (!ph.isConnected) return;
-          if (!d || !d.spec) { ph.replaceWith(rbFallback(kind, spec, "stored block no longer available")); return; }
+          if (!d || !d.spec) {
+            quiet ? ph.remove() : ph.replaceWith(rbFallback(kind, spec, "stored block no longer available"));
+            return;
+          }
           mountKind(d.kind || kind, ph, d.spec);
         });
         return;
       }
+      if (quiet) { src.remove(); return; }       // action = stored references only
       mountKind(kind, src, spec);
     });
   }

@@ -291,6 +291,32 @@ def _finish_run(res: dict, uid, kind: str = "portal task") -> dict:
                  "invent a download link.")
 
 
+TAKEOVER_BUTTON_LABEL = "Take over the browser"
+
+
+def _takeover_button_fence(uid, link: str) -> str:
+    """Interactive turns only: a stored ```aihub-action``` reference the chat
+    renders as a "Take over the browser" button under the plain link (CC parity
+    for the 2FA pause). Additive by design — headless / email turns get nothing
+    (no UI; their text lands in My Work summaries as raw markdown), and any
+    failure to store the block returns "" so the link above stays the surface.
+    Never raises."""
+    try:
+        user = CURRENT_USER.get() or {}
+        if str(user.get("mode") or "") == "headless":
+            return ""
+        import rich_blocks
+        block = rich_blocks.action_fence(uid, link, TAKEOVER_BUTTON_LABEL)
+    except Exception as e:
+        logger.warning(f"take-over button block skipped: {e}")
+        return ""
+    if not block:
+        return ""
+    return ("\n\nTake-over button — paste the 3-line block below into your reply "
+            "EXACTLY as it is, right after the link (a stored reference; it renders "
+            "as a button that opens the take-over page in a new tab):\n" + block)
+
+
 def _raise_takeover_item_if_headless(run_id: str, link: str, reason: str) -> str:
     """P2 item 2: a HEADLESS run (scheduled agent task, email-triggered turn) has
     no human watching the chat — put the take-over link in the owner's My Work
@@ -409,6 +435,7 @@ async def _poll_run(pf, run_id: str, budget_seconds: int, uid, label: str = "") 
             reason = res.get("reason") or "a verification / login step"
             raised = _raise_takeover_item_if_headless(run_id, link, reason)
             watched = _arm_watch(run_id, "paused", label, reason)
+            button = _takeover_button_fence(uid, link)   # "" on headless or any failure
             return _text(
                 f"PAUSED — the portal needs the user for {reason}.\n"
                 f"Take-over link (relay it to the user VERBATIM): {link}\n"
@@ -418,7 +445,7 @@ async def _poll_run(pf, run_id: str, budget_seconds: int, uid, label: str = "") 
                 "downloaded — nothing is delivered yet."
                 + (watched or (" When they say they're done, call "
                                f'check_portal_run(run_id="{run_id}") to collect the result.'))
-                + raised)
+                + raised + button)
         await asyncio.sleep(2)
     watched = _arm_watch(run_id, "running", label)
     return _text(

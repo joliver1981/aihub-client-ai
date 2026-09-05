@@ -12,7 +12,9 @@ The chat renders two fenced-block kinds in addition to markdown:
     ```
 
 and an inline image for any ![name](/api/files/<id>) link (the UI fetches it
-with the auth header — no token in a URL). This module builds those blocks
+with the auth header — no token in a URL). A fourth kind, ```aihub-action```
+(stored reference only), renders as a server-authored button — see
+action_fence below. This module builds those blocks
 SERVER-SIDE from data a tool already holds, so the numbers in a chart never
 pass through the model: probe_connection_query(chart=…) and run_python's
 produced .png files hand back ready-made text the model pastes verbatim.
@@ -21,6 +23,7 @@ Pure functions, no I/O — the unit pack exercises them directly.
 """
 
 import json
+import logging
 import os
 import re
 import time
@@ -90,6 +93,38 @@ def get_block(uid: int, block_id: str) -> Optional[dict]:
 def ref_fence(uid: int, kind: str, spec: dict) -> str:
     """Store the block and return the tiny reference fence the model pastes."""
     return fence(kind, {"ref": store_block(uid, kind, spec)})
+
+
+# ---------------------------------------------------------------------------
+# Action blocks (2026-09-05): a server-authored BUTTON, e.g. the portal
+# take-over pause. ```aihub-action {"ref": id}``` resolves to
+# {"action": "open_url", "url": ..., "label": ...}; the chat renders it as a
+# button that opens the URL in a new tab. The chat honours ONLY stored
+# references for this kind (an inline spec the model could type is dropped),
+# so the URL is always one the SERVER built. Strictly additive: the caller
+# keeps its plain-text link (headless and email turns have no UI), and any
+# failure here yields "" rather than an exception — the link is the surface,
+# the button is decoration.
+# ---------------------------------------------------------------------------
+
+ACTION_KINDS = ("open_url",)
+ACTION_LABEL_MAX = 60
+
+
+def action_fence(uid: int, url: str, label: str, action: str = "open_url") -> str:
+    """The stored-reference fence for a button, or "" when anything is off
+    (empty URL, unknown action, the block store failing). Never raises."""
+    try:
+        u = str(url or "").strip()
+        if not u or action not in ACTION_KINDS:
+            return ""
+        spec = {"action": action, "url": u,
+                "label": str(label or "").strip()[:ACTION_LABEL_MAX] or "Open"}
+        return ref_fence(int(uid or 0), "action", spec)
+    except Exception as e:  # disk full / unwritable data dir / bad uid …
+        logging.getLogger("agent_service").warning(
+            f"action block skipped (plain link stays the surface): {e}")
+        return ""
 
 
 def _num(v) -> Optional[float]:
