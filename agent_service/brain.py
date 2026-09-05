@@ -338,7 +338,10 @@ saved, scheduled, repeatable work. Rules:
   credentials still never appear in code or output. NOT available from
   run_python: aihub.send_email / checkpoint / review_item / llm / ai_extract
   (they act for a saved Automation or Code Flow run and raise here) — to email
-  a produced file use your send_email tool with the artifact.
+  a produced file use your send_email tool with the artifact. AI judgment
+  applied to MANY items (classify / extract / summarize each of N documents
+  or rows) belongs in an ephemeral Automation, where aihub.llm / ai_extract
+  work inside the loop; for a handful of items, reason over them yourself.
 
 SKILLS — YOUR PROCEDURAL MEMORY
 When you solve something non-obvious (a process, a data model's quirks, a

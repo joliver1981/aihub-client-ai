@@ -158,16 +158,37 @@ _PLATFORM_RUN_VERBS = ("send_email", "checkpoint", "review_item", "review_decisi
                        "llm", "ai_extract")
 
 
+# What the model can actually do instead, PER VERB (2026-09-05, james's
+# "is it true?" review): one shared sentence used to point every blocked verb
+# at "the chat's own tools (e.g. its email tool)", which is only true for
+# send_email — no chat tool runs an LLM inside a script, and a chat has no
+# supervised run to pause. The refusal must name a real alternative.
+_CHAT_LANE_ALTERNATIVES = {
+    "send_email": ("To email something from a chat, use the chat's own email tool with "
+                   "the file you produced."),
+    "checkpoint": ("A chat has no supervised run to pause: ask the user directly in the "
+                   "conversation, or build an Automation when a recorded approval gate "
+                   "matters."),
+    "review_item": ("Report the exceptions in your reply (or raise a work item) instead; "
+                    "the review queue serves supervised runs."),
+    "llm/ai_extract": ("No chat tool runs an LLM inside your code. For AI judgment over "
+                       "many items build an (ephemeral) Automation, where aihub.llm / "
+                       "aihub.ai_extract work inside the loop; for a handful of items, do "
+                       "the reasoning yourself."),
+}
+
+
 def _chat_lane_block(verb):
     """Why `verb` cannot run here, or None. The platform-run verbs act on
     behalf of a supervised platform run (a saved Automation or a Code Flow
     step) and the platform refuses a chat run_python token at their
     endpoints — say that plainly at the call instead of surfacing
-    'HTTP 403 wrong audience' from deep inside a script."""
+    'HTTP 403 wrong audience' from deep inside a script, and name the
+    alternative that really exists for THIS verb."""
     if _token_claims().get("aud") == _CHAT_AUDIENCE:
+        alt = _CHAT_LANE_ALTERNATIVES.get(verb) or "Use the chat's own tools for this instead."
         return (f"aihub.{verb}() is not available from a chat run_python execution — it acts "
-                "on behalf of a saved Automation or Code Flow run. Use the chat's own tools "
-                "for this (e.g. its email tool with the file you produced).")
+                f"on behalf of a saved Automation or Code Flow run. {alt}")
     return None
 
 
