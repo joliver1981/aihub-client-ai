@@ -59,6 +59,29 @@ class _MemManager(CodeFlowManager):
             return True
         return False
 
+    # scheduler seams: jobs = [{job_id, name, type, target_id, params}]
+    _jobs: list = []
+
+    def _db_linked_jobs(self, name, workflow_id):
+        out = []
+        for j in self._jobs:
+            p = j.get("params") or {}
+            base = {"job_id": j["job_id"], "name": j["name"], "type": j["type"],
+                    "is_active": j.get("is_active", True)}
+            if j["type"] == "workflow" and j.get("target_id") == workflow_id:
+                out.append({**base, "match": "code_flow_schedule", "gist": ""})
+            elif j["type"] == "agent_session" and str(p.get("code_flow", "")).lower() == name.lower():
+                out.append({**base, "match": "linked", "gist": p.get("prompt", "")[:300]})
+            elif j["type"] == "agent_session" and name.lower() in str(p.get("prompt", "")).lower():
+                out.append({**base, "match": "mention", "gist": p.get("prompt", "")[:300]})
+        return out
+
+    def _db_delete_jobs(self, job_ids):
+        ids = {int(i) for i in job_ids}
+        before = len(self._jobs)
+        self._jobs = [j for j in self._jobs if j["job_id"] not in ids]
+        return before - len(self._jobs)
+
 
 @pytest.fixture
 def mgr():
@@ -226,6 +249,120 @@ def test_delete_removes_and_reports(mgr):
     assert mgr.get_code_flow("flow") is None
     ok2, err2 = mgr.delete_code_flow("flow")
     assert not ok2 and err2 == "not found"
+
+
+# ---------------------------------------------- delete sweeps the flow's schedules
+# (docs/handoff-codeflow-send-email-403.md §5: jobs #649/#650 — agent tasks
+# scheduled against a flow — survived the flow's deletion and kept firing.)
+
+def _seed_flow_with_jobs(mgr):
+    _ok, info, _err = mgr.create_code_flow("past-due-aging")
+    wid = info["workflow_id"]
+    mgr._jobs = [
+        {"job_id": 700, "name": "Code Flow: past-due-aging", "type": "workflow", "target_id": wid},
+        {"job_id": 701, "name": "Code Flow: other", "type": "workflow", "target_id": wid + 1},
+        {"job_id": 648, "name": "Agent: aging (linked)", "type": "agent_session",
+         "params": {"prompt": "Run the aging flow and email me", "code_flow": "Past-Due-Aging"}},
+        {"job_id": 649, "name": "Agent: weekday aging", "type": "agent_session",
+         "params": {"prompt": "Run code flow 'past-due-aging' and email the workbook to me"}},
+        {"job_id": 650, "name": "Agent: aging summary", "type": "agent_session",
+         "params": {"prompt": "Summarize yesterday's past-due-aging run and the sales flow"}},
+        {"job_id": 651, "name": "Agent: unrelated", "type": "agent_session",
+         "params": {"prompt": "Summarize my inbox"}},
+    ]
+    return wid
+
+
+def test_linked_schedules_classifies_every_link(mgr):
+    wid = _seed_flow_with_jobs(mgr)
+    got_wid, jobs = mgr.linked_schedules("past-due-aging")
+    assert got_wid == wid
+    by_id = {j["job_id"]: j["match"] for j in jobs}
+    assert by_id == {700: "code_flow_schedule", 648: "linked", 649: "mention", 650: "mention"}
+    assert mgr.linked_schedules("nope") == (None, [])
+
+
+def test_delete_with_schedules_removes_linked_and_only_named_mentions(mgr):
+    _seed_flow_with_jobs(mgr)
+    ok, err, report = mgr.delete_code_flow_with_schedules("past-due-aging",
+                                                          also_delete_job_ids=["649"])
+    assert ok and err is None, err
+    assert sorted(j["job_id"] for j in report["removed_schedules"]) == [648, 649, 700]
+    assert [j["job_id"] for j in report["kept_mentions"]] == [650]
+    assert report["removed_count"] == 3
+    assert mgr.get_code_flow("past-due-aging") is None
+    # other flows' schedules, the kept mention and unrelated jobs are untouched
+    assert sorted(j["job_id"] for j in mgr._jobs) == [650, 651, 701]
+    ok2, err2, _r = mgr.delete_code_flow_with_schedules("past-due-aging")
+    assert not ok2 and err2 == "not found"
+
+
+def test_plain_delete_sweeps_provable_links_but_never_guesses_at_mentions(mgr):
+    _seed_flow_with_jobs(mgr)
+    ok, err = mgr.delete_code_flow("past-due-aging")
+    assert ok and err is None
+    assert sorted(j["job_id"] for j in mgr._jobs) == [649, 650, 651, 701]
+
+
+class _ScriptedCursor:
+    """Answers each SELECT from a queue of row lists; records every statement."""
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.calls = []
+        self.rowcount = 0
+
+    def execute(self, sql, *params):
+        self.calls.append((" ".join(sql.split()), params))
+        if sql.lstrip().upper().startswith("DELETE"):
+            self.rowcount = len(params)
+
+    def fetchall(self):
+        return self.answers.pop(0) if self.answers else []
+
+    def close(self):
+        pass
+
+
+class _ScriptedConn:
+    def __init__(self, cursor):
+        self._c = cursor
+        self.committed = False
+
+    def cursor(self):
+        return self._c
+
+    def commit(self):
+        self.committed = True
+
+    def close(self):
+        pass
+
+
+def test_real_sql_seams_classify_dedupe_and_escape():
+    """The SQL side of the sweep: three lookups, first match wins for a job
+    that hits several, LIKE wildcards in the flow name are escaped, and the
+    delete is one IN-list statement."""
+    m = CodeFlowManager(tenant_id="t", connection_string="stub")
+    cur = _ScriptedCursor([
+        [(700, "Code Flow: x", 1)],                       # workflow-type by TargetId
+        [(648, "Agent: linked", 1)],                      # code_flow parameter
+        [(648, "Agent: linked", 1, "Run 100%_x flow"),    # also mentions → stays 'linked'
+         (649, "Agent: mention", 0, "Run 100%_x and mail me")],
+    ])
+    m._db_conn = lambda: _ScriptedConn(cur)
+    jobs = m._db_linked_jobs("100%_x", 55)
+    assert [(j["job_id"], j["match"], j["is_active"]) for j in jobs] == [
+        (648, "linked", True), (649, "mention", False), (700, "code_flow_schedule", True)]
+    assert jobs[1]["gist"] == "Run 100%_x and mail me"
+    assert cur.calls[0][1] == (55,)
+    assert "ParameterName = 'code_flow'" in cur.calls[1][0] and cur.calls[1][1] == ("100%_x",)
+    assert "ParameterName = 'prompt'" in cur.calls[2][0]
+    assert cur.calls[2][1] == ("%100[%][_]x%",)          # wildcards escaped
+    n = m._db_delete_jobs([700, 648])
+    assert n == 2
+    assert cur.calls[-1][0] == "DELETE FROM ScheduledJobs WHERE ScheduledJobId IN (?, ?)"
+    assert cur.calls[-1][1] == (700, 648)
+    assert m._db_delete_jobs([]) == 0
 
 
 # ------------------------------------------------------------------- dry-run

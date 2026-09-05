@@ -165,3 +165,29 @@ regression (runtime 403 → the step now FAILS instead of reporting success).
 
 §5 items (orphaned `schedule_agent_task` schedules on flow delete, no `delete_skill` tool)
 remain open — they are separate defects.
+
+## 7. §5 follow-ups — resolved 2026-09-05
+
+- **Orphaned schedules.** Root cause was wider than filed: the code-flow delete removed only the
+  Workflows row. `schedule_code_flow` jobs survived too (the scheduler's target reaper removes
+  those eventually — `workflow`-type jobs whose TargetId no longer exists); `schedule_agent_task`
+  jobs have `TargetId 0` and a free-text prompt, so nothing could ever reap them (#649/#650).
+  Now:
+  - `schedule_agent_task` takes an optional **`code_flow`** (the flow's exact name), stored as a
+    job parameter — a structured link; a flow that does not exist is refused. The Schedules
+    screen's create path accepts the same field.
+  - `CodeFlowManager.delete_code_flow_with_schedules` sweeps, in one call: `workflow`-type jobs
+    targeting the flow's workflow id, `agent_session` jobs linked via `code_flow`, and — only
+    when the caller names them — `agent_session` jobs whose **prompt mentions the flow by name**.
+    Mentions are surfaced as candidates, never guessed at: the agent's `delete_code_flow`
+    two-step lists them (job id, name, prompt gist) and removes them on confirm unless the user
+    keeps one via `keep_job_ids`. The REST delete and the CC/agent manage `delete` both use the
+    sweep; the manage `get` returns `schedules` so the preview is honest. A DB failure while
+    listing aborts the delete (fail closed).
+- **`delete_skill` tool** added to The Agent (`work_tools.py`): same scopes and permissions as
+  `/api/skills/delete` (user = own, group = member, tenant/product = admin), two-step confirm,
+  read-back verification; ambiguous names across scopes ask for `scope`. Registered in
+  `MUTATING_TOOLS`; the skills doctrine says to use it and that re-saving overwrites.
+
+Tests: `tests_v2/unit/test_code_flows_manager.py` (sweep + real-SQL seams) and
+`tests_v2/unit/test_agent_delete_skill_and_orphan_schedules.py` (agent env, 7/7).

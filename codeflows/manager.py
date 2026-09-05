@@ -322,8 +322,128 @@ class CodeFlowManager:
     def list_code_flows(self) -> List[Dict]:
         return self._db_list()
 
+    # ----------------------------------------------------------- schedules
+
+    @staticmethod
+    def _like_escape(text: str) -> str:
+        """Escape SQL Server LIKE wildcards with the bracket form."""
+        return (str(text).replace("[", "[[]").replace("%", "[%]").replace("_", "[_]"))
+
+    def _db_linked_jobs(self, name: str, workflow_id: int) -> List[Dict]:
+        """Scheduler jobs that reference this code flow. TargetId is polymorphic
+        and an agent task's prompt is free text, so no FK covers any of these
+        links — they have to be looked up:
+
+          * 'code_flow_schedule' — JobType 'workflow' whose TargetId is this
+            flow's workflow id (schedule_code_flow / the Schedules screen);
+          * 'linked' — an agent_session job whose `code_flow` parameter names
+            this flow (schedule_agent_task's structured link);
+          * 'mention' — an agent_session job whose PROMPT contains the flow's
+            name. Only a human can say whether such a task exists to run the
+            flow, so these are surfaced as candidates and deleted only when the
+            caller names them (delete_code_flow_with_schedules).
+
+        Before this existed a code-flow delete left every one of them firing
+        into a void (jobs #649/#650, docs/handoff-codeflow-send-email-403.md §5)."""
+        conn = self._db_conn()
+        cursor = conn.cursor()
+        out: Dict[int, Dict] = {}
+        try:
+            cursor.execute(
+                """SELECT ScheduledJobId, JobName, IsActive FROM ScheduledJobs
+                   WHERE JobType = 'workflow' AND TargetId = ?""", int(workflow_id))
+            for jid, jname, active in cursor.fetchall():
+                out[int(jid)] = {"job_id": int(jid), "name": jname, "type": "workflow",
+                                 "is_active": bool(active), "match": "code_flow_schedule",
+                                 "gist": f"runs code flow '{name}' (workflow {workflow_id})"}
+            cursor.execute(
+                """SELECT j.ScheduledJobId, j.JobName, j.IsActive
+                   FROM ScheduledJobs j
+                   JOIN ScheduledJobParameters p ON p.ScheduledJobId = j.ScheduledJobId
+                   WHERE j.JobType = 'agent_session' AND p.ParameterName = 'code_flow'
+                     AND LOWER(CAST(p.ParameterValue AS NVARCHAR(400))) = LOWER(?)""", name)
+            for jid, jname, active in cursor.fetchall():
+                out.setdefault(int(jid), {"job_id": int(jid), "name": jname,
+                                          "type": "agent_session", "is_active": bool(active),
+                                          "match": "linked",
+                                          "gist": f"agent task linked to code flow '{name}'"})
+            cursor.execute(
+                """SELECT j.ScheduledJobId, j.JobName, j.IsActive, p.ParameterValue
+                   FROM ScheduledJobs j
+                   JOIN ScheduledJobParameters p ON p.ScheduledJobId = j.ScheduledJobId
+                   WHERE j.JobType = 'agent_session' AND p.ParameterName = 'prompt'
+                     AND LOWER(p.ParameterValue) LIKE LOWER(?)""",
+                "%" + self._like_escape(name) + "%")
+            for jid, jname, active, prompt in cursor.fetchall():
+                out.setdefault(int(jid), {"job_id": int(jid), "name": jname,
+                                          "type": "agent_session", "is_active": bool(active),
+                                          "match": "mention",
+                                          "gist": str(prompt or "")[:300]})
+        finally:
+            conn.close()
+        return [out[k] for k in sorted(out)]
+
+    def _db_delete_jobs(self, job_ids: List[int]) -> int:
+        """Delete scheduler jobs by id (cascades to their schedule definitions,
+        parameters and history — same statement the scheduler REST uses)."""
+        ids = [int(j) for j in job_ids]
+        if not ids:
+            return 0
+        conn = self._db_conn()
+        cursor = conn.cursor()
+        placeholders = ", ".join("?" for _ in ids)
+        cursor.execute(f"DELETE FROM ScheduledJobs WHERE ScheduledJobId IN ({placeholders})", *ids)
+        n = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return n
+
+    def linked_schedules(self, name: str) -> Tuple[Optional[int], List[Dict]]:
+        """(workflow_id, jobs) — every scheduler job that references the flow,
+        classified (see _db_linked_jobs). (None, []) when the flow does not exist."""
+        loaded = self._load_defn(name)
+        if not loaded:
+            return None, []
+        wid, _defn = loaded
+        return wid, self._db_linked_jobs(name, wid)
+
+    def delete_code_flow_with_schedules(self, name: str,
+                                        also_delete_job_ids: Optional[List[int]] = None
+                                        ) -> Tuple[bool, Optional[str], Dict]:
+        """Delete a code flow AND the scheduler jobs that provably target it:
+        its code-flow schedules and agent tasks linked via `code_flow`. Agent
+        tasks that merely MENTION the flow by name are removed only when their
+        ids are passed in `also_delete_job_ids` (a human confirmed them) and
+        are otherwise reported back as `kept_mentions`. Jobs go first so a fire
+        between the two deletes cannot hit a missing flow (same order as the
+        main app's delete_workflow). Any DB failure aborts before the flow is
+        touched — fail closed, never a silent orphan."""
+        loaded = self._load_defn(name)
+        if not loaded:
+            return False, "not found", {}
+        wid, _defn = loaded
+        jobs = self._db_linked_jobs(name, wid)
+        wanted = set()
+        for j in (also_delete_job_ids or []):
+            try:
+                wanted.add(int(j))
+            except (TypeError, ValueError):
+                continue
+        remove = [j for j in jobs if j["match"] != "mention" or j["job_id"] in wanted]
+        kept = [j for j in jobs if j["match"] == "mention" and j["job_id"] not in wanted]
+        removed_n = self._db_delete_jobs([j["job_id"] for j in remove])
+        report = {"workflow_id": wid, "removed_schedules": remove,
+                  "removed_count": removed_n, "kept_mentions": kept}
+        if not self._db_delete(name):
+            return False, "not found", report
+        return True, None, report
+
     def delete_code_flow(self, name: str) -> Tuple[bool, Optional[str]]:
-        return (True, None) if self._db_delete(name) else (False, "not found")
+        """Delete a code flow and every schedule that provably targets it (see
+        delete_code_flow_with_schedules). Name-mention agent tasks are left in
+        place here — only a caller with a human in the loop may name them."""
+        ok, err, _report = self.delete_code_flow_with_schedules(name)
+        return ok, err
 
     # ------------------------------------------------------------------- run
 

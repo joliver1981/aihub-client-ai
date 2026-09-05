@@ -872,17 +872,39 @@ async def update_step_code(args: dict[str, Any]) -> dict[str, Any]:
                  "Dry-run the flow again before promoting or scheduling.")
 
 
+_SCHEDULE_MATCH_LABEL = {
+    "code_flow_schedule": "code-flow schedule",
+    "linked": "agent task linked via code_flow",
+    "mention": "agent task that mentions the flow by name",
+}
+
+
+def _schedule_line(s: dict) -> str:
+    label = _SCHEDULE_MATCH_LABEL.get(s.get("match"), str(s.get("match") or "schedule"))
+    paused = "" if s.get("is_active", True) else ", paused"
+    gist = " ".join(str(s.get("gist") or "").split())[:160]
+    return (f"  - job #{s.get('job_id')} '{s.get('name')}' ({label}{paused})"
+            + (f": {gist}" if gist else ""))
+
+
 @tool(
     "delete_code_flow",
-    "Delete a code flow (its steps, wiring and schedules). TWO-STEP: first call "
-    "without confirmed to get a summary of what would be deleted; call again "
-    "with confirmed=true only after the user explicitly confirms. Verified by "
-    "read-back.",
+    "Delete a code flow AND the schedules that reference it. TWO-STEP: first "
+    "call without confirmed to get a summary of what would be deleted — the "
+    "flow, its code-flow schedules, scheduled agent tasks LINKED to it "
+    "(code_flow=...), and scheduled agent tasks whose prompt MENTIONS it by "
+    "name; call again with confirmed=true only after the user explicitly "
+    "confirms. Mentioned tasks are removed too unless the user wants one kept "
+    "— pass its job id in keep_job_ids. Verified by read-back.",
     {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Code flow name"},
             "confirmed": {"type": "boolean"},
+            "keep_job_ids": {"type": "array", "items": {"type": "integer"},
+                             "description": "Job ids of scheduled agent tasks that "
+                                            "MENTION the flow which the user wants "
+                                            "to KEEP (default: all are removed)"},
         },
         "required": ["name"],
         "additionalProperties": False,
@@ -897,14 +919,41 @@ async def delete_code_flow(args: dict[str, Any]) -> dict[str, Any]:
         return _text(f"No code flow named '{name}' (HTTP {gstat}): "
                      f"{got.get('error', got)}", is_error=True)
     cf = got.get("code_flow") or {}
+    scheds = cf.get("schedules") or []
+    auto = [s for s in scheds if s.get("match") != "mention"]
+    mentions = [s for s in scheds if s.get("match") == "mention"]
+    keep = set()
+    for k in (args.get("keep_job_ids") or []):
+        try:
+            keep.add(int(k))
+        except (TypeError, ValueError):
+            continue
     if not args.get("confirmed"):
-        return _text("⚠️ CONFIRMATION REQUIRED — nothing was deleted.\n"
-                     f"Target: code flow '{cf.get('name', name)}' (workflow id "
-                     f"{cf.get('workflow_id')}), {len(cf.get('nodes') or [])} step(s). "
-                     "Deleting removes the flow and its schedules; run history is "
-                     "retained. Ask the user to confirm, then call again with "
-                     "confirmed=true.")
-    data, status = await _manage_cf("delete", {"name": name}, timeout=60)
+        lines = ["⚠️ CONFIRMATION REQUIRED — nothing was deleted.",
+                 f"Target: code flow '{cf.get('name', name)}' (workflow id "
+                 f"{cf.get('workflow_id')}), {len(cf.get('nodes') or [])} step(s). "
+                 "Run history is retained."]
+        if auto:
+            lines.append(f"Schedules that will be removed with it ({len(auto)}):")
+            lines += [_schedule_line(s) for s in auto]
+        if mentions:
+            lines.append(f"Scheduled agent tasks that MENTION this flow by name "
+                         f"({len(mentions)}) — they will ALSO be removed unless the "
+                         "user wants one kept (pass its job id in keep_job_ids):")
+            lines += [_schedule_line(s) for s in mentions]
+        if not auto and not mentions:
+            if cf.get("schedules_error"):
+                lines.append(f"⚠ Its schedules could not be listed ({cf['schedules_error']}) "
+                             "— the delete fails closed if they still cannot be read.")
+            else:
+                lines.append("No schedules reference this flow.")
+        lines.append("Ask the user to confirm, then call again with confirmed=true"
+                     + (" (and keep_job_ids for any mentioned task to keep)."
+                        if mentions else "."))
+        return _text("\n".join(lines))
+    also = [s.get("job_id") for s in mentions if s.get("job_id") not in keep]
+    data, status = await _manage_cf("delete", {"name": name, "also_delete_job_ids": also},
+                                    timeout=60)
     if status >= 400:
         return _text(f"Delete failed (HTTP {status}): {data.get('error', data)} — "
                      "the code flow still exists.", is_error=True)
@@ -912,8 +961,19 @@ async def delete_code_flow(args: dict[str, Any]) -> dict[str, Any]:
     if astat < 400 and (again.get("code_flow") or {}):
         return _text(f"Delete reported success but '{name}' can still be read back — "
                      "report as UNVERIFIED.", is_error=True)
-    return _text(f"Deleted code flow '{name}' (verified by read-back: it no longer "
-                 "exists).")
+    removed = data.get("removed_schedules") or []
+    kept = data.get("kept_mentions") or []
+    msg = f"Deleted code flow '{name}' (verified by read-back: it no longer exists)."
+    if removed:
+        msg += (f"\nRemoved {len(removed)} schedule(s) with it:\n"
+                + "\n".join(_schedule_line(s) for s in removed))
+    else:
+        msg += " No schedules referenced it."
+    if kept:
+        msg += (f"\nKept {len(kept)} scheduled agent task(s) at the user's request — "
+                "they still mention a flow that no longer exists:\n"
+                + "\n".join(_schedule_line(s) for s in kept))
+    return _text(msg)
 
 
 @tool(

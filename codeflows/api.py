@@ -91,10 +91,12 @@ def get_code_flow(name):
 @code_flows_bp.route("/api/<name>", methods=["DELETE"])
 @code_flows_gate
 def delete_code_flow(name):
-    ok, err = _get_manager().delete_code_flow(name)
+    # Removes the flow's code-flow schedules and linked agent tasks with it;
+    # name-mention agent tasks are reported (kept_mentions), never guessed at.
+    ok, err, report = _get_manager().delete_code_flow_with_schedules(name)
     if not ok:
         return jsonify({"error": err}), 404
-    return jsonify({"deleted": name})
+    return jsonify({"deleted": name, **report})
 
 
 @code_flows_bp.route("/api/<name>/dry_run", methods=["POST"])
@@ -199,6 +201,14 @@ def internal_manage():
             cf = mgr.get_code_flow(name)
             if not cf:
                 return jsonify({"error": "code flow not found"}), 404
+            # The schedules that reference the flow ride along so a delete can
+            # be previewed honestly (the agent's two-step delete_code_flow).
+            try:
+                _wid, cf["schedules"] = mgr.linked_schedules(name)
+            except Exception as e:
+                logger.warning(f"code flow '{name}': could not list linked schedules: {e}")
+                cf["schedules"] = []
+                cf["schedules_error"] = str(e)
             return jsonify({"code_flow": cf})
 
         if action == "create":
@@ -252,10 +262,13 @@ def internal_manage():
             return jsonify(result), code
 
         if action == "delete":
-            ok, err = mgr.delete_code_flow(name)
+            # also_delete_job_ids: agent tasks that MENTION the flow which the
+            # user confirmed for removal (the manager re-validates the ids).
+            ok, err, report = mgr.delete_code_flow_with_schedules(
+                name, also_delete_job_ids=payload.get("also_delete_job_ids") or [])
             if not ok:
                 return jsonify({"error": err}), 404
-            return jsonify({"deleted": name})
+            return jsonify({"deleted": name, **report})
 
         if action == "schedule":
             cf = mgr.get_code_flow(name)

@@ -192,7 +192,7 @@ MUTATING_TOOLS = frozenset({
     "run_automation", "dry_run_automation",
     "create_code_flow", "add_code_step", "wire_steps", "schedule_code_flow",
     "run_code_flow", "dry_run_code_flow",
-    "raise_work_item", "save_skill", "schedule_agent_task",
+    "raise_work_item", "save_skill", "delete_skill", "schedule_agent_task",
     "save_view", "delete_view", "rename_view", "store_platform_secret",
     "schedule_view_refresh", "schedule_view_email",
     "draft_email_reply", "setup_agent_email", "save_attachment",
@@ -338,7 +338,9 @@ share to a group only after they confirm; tenant-wide sharing files an admin
 approval into My Work. Skills record procedure and gotchas — but always verify
 current facts (schema, values) with discovery tools; never trust a skill's
 frozen facts over a live probe. Loaded skills appear to you automatically when
-relevant.
+relevant. A wrong or obsolete skill: delete_skill (two-step — preview, then the
+user's explicit yes; tenant/product skills need an admin). To CHANGE a skill,
+save_skill under the same name overwrites it.
 
 PREFERENCES — YOUR MEMORY OF THIS USER
 When the user states a STANDING preference or personal default ("always…",
@@ -380,7 +382,10 @@ user confirms which group, tenant files an admin approval. Mechanical
 repetition that DOES something -> build an AUTOMATION (deterministic, zero
 tokens per run). Recurring judgment ('check X each morning, flag what's odd')
 -> schedule_agent_task (a headless session runs the prompt as this user
-and reports into their My Work and this conversation). After an analysis the user liked, offer to
+and reports into their My Work and this conversation). When such a task
+exists to RUN a code flow, pass code_flow=<exact name>: the schedule is then
+linked to the flow and delete_code_flow removes it with the flow (a bare
+prompt cannot be traced back). After an analysis the user liked, offer to
 pin it as a View.
 To RENAME a view use rename_view (in place, schedules follow) — never
 save_view under a new name, which forks a copy. When re-saving tiles,

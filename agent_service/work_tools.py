@@ -564,6 +564,22 @@ def _bound_text(plan, now):
     return ", ".join(parts)
 
 
+async def _code_flow_exists(name: str):
+    """(True | False | None, note) — False only when the code flows service
+    positively says there is no such flow; None when it could not answer (the
+    link is still recorded — the flow may simply be unreachable right now)."""
+    try:
+        from authoring_tools import _manage_cf
+        data, status = await _manage_cf("get", {"name": name}, timeout=30)
+    except Exception as e:
+        return None, str(e)
+    if status == 404:
+        return False, ""
+    if status >= 400:
+        return None, str((data or {}).get("error", status))
+    return bool((data or {}).get("code_flow")), ""
+
+
 @tool(
     "schedule_agent_task",
     "Schedule a HEADLESS agent task — recurring, BOUNDED-recurring, or one-shot: "
@@ -585,7 +601,9 @@ def _bound_text(plan, now):
     "name one. The engine applies the zone at fire time (DST-aware). Always "
     "state times back in the user's zone (the tool's text already does). The "
     "engine polls about every minute, so timing is minute-granular. For purely "
-    "mechanical repetition prefer an automation (zero tokens per run). Report "
+    "mechanical repetition prefer an automation (zero tokens per run). If the "
+    "task exists to RUN a code flow, pass code_flow=<its exact name> so the "
+    "schedule is linked to the flow (deleting the flow then removes it). Report "
     "ONLY the ids and the cadence/bound/zone facts this returns.",
     {
         "type": "object",
@@ -594,6 +612,11 @@ def _bound_text(plan, now):
                             "description": "The full instruction the headless "
                                            "session will run each time"},
             "name": {"type": "string", "description": "Short job name"},
+            "code_flow": {"type": "string",
+                          "description": "If this task exists to RUN a specific "
+                                         "code flow, its exact name — the schedule "
+                                         "is linked to the flow so deleting the "
+                                         "flow removes this schedule too."},
             "cron_expression": {"type": "string",
                                 "description": "5-field cron in the LOCAL "
                                                "timezone given by `timezone` "
@@ -684,6 +707,17 @@ async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
         body["parameters"][k] = {"value": str(v), "type": "string"}
     if chat_sid:
         body["parameters"]["session_id"] = {"value": chat_sid, "type": "string"}
+    code_flow = str(args.get("code_flow") or "").strip()
+    if code_flow:
+        # Structured link: delete_code_flow removes this job together with the
+        # flow. A prompt is free text — nothing else can prove the dependency
+        # (jobs #649/#650 outlived their flow for exactly that reason).
+        exists, _note = await _code_flow_exists(code_flow)
+        if exists is False:
+            return _text(f"Nothing was scheduled: there is no code flow named "
+                         f"'{code_flow}'. Create it first, or drop code_flow if the "
+                         "task does not run one.", is_error=True)
+        body["parameters"]["code_flow"] = {"value": code_flow, "type": "string"}
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(f"{get_base_url()}/api/scheduler/jobs",
@@ -836,6 +870,94 @@ async def list_skills_tool(args: dict[str, Any]) -> dict[str, Any]:
         scope = s["scope"] + (f" {s['group_id']}" if s.get("group_id") else "")
         lines.append(f"- [{scope}] {s['name']} — {s['description'][:100]}")
     return _text(f"Skills ({len(skills)}):\n" + "\n".join(lines))
+
+
+def _scope_label(scope: str, gid: int) -> str:
+    return scope + (f" {gid}" if scope == "group" and gid else "")
+
+
+@tool(
+    "delete_skill",
+    "Delete a saved skill by name. Scopes: 'user' (the user's own private "
+    "skill), 'group' (pass group_id; the user must be a member), 'tenant' or "
+    "'product' (admins only). Omit scope when the name is unique across the "
+    "scopes the user can see. Destructive: call once without confirmed to "
+    "preview (scope + description), then ONLY after the user explicitly "
+    "confirms, again with confirmed=true. Verified by read-back; the skill "
+    "stops loading from the next turn on. To CHANGE a skill, save_skill under "
+    "the same name instead — it overwrites.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "kebab-case skill name"},
+            "scope": {"type": "string", "enum": ["user", "group", "tenant", "product"]},
+            "group_id": {"type": "integer", "description": "For scope=group"},
+            "confirmed": {"type": "boolean"},
+        },
+        "required": ["name"],
+        "additionalProperties": False,
+    },
+)
+async def delete_skill_tool(args: dict[str, Any]) -> dict[str, Any]:
+    import skills_mount
+    import readthrough
+    user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    role = int(user.get("role") or 0)
+    name = str(args.get("name") or "").strip().lower()
+    if not skills_mount.valid_name(name):
+        return _text("Skill name must be kebab-case (a-z, 0-9, '-').", is_error=True)
+    scope = str(args.get("scope") or "").strip()
+    gid = int(args.get("group_id") or 0)
+    gids = readthrough.user_group_ids(uid)
+
+    # Resolve against what THIS user can see (same inventory as list_skills) —
+    # an admin cannot reach another user's private scope this way, by design.
+    matches = [s for s in skills_mount.list_skills(uid, gids) if s["name"] == name]
+    if scope:
+        matches = [s for s in matches if s["scope"] == scope
+                   and (scope != "group" or not gid or int(s.get("group_id") or 0) == gid)]
+    if not matches:
+        where = f" in scope '{_scope_label(scope, gid)}'" if scope else ""
+        return _text(f"No skill named '{name}'{where} is visible to this user — "
+                     "nothing was deleted (list_skills shows what exists).", is_error=True)
+    if len(matches) > 1:
+        return _text(f"'{name}' exists in several scopes: "
+                     + ", ".join(_scope_label(s["scope"], int(s.get("group_id") or 0))
+                                 for s in matches)
+                     + " — pass scope (and group_id) to say which one.", is_error=True)
+    skill = matches[0]
+    scope = skill["scope"]
+    gid = int(skill.get("group_id") or 0)
+    label = _scope_label(scope, gid)
+
+    # Permissions mirror the service's /api/skills/delete.
+    if scope in ("tenant", "product") and role < 3:
+        return _text(f"Deleting a {scope} skill requires an admin — '{name}' was "
+                     "NOT deleted. An admin can remove it from the Skills screen.",
+                     is_error=True)
+    if scope == "group" and gid not in gids:
+        return _text(f"User {uid} is not a member of group {gid} — '{name}' was NOT "
+                     "deleted.", is_error=True)
+
+    if not args.get("confirmed"):
+        return _text(f"CONFIRMATION REQUIRED: skill '{name}' [{label}] — "
+                     f"\"{(skill.get('description') or '')[:200]}\" — would be permanently "
+                     "deleted. Ask the user to confirm, then call again with "
+                     f"confirmed=true, scope='{scope}'"
+                     + (f", group_id={gid}" if scope == "group" else "") + ".")
+
+    ok = skills_mount.delete_skill(scope, name, user_id=uid, group_id=gid)
+    if not ok:
+        return _text(f"Not deleted: '{name}' [{label}] could not be removed.", is_error=True)
+    still = [s for s in skills_mount.list_skills(uid, gids)
+             if s["name"] == name and s["scope"] == scope
+             and int(s.get("group_id") or 0) == gid]
+    if still:
+        return _text(f"Delete reported success but '{name}' [{label}] can still be "
+                     "read back — report as UNVERIFIED.", is_error=True)
+    return _text(f"Skill '{name}' [{label}] deleted (verified by read-back). It stops "
+                 "loading from the next turn on.")
 
 
 def _refresh_summary(tiles: list) -> str:
@@ -1574,6 +1696,6 @@ async def forget_preference(args: dict[str, Any]) -> dict[str, Any]:
 
 
 WORK_TOOLS = [raise_work_item, list_my_work, schedule_agent_task,
-              save_skill, list_skills_tool, draft_email_reply, send_email,
+              save_skill, list_skills_tool, delete_skill_tool, draft_email_reply, send_email,
               remember_preference, forget_preference,
               get_agent_email_status, setup_agent_email]

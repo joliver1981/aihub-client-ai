@@ -394,6 +394,11 @@ async def create(user: dict, body: dict) -> dict:
         }
         for k, v in (plan.get("params") or {}).items():
             job_body["parameters"][k] = {"value": str(v), "type": "string"}
+        # same structured link the chat tool records: delete_code_flow removes
+        # the job together with the flow it exists to run
+        code_flow = str(body.get("code_flow") or "").strip()
+        if code_flow:
+            job_body["parameters"]["code_flow"] = {"value": code_flow, "type": "string"}
         async with httpx.AsyncClient(timeout=30) as client:
             job_id, err = await _post_job_verified(client, base, hdrs, plan, job_body)
         if err:
