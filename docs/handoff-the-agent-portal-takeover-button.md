@@ -65,3 +65,10 @@ Verification: `tests_v2/unit/test_agent_portal_tools.py` (spec resolves,
 store failure keeps the link, headless has no fence), the pause test in
 `test_agent_portal_watch.py`, and pack 20 UI-1 (`ui_smoke_links.py`: one
 button, opens a new tab, gone/inline blocks render nothing).
+
+Live (2026-09-05, dev box, Agent restarted on b09cb39): PT-13 journey + button
+9/9 PASS via `test_human/20_The_Agent/pt13_button_live.py` (Vantage on :3001 —
+:3000 was held by another test portal; the pack-20 runner hardcodes :3000 and
+SKIPs). The model pasted the reference fence verbatim, `GET /api/blocks/<ref>`
+resolved to the run's cobrowse URL, the simulated human handed back, the watch
+woke the conversation and delivered the file (9,885 bytes), My Work FYI filed.
