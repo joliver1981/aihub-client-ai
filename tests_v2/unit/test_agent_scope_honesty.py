@@ -202,15 +202,15 @@ def test_coverage_footer_states_the_boundary_as_data():
     ctx = {"user_id": 7, "role": 2, "username": "dev", "_coverage": {
         "known": KNOWN, "queried": ["ERPDB", "EDW (SQL Server)"]}}
     line = P.coverage_footer(ctx)
-    assert line.startswith("\nCoverage this turn — queried: EDW (SQL Server), ERPDB; ")
-    assert "NOT queried: EDWDB (Postgres), AIRDB, AIRDB2, PHARMA." in line
-    assert "search_tables" in line
+    assert line == ("\nQueried this turn: EDW (SQL Server), ERPDB. "
+                    "Not queried: EDWDB (Postgres), AIRDB, AIRDB2, PHARMA.")
+    # names only — no per-result doctrine (James, 2026-09-05)
+    assert "search_tables" not in line and "no data" not in line.lower()
     ctx["_coverage"]["queried"] = list(KNOWN)
-    assert P.coverage_footer(ctx) == (
-        "\nCoverage this turn: all 6 connection(s) queried "
-        "(EDW (SQL Server), ERPDB, EDWDB (Postgres), AIRDB, AIRDB2, PHARMA).")
+    assert P.coverage_footer(ctx) == "\nQueried this turn: all 6 connections."
     ctx["_coverage"]["queried"] = []
-    assert "queried: (none); NOT queried: EDW (SQL Server), ERPDB" in P.coverage_footer(ctx)
+    assert P.coverage_footer(ctx).startswith(
+        "\nQueried this turn: (none). Not queried: EDW (SQL Server), ERPDB")
     # long tails are capped, never dropped silently
     many = {"known": [f"C{i}" for i in range(20)], "queried": ["C0"]}
     line = P.coverage_footer({"_coverage": many})
@@ -233,16 +233,16 @@ def test_every_probe_result_ends_with_the_coverage_line():
             out = _txt(_run(P.probe_connection_query.handler({"connection": "AIRDB",
                                                               "sql": "select 1"})))
             assert "0 rows returned from AIRDB" in out
-            assert "Coverage this turn — queried: AIRDB; NOT queried: EDW (SQL Server), " \
-                   "ERPDB, EDWDB (Postgres), AIRDB2, PHARMA." in out
+            assert out.endswith("Queried this turn: AIRDB. Not queried: EDW (SQL Server), "
+                                "ERPDB, EDWDB (Postgres), AIRDB2, PHARMA.")
             assert P.coverage_snapshot(ctx) == (KNOWN, ["AIRDB"])
             # rows: the ledger follows the row-count note
             state["rows"] = [{"n": 1}]
             out = _txt(_run(P.probe_connection_query.handler({"connection": "ERPDB",
                                                               "sql": "select 1"})))
             assert "(1 rows returned)" in out
-            assert "queried: ERPDB, AIRDB; NOT queried: EDW (SQL Server), EDWDB (Postgres), " \
-                   "AIRDB2, PHARMA." in out
+            assert out.endswith("Queried this turn: ERPDB, AIRDB. Not queried: EDW (SQL Server), "
+                                "EDWDB (Postgres), AIRDB2, PHARMA.")
             # an unresolved name is NOT a checked source
             _run(P.probe_connection_query.handler({"connection": "Nope", "sql": "select 1"}))
             assert P.coverage_snapshot(ctx)[1] == ["AIRDB", "ERPDB"]
@@ -257,7 +257,7 @@ def test_every_probe_result_ends_with_the_coverage_line():
             for name in ("EDW", "EDWDB", "AIRDB2", "PHARMA"):
                 out = _txt(_run(P.probe_connection_query.handler({"connection": name,
                                                                   "sql": "select 1"})))
-            assert "Coverage this turn: all 6 connection(s) queried" in out
+            assert out.endswith("Queried this turn: all 6 connections.")
     finally:
         CURRENT_USER.reset(tok)
 

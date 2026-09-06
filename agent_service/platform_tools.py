@@ -99,9 +99,9 @@ _FOOTER_MAX_NAMES = 12
 
 def coverage_footer(ctx: Optional[dict] = None) -> str:
     """One line for the END of every query result: which connections this
-    turn's row-level queries touched and which they have NOT. The boundary a
-    negative answer must be scoped to, stated as data at the moment the model
-    is about to conclude — never inferred from the wording of its reply."""
+    turn's row-level queries touched and which they have not. Names only —
+    the doctrine lives in the system prompt and the connection listing, not
+    repeated per result (James, 2026-09-05)."""
     known, queried = coverage_snapshot(ctx)
     if not known:
         return ""
@@ -109,15 +109,11 @@ def coverage_footer(ctx: Optional[dict] = None) -> str:
     done = [k for k in known if k.lower() in qset]
     left = [k for k in known if k.lower() not in qset]
     if not left:
-        return (f"\nCoverage this turn: all {len(known)} connection(s) queried "
-                f"({', '.join(done[:_FOOTER_MAX_NAMES])}).")
+        return f"\nQueried this turn: all {len(known)} connections."
     more = (f" (+{len(left) - _FOOTER_MAX_NAMES} more)"
             if len(left) > _FOOTER_MAX_NAMES else "")
-    return (f"\nCoverage this turn — queried: {', '.join(done) or '(none)'}; "
-            f"NOT queried: {', '.join(left[:_FOOTER_MAX_NAMES])}{more}. A 'no data' "
-            "answer covers only the queried list — check the rest (search_tables "
-            "finds candidate tables across all connections) or say which you did "
-            "not check.")
+    return (f"\nQueried this turn: {', '.join(done) or '(none)'}. "
+            f"Not queried: {', '.join(left[:_FOOTER_MAX_NAMES])}{more}.")
 
 _TIMEOUT = httpx.Timeout(30.0, read=120.0)
 
