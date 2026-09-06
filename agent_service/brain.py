@@ -19,7 +19,7 @@ import re
 from typing import AsyncIterator, Optional
 
 from agent_config import (
-    AGENT_MODEL, AGENT_MAX_TURNS, CLAUDE_CONFIG_DIR, WORKSPACE_DIR,
+    AGENT_MODEL, AGENT_MAX_TURNS, CLAUDE_CONFIG_DIR, DATA_DIR, WORKSPACE_DIR,
     ensure_anthropic_key, email_tools_enabled, logger,
 )
 from platform_tools import AIHUB_TOOLS, CURRENT_USER, reset_coverage
@@ -745,12 +745,118 @@ HONESTY DOCTRINE (non-negotiable)
 """
 
 
-def build_options(session_id: Optional[str] = None,
-                  tool_scope: str = "full",
-                  cwd: Optional[str] = None,
-                  role: Optional[int] = None,
-                  skill_names: Optional[list] = None) -> ClaudeAgentOptions:
-    ensure_anthropic_key()
+# ---------------------------------------------------------------------------
+# System prompt delivery (2026-09-06, docs/handoff-argv-limit-agent-down.md).
+# The SDK puts an inline system_prompt on the CLI's COMMAND LINE. Windows caps
+# a command line at 32,767 characters; with the prompt at ~32.4k plus ~1.6k of
+# tool flags every spawn failed with WinError 206, which Python raises as
+# FileNotFoundError and the SDK relabels "Claude Code not found at: …" — a
+# total outage that /health called ok. The prompt now travels by FILE
+# (--system-prompt-file, a supported SDK form): written once per boot, checked
+# per turn, and the real command line is MEASURED at startup and by /health,
+# so the next growth cliff is one log line instead of a phantom error.
+# ---------------------------------------------------------------------------
+SYSTEM_PROMPT_PATH = os.path.join(DATA_DIR, "system_prompt.md")
+ARGV_LIMIT = 32767      # Windows CreateProcess command-line cap
+ARGV_BUDGET = 30000     # startup / health threshold (headroom for resume ids, skills)
+
+
+def write_system_prompt_file() -> str:
+    os.makedirs(os.path.dirname(SYSTEM_PROMPT_PATH), exist_ok=True)
+    tmp = SYSTEM_PROMPT_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(SYSTEM_PROMPT)
+    os.replace(tmp, SYSTEM_PROMPT_PATH)
+    return SYSTEM_PROMPT_PATH
+
+
+def ensure_system_prompt_file() -> str:
+    """The path the CLI reads the prompt from — rewritten when missing or
+    stale (a prompt edit, a wiped data dir), so a turn never spawns against
+    an old or absent file."""
+    try:
+        with open(SYSTEM_PROMPT_PATH, "r", encoding="utf-8") as fh:
+            if fh.read() == SYSTEM_PROMPT:
+                return SYSTEM_PROMPT_PATH
+    except OSError:
+        pass
+    return write_system_prompt_file()
+
+
+def measure_argv_chars(options: ClaudeAgentOptions) -> Optional[int]:
+    """Length of the exact command line the SDK would spawn for `options`
+    (its own _build_command, joined the way CreateProcess sees it). None when
+    the SDK internals are unavailable — callers fall back to an estimate."""
+    try:
+        import subprocess
+        from claude_agent_sdk._internal.transport.subprocess_cli import (
+            SubprocessCLITransport)
+        t = SubprocessCLITransport(prompt="", options=options)
+        if t._cli_path is None:          # connect() resolves it lazily; we do not connect
+            t._cli_path = t._find_cli()
+        cmd = t._build_command()
+        return len(subprocess.list2cmdline([str(c) for c in cmd]))
+    except Exception as e:
+        logger.warning(f"argv measurement unavailable ({e}); estimating instead")
+        return None
+
+
+def estimate_argv_chars(options: ClaudeAgentOptions) -> int:
+    """Coarse fallback: the scaling parts (prompt argument, allowed tools,
+    skills) plus a fixed allowance for the CLI path and flags."""
+    sp = options.system_prompt
+    prompt_arg = len(sp) if isinstance(sp, str) else len(str((sp or {}).get("path", "")))
+    allowed = ",".join(options.allowed_tools or [])
+    skills = options.skills if isinstance(options.skills, list) else []
+    skill_rules = sum(len(f"Skill({s}),") for s in skills)
+    return 600 + prompt_arg + len(allowed) + skill_rules + 50
+
+
+def _representative_skill_names() -> list:
+    """Product + tenant skills — mounted for every user — as the skill set
+    the startup / health measurement is taken with."""
+    try:
+        import skills_mount
+        return sorted({s["name"] for s in skills_mount.list_skills(0, [])})
+    except Exception:
+        return []
+
+
+def spawn_readiness(skill_names: Optional[list] = None) -> dict:
+    """Can this service spawn a turn? The prompt file is present and current,
+    and the command line the SDK builds fits the Windows limit with headroom.
+    Reported by /health and asserted at startup."""
+    out = {"ok": False, "prompt_file": SYSTEM_PROMPT_PATH, "prompt_file_ok": False,
+           "prompt_chars": len(SYSTEM_PROMPT), "argv_limit": ARGV_LIMIT,
+           "argv_budget": ARGV_BUDGET, "argv_chars": None, "argv_measured": False}
+    try:
+        path = ensure_system_prompt_file()
+        out["prompt_file_ok"] = os.path.isfile(path)
+    except Exception as e:
+        out["error"] = f"system prompt file: {e}"
+        return out
+    names = _representative_skill_names() if skill_names is None else list(skill_names)
+    opts = _make_options(None, "full", None, 2, names)
+    n = measure_argv_chars(opts)
+    if n is None:
+        n = estimate_argv_chars(opts)
+    else:
+        out["argv_measured"] = True
+    out["argv_chars"] = n
+    out["skills_in_measurement"] = len(names)
+    out["ok"] = bool(out["prompt_file_ok"] and n <= ARGV_BUDGET)
+    if n > ARGV_BUDGET:
+        out["error"] = (f"command line would be ~{n} chars (limit {ARGV_LIMIT}, budget "
+                        f"{ARGV_BUDGET}): the CLI spawn fails with WinError 206, which the "
+                        "SDK reports as 'Claude Code not found'. Move growth off argv "
+                        "(the prompt already travels by file).")
+    return out
+
+
+def _make_options(session_id: Optional[str], tool_scope: str, cwd: Optional[str],
+                  role: Optional[int], skill_names: Optional[list]) -> ClaudeAgentOptions:
+    """The SDK options for one turn — pure (no key/relay side effects), so
+    the startup assertion and /health can build the exact same shape."""
     allowed = (_READ_ALLOWED if tool_scope == "read" else ["mcp__aihub__*"])
     from agent_config import get_effective_model
     # Skill scope (2026-09-02): the CLI the SDK drives ships its OWN bundled
@@ -768,7 +874,9 @@ def build_options(session_id: Optional[str] = None,
         skills_opt = "all"
         allowed_tools = allowed + ["Skill"]
     return ClaudeAgentOptions(
-        system_prompt=SYSTEM_PROMPT,
+        # By FILE, never inline: an inline prompt rides on the command line and
+        # Windows caps that at 32,767 chars (see SYSTEM_PROMPT_PATH above).
+        system_prompt={"type": "file", "path": ensure_system_prompt_file()},
         # Per-role model (all-users D4): role<2 gets the role1 chain (admin
         # override > AGENT_MODEL_ROLE1); everyone else the original chain.
         model=get_effective_model(role),
@@ -784,6 +892,35 @@ def build_options(session_id: Optional[str] = None,
         resume=session_id or None,
         stderr=lambda line: logger.debug(f"[sdk] {line}"),
     )
+
+
+def build_options(session_id: Optional[str] = None,
+                  tool_scope: str = "full",
+                  cwd: Optional[str] = None,
+                  role: Optional[int] = None,
+                  skill_names: Optional[list] = None) -> ClaudeAgentOptions:
+    ensure_anthropic_key()
+    return _make_options(session_id, tool_scope, cwd, role, skill_names)
+
+
+def assert_spawn_budget() -> dict:
+    """Startup guard: write the prompt file and measure the real command line.
+    Over budget = refuse to start with the breakdown in the log — a service
+    that cannot spawn a turn must not come up reporting healthy."""
+    ready = spawn_readiness()
+    line = (f"spawn readiness: prompt file {ready['prompt_file']} "
+            f"({ready['prompt_chars']} chars) ok={ready['prompt_file_ok']}; command line "
+            f"{ready['argv_chars']} chars ({'measured' if ready['argv_measured'] else 'estimated'}, "
+            f"{ready.get('skills_in_measurement', 0)} skills) vs budget {ARGV_BUDGET} / "
+            f"limit {ARGV_LIMIT}")
+    if not ready["ok"]:
+        logger.error(f"SPAWN BUDGET FAILED — {line}: {ready.get('error')}")
+        raise RuntimeError(f"The Agent cannot spawn turns: {ready.get('error')}")
+    logger.info(line)
+    return ready
+
+
+assert_spawn_budget()
 
 
 async def run_turn(prompt: str, session_id: Optional[str],

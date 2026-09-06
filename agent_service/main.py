@@ -150,7 +150,16 @@ async def index():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", **summary()}
+    # Turn capability, not just liveness (2026-09-06): the prompt file and the
+    # command-line budget the CLI spawn depends on. A service that cannot run
+    # a turn reports "degraded" with the reason, never "ok".
+    from brain import spawn_readiness
+    try:
+        spawn = spawn_readiness()
+    except Exception as e:
+        spawn = {"ok": False, "error": str(e)}
+    return {"status": "ok" if spawn.get("ok") else "degraded", **summary(),
+            "spawn": spawn}
 
 
 @app.get("/api/me")
