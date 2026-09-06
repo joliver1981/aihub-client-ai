@@ -118,6 +118,99 @@ def _summarize_run(data: dict) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Produced-file handoff (2026-09-05, handoff "three usability defects" #3).
+# run_python delivers every file its code writes as a chat download link
+# automatically; automation and code-flow runs only LISTED their output paths
+# and relied on the model to call offer_file_download — live (TA-22, run 3)
+# it built the workbook, emailed it, and never offered the link. Stage the
+# run's output files here, deterministically, the way run_python does; the
+# summary then carries the links and the model has nothing to remember.
+# ---------------------------------------------------------------------------
+_RUN_NOISE_FILES = frozenset({"run.log", "events.jsonl", "_heartbeat",
+                              "_egress.log", "_egress.jsonl"})
+_MAX_OFFERED_FILES = 12
+
+
+def _offer_run_files(paths) -> list:
+    """Stage each ABSOLUTE output path for the signed-in user and return the
+    markdown download links. Missing, empty, noise and outside-root files are
+    skipped (stage_offer's own containment rails apply). Never raises."""
+    links: list = []
+    try:
+        from file_tools import stage_offer
+        uid = int((CURRENT_USER.get() or {}).get("user_id") or 0)
+    except Exception as e:
+        logger.warning(f"run file handoff unavailable: {e}")
+        return links
+    if not uid:
+        return links
+    seen = set()
+    for p in list(paths or []):
+        p = str(p or "").strip()
+        base = os.path.basename(p)
+        if (not p or p in seen or not os.path.isabs(p) or base in _RUN_NOISE_FILES
+                or base.startswith("checkpoint_")):
+            continue
+        seen.add(p)
+        try:
+            if not os.path.isfile(p) or os.path.getsize(p) == 0:
+                continue
+            ok, msg, _staged = stage_offer(uid, p, base)
+            if ok:
+                links.append(msg)
+            else:
+                logger.warning(f"run file handoff: could not offer {base}: {msg}")
+        except Exception as e:
+            logger.warning(f"run file handoff: offer failed for {base}: {e}")
+        if len(links) >= _MAX_OFFERED_FILES:
+            break
+    return links
+
+
+def _files_block(links: list) -> str:
+    """Model-facing block — the same contract run_python uses."""
+    if not links:
+        return ""
+    out = ("\n\nFiles produced — include these links VERBATIM in your reply (in "
+           "addition to any email or upload the run performed, never instead "
+           "of it):\n" + "\n".join(links))
+    try:
+        import rich_blocks
+        imgs = rich_blocks.image_lines(links)
+        if imgs:
+            out += ("\n\nImages — include these lines VERBATIM as well (they "
+                    "render inline; keep the download links too):\n"
+                    + "\n".join(imgs))
+    except Exception as e:
+        logger.debug(f"run file handoff: image lines skipped: {e}")
+    return out
+
+
+def _run_output_paths(data: dict) -> list:
+    """Absolute output paths of an automation run: the runner reports them
+    workdir-relative, next to the run's `workdir` (inline results) or its
+    `log_path` (run rows)."""
+    files = [str(f) for f in ((data or {}).get("output_files") or []) if f]
+    if not files:
+        return []
+    workdir = str(data.get("workdir") or "").strip()
+    if not workdir and data.get("log_path"):
+        workdir = os.path.dirname(str(data["log_path"]))
+    if not workdir:
+        return [f for f in files if os.path.isabs(f)]
+    return [f if os.path.isabs(f) else os.path.join(workdir, f) for f in files]
+
+
+def _walk_output_paths(data: dict) -> list:
+    """Absolute output paths across a code-flow walk's steps (the compiler
+    already absolutizes them per step)."""
+    out: list = []
+    for s in ((data or {}).get("steps") or []):
+        out.extend(str(p) for p in (s.get("output_files") or []) if p)
+    return out
+
+
 async def _run_action(action: str, automation_ref: str, inputs_json: str,
                       version: int = 0) -> dict:
     if not _authoring_allowed():
@@ -167,6 +260,7 @@ async def _run_action(action: str, automation_ref: str, inputs_json: str,
         return _text(f"{action} failed (HTTP {status}): {data.get('error', data)}",
                      is_error=True)
     summary = _summarize_run(data)
+    summary += _files_block(_offer_run_files(_run_output_paths(data)))
     if str(data.get("status")) in _TERMINAL_RUN_STATUSES:
         summary += await _ephemeral_epilogue(auto_id)
     return _text(summary)
@@ -385,7 +479,9 @@ async def get_automation(args: dict[str, Any]) -> dict[str, Any]:
     "Execute the LATEST SAVED version for real (live credentials, real side "
     "effects) to prove it works before promoting. May pause at a human "
     "checkpoint — that is not a failure. Zero-token replays only happen after "
-    "promote + schedule; dry-run is the proving step.",
+    "promote + schedule; dry-run is the proving step. Files the run produces "
+    "come back as /api/files/ download links — include them VERBATIM in your "
+    "reply, in addition to any email the run sent.",
     {
         "type": "object",
         "properties": {
@@ -404,7 +500,8 @@ async def dry_run_automation(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "run_automation",
     "Execute the PINNED (promoted) version — what schedules and webhooks run. "
-    "Fails honestly if nothing is promoted yet.",
+    "Fails honestly if nothing is promoted yet. Files the run produces come "
+    "back as /api/files/ download links — include them VERBATIM in your reply.",
     {
         "type": "object",
         "properties": {
@@ -452,6 +549,10 @@ async def check_automation_run(args: dict[str, Any]) -> dict[str, Any]:
     events = data.get("events") or []
     for ev in events[-5:]:
         lines.append(f"  event: {json.dumps(ev)[:200]}")
+    if str(run.get("status")) in _TERMINAL_RUN_STATUSES:
+        files_block = _files_block(_offer_run_files(_run_output_paths(run)))
+        if files_block:
+            lines.append(files_block.strip())
     if str(run.get("status")) in _TERMINAL_RUN_STATUSES and run.get("automation_id"):
         epilogue = await _ephemeral_epilogue(str(run["automation_id"]))
         if epilogue:
@@ -1104,14 +1205,17 @@ async def _cf_run(action: str, name: str) -> dict:
     if status >= 400 and data.get("status") != "error":
         return _text(f"{action} failed (HTTP {status}): {data.get('error', data)}",
                      is_error=True)
-    return _text(_summarize_walk(data))
+    return _text(_summarize_walk(data)
+                 + _files_block(_offer_run_files(_walk_output_paths(data))))
 
 
 @tool(
     "dry_run_code_flow",
     "Execute a code flow's steps FOR REAL (live credentials, real side effects) "
     "to prove it works. Handled fail-edges are reported distinctly — never as a "
-    "clean pass.",
+    "clean pass. Files the steps produce come back as /api/files/ download "
+    "links — include them VERBATIM in your reply, in addition to any email a "
+    "step sent (never instead of it).",
     {
         "type": "object",
         "properties": {"name": {"type": "string"}},
@@ -1125,7 +1229,9 @@ async def dry_run_code_flow(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "run_code_flow",
-    "Run a code flow now (same real execution as dry_run in the current engine).",
+    "Run a code flow now (same real execution as dry_run in the current engine). "
+    "Files the steps produce come back as /api/files/ download links — include "
+    "them VERBATIM in your reply, in addition to any email a step sent.",
     {
         "type": "object",
         "properties": {"name": {"type": "string"}},

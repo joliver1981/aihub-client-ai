@@ -792,7 +792,11 @@ async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
     "this only FILES A REQUEST; an admin must approve it in My Work). Write "
     "the description as a trigger ('use when...'). Record procedure and "
     "gotchas, but tell future sessions to verify current facts with discovery "
-    "tools — never freeze schema or values as truth.",
+    "tools — never freeze schema or values as truth. A skill is procedure and "
+    "ENRICHMENT, never a silent filter: when the procedure says to consult a "
+    "table or list, write it as a lookup/join that adds flags or history for "
+    "the population the user asked about, and say explicitly that it must not "
+    "narrow that population.",
     {
         "type": "object",
         "properties": {

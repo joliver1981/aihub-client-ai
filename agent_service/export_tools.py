@@ -381,15 +381,16 @@ async def export_data(args: dict[str, Any]) -> dict[str, Any]:
         # Resolve the connection NAME the runtime expects (ids are accepted by
         # the discovery seam, names by aihub_runtime).
         try:
-            from platform_tools import _connections_index
+            # Same resolution ladder as the probe/schema tools (exact -> base
+            # name -> unique prefix/substring; ambiguity is an honest error).
+            from platform_tools import (_connections_index, match_connection,
+                                        note_queried_connection)
             idx = await _connections_index()
-            hit = next((c for c in idx if str(c.get("id")) == conn
-                        or str(c.get("name") or "").lower() == conn.lower()), None)
-            if not hit:
-                names = ", ".join(str(c.get("name")) for c in idx if c.get("name"))
-                return _text(f"No connection named '{conn}'. Known: {names or '(none)'}",
-                             is_error=True)
+            hit, cerr = match_connection(conn, idx)
+            if cerr:
+                return _text(f"Nothing exported — {cerr}", is_error=True)
             conn = str(hit.get("name") or conn)
+            note_queried_connection(conn)
         except Exception as e:
             logger.warning(f"export_data: connection lookup failed: {e}")
     code = compose_export_code(fmt, filename, rows_json_text=rows_text, columns=columns,

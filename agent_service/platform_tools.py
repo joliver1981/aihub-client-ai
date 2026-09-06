@@ -15,7 +15,8 @@ Honesty rules carried over from CC's tool bodies:
 
 import json
 import contextvars
-from typing import Any
+import re
+from typing import Any, Optional
 
 import httpx
 
@@ -24,9 +25,72 @@ from claude_agent_sdk import tool, create_sdk_mcp_server
 
 # Per-request session envelope (set by main.py before each turn); tools read
 # identity from here — never from anything the model wrote.
+_DEFAULT_USER: dict = {"user_id": 0, "role": 2, "username": "agent-service"}
 CURRENT_USER: contextvars.ContextVar[dict] = contextvars.ContextVar(
-    "CURRENT_USER", default={"user_id": 0, "role": 2, "username": "agent-service"}
+    "CURRENT_USER", default=_DEFAULT_USER
 )
+
+
+# ---------------------------------------------------------------------------
+# Per-turn search coverage (2026-09-05, handoff "three usability defects" #1).
+# A negative answer ("there is no August data") is only as strong as the
+# search behind it, and the model does not track that distinction on its own:
+# live, it queried 2 of 6 connections and generalised the absence to all 6.
+# The data tools record, on the turn's own envelope dict, which connections
+# exist and which ones a row-level query actually touched; brain.run_turn
+# turns that into a deterministic coverage note when a reply asserts absence.
+# The record lives on the per-turn envelope only (never the module default),
+# so it cannot leak between users or turns.
+# ---------------------------------------------------------------------------
+_COVERAGE_KEY = "_coverage"
+
+
+def _coverage_record() -> Optional[dict]:
+    ctx = CURRENT_USER.get()
+    if not isinstance(ctx, dict) or ctx is _DEFAULT_USER:
+        return None
+    rec = ctx.get(_COVERAGE_KEY)
+    if not isinstance(rec, dict):
+        rec = {"known": [], "queried": []}
+        ctx[_COVERAGE_KEY] = rec
+    return rec
+
+
+def note_known_connections(conns: list) -> None:
+    """Remember every connection the platform reports this turn."""
+    rec = _coverage_record()
+    if rec is None:
+        return
+    names = [str(c.get("name") or "").strip() for c in (conns or [])
+             if isinstance(c, dict) and c.get("name")]
+    rec["known"] = [n for n in names if n]
+
+
+def note_queried_connection(name) -> None:
+    """Remember that a row-level query ran against `name` this turn."""
+    rec = _coverage_record()
+    if rec is None or not name:
+        return
+    n = str(name).strip()
+    if n and n not in rec["queried"]:
+        rec["queried"].append(n)
+
+
+def reset_coverage(ctx: Optional[dict]) -> None:
+    """Drop the record at the start of a turn (run_turn) so a reused envelope
+    never carries a previous turn's coverage."""
+    if isinstance(ctx, dict):
+        ctx.pop(_COVERAGE_KEY, None)
+
+
+def coverage_snapshot(ctx: Optional[dict] = None) -> tuple:
+    """(known_names, queried_names) recorded on `ctx` (default: this turn's
+    envelope). Empty lists when nothing was recorded."""
+    ctx = ctx if ctx is not None else CURRENT_USER.get()
+    rec = ctx.get(_COVERAGE_KEY) if isinstance(ctx, dict) else None
+    if not isinstance(rec, dict):
+        return [], []
+    return list(rec.get("known") or []), list(rec.get("queried") or [])
 
 _TIMEOUT = httpx.Timeout(30.0, read=120.0)
 
@@ -122,31 +186,119 @@ async def _connections_index():
             "type": _pick(row, "connection_type", "type", "db_type", "engine", "provider"),
             "database": _pick(row, "database", "database_name", "initial_catalog"),
         })
+    note_known_connections(out)
     return out
 
 
-async def _resolve_connection(ref) -> tuple:
-    """Accept a numeric id or a case-insensitive connection name."""
-    s = str(ref).strip()
-    conns = await _connections_index()
+_PAREN_RE = re.compile(r"\s*\([^()]*\)\s*$")
+
+
+def _base_name(name) -> str:
+    """'EDW (SQL Server)' -> 'EDW': the display name without the trailing
+    parenthetical admins append to connection names (engine, environment)."""
+    return _PAREN_RE.sub("", str(name or "")).strip()
+
+
+def _known_names(conns: list) -> str:
+    return ", ".join(str(c.get("name")) for c in (conns or [])
+                     if isinstance(c, dict) and c.get("name"))
+
+
+def match_connection(ref, conns: list) -> tuple:
+    """Resolve a connection reference against the index -> (row, error).
+
+    Ladder, first hit wins: numeric id -> exact name (case-insensitive) ->
+    exact BASE name ('EDW' -> 'EDW (SQL Server)', 'EDWDB' -> 'EDWDB (Postgres)')
+    -> unique prefix -> unique substring. A tier with several candidates is an
+    honest 'ambiguous' error that lists them; an unknown name lists every
+    connection. Never a silent guess.
+
+    Why (live 2026-09-05, TA-26a): the exact-name-only resolver rejected 'EDW'
+    and 'EDWDB' against 'EDW (SQL Server)' / 'EDWDB (Postgres)'; the model
+    burned two calls, fell back to a numeric id for one, and came away
+    believing it had 'tried' a source it never read a row from.
+    """
+    s = str(ref if ref is not None else "").strip()
+    conns = [c for c in (conns or []) if isinstance(c, dict)]
+    if not s:
+        return None, "No connection given — pass a connection id or name."
     if s.isdigit():
-        return s, None
-    for c in conns:
-        if str(c.get("name", "")).strip().lower() == s.lower():
-            return str(c.get("id")), None
-    names = ", ".join(str(c.get("name")) for c in conns if c.get("name"))
-    return None, f"No connection named '{ref}'. Known connections: {names or '(none)'}"
+        hit = [c for c in conns if str(c.get("id")) == s]
+        if hit:
+            return hit[0], None
+        if not conns:
+            # index unavailable: keep the pre-existing pass-through so an id
+            # the platform would accept is not refused on a listing hiccup
+            return {"id": s, "name": s}, None
+        return None, (f"No connection with id {s}. Known connections: "
+                      f"{_known_names(conns) or '(none)'}")
+    low = s.lower()
+    names = [(c, str(c.get("name") or "").strip()) for c in conns]
+    exact = [c for c, n in names if n.lower() == low]
+    if exact:
+        return exact[0], None      # first exact wins, as before this ladder
+    tiers = [[c for c, n in names if _base_name(n).lower() == low]]
+    if len(low) >= 2:
+        tiers.append([c for c, n in names if n.lower().startswith(low)])
+        tiers.append([c for c, n in names if low in n.lower()])
+    for tier in tiers:
+        if len(tier) == 1:
+            return tier[0], None
+        if len(tier) > 1:
+            cands = ", ".join(f"{c.get('name')} (id {c.get('id')})" for c in tier)
+            return None, (f"'{ref}' is ambiguous — it matches {len(tier)} "
+                          f"connections: {cands}. Use the full name or the id.")
+    return None, (f"No connection named '{ref}'. Known connections: "
+                  f"{_known_names(conns) or '(none)'}")
+
+
+def _resolution_note(ref, row: dict) -> str:
+    """One line the tool prepends when a reference was resolved by something
+    other than an exact name/id, so the model always knows which connection
+    it actually touched (and never mistakes 'EDW' for a source it didn't read)."""
+    s = str(ref if ref is not None else "").strip()
+    name = str(row.get("name") or "")
+    if s.lower() == name.lower() or s == str(row.get("id")):
+        return ""
+    return f"(connection '{s}' resolved to '{name}', id {row.get('id')})\n"
+
+
+async def _resolve_connection_row(ref) -> tuple:
+    """(index row, None) or (None, honest error) — see match_connection."""
+    conns = await _connections_index()
+    # Recorded here as well as inside _connections_index: a resolution is
+    # proof the platform reported these connections this turn, whichever
+    # path produced the index.
+    note_known_connections(conns)
+    return match_connection(ref, conns)
+
+
+async def _resolve_connection(ref) -> tuple:
+    """Accept a numeric id or a connection name -> (id, None) | (None, error)."""
+    row, err = await _resolve_connection_row(ref)
+    if err:
+        return None, err
+    return str(row.get("id")), None
 
 
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
 
+COVERAGE_RULE = (
+    "Coverage rule: a 'no data / nothing recorded' answer is only as strong as "
+    "the connections you actually queried. Before reporting that something does "
+    "not exist, query EVERY connection here that could plausibly hold it, or say "
+    "exactly which ones you checked and which you did not.")
+
+
 @tool(
     "list_data_connections",
     "List the data connections configured in AI Hub (id, name, type, database). "
     "Call this first whenever a request involves data, to see what exists — "
-    "never assume a connection name.",
+    "never assume a connection name. A negative answer ('no data for X') is "
+    "only as strong as its coverage: query every connection that could hold "
+    "the data, or state which ones you checked and which you did not.",
     {},
 )
 async def list_data_connections(args: dict[str, Any]) -> dict[str, Any]:
@@ -154,9 +306,9 @@ async def list_data_connections(args: dict[str, Any]) -> dict[str, Any]:
         conns = await _connections_index()
         if not conns:
             return _text("No data connections are configured.")
-        lines = [f"- id {c['id']} — {c['name']} ({c['type']}, db {c['database']})"
-                 for c in conns]
-        return _text("Data connections:\n" + "\n".join(lines))
+        lines = [f"- id {c['id']} — {c['name']} ({c.get('type') or 'type ?'}, "
+                 f"db {c['database']})" for c in conns]
+        return _text("Data connections:\n" + "\n".join(lines) + "\n\n" + COVERAGE_RULE)
     except Exception as e:
         logger.error(f"list_data_connections failed: {e}")
         return _text(f"Could not list connections: {e}", is_error=True)
@@ -182,21 +334,25 @@ async def list_data_connections(args: dict[str, Any]) -> dict[str, Any]:
 )
 async def get_connection_schema(args: dict[str, Any]) -> dict[str, Any]:
     try:
-        conn_id, err = await _resolve_connection(args["connection"])
+        row, err = await _resolve_connection_row(args["connection"])
         if err:
             return _text(err, is_error=True)
+        conn_id = str(row.get("id"))
+        conn_name = str(row.get("name") or conn_id)
+        note = _resolution_note(args["connection"], row)
         table = (args.get("table") or "").strip()
         if not table:
             data = await _get(f"/api/discover/tables/{conn_id}")
             tables = data.get("tables") or []
             if not tables:
-                return _text(f"Connection {conn_id} reports no tables.")
+                return _text(f"{note}Connection {conn_id} ({conn_name}) reports no tables.")
             lines = []
             for t in tables[:200]:
                 name = t.get("TABLE_NAME") or t.get("table_name")
                 doc = " (documented)" if t.get("is_documented") else ""
                 lines.append(f"- {name}{doc}")
-            return _text(f"Tables on connection {conn_id}:\n" + "\n".join(lines))
+            return _text(f"{note}Tables on connection {conn_id} ({conn_name}):\n"
+                         + "\n".join(lines))
 
         from urllib.parse import quote
         path = f"/api/discover/schema/{conn_id}?table={quote(table)}"
@@ -204,9 +360,10 @@ async def get_connection_schema(args: dict[str, Any]) -> dict[str, Any]:
             path += f"&column={quote(str(args['column']))}"
         data = await _get(path)
         if not data.get("success", True) and data.get("error"):
-            return _text(f"Schema lookup failed: {data['error']}", is_error=True)
+            return _text(f"{note}Schema lookup failed: {data['error']}", is_error=True)
         cols = data.get("columns") or []
-        lines = [f"Table {data.get('table', table)} — source: {data.get('source', '?')}"]
+        lines = [f"{note}Table {data.get('table', table)} on {conn_name} — "
+                 f"source: {data.get('source', '?')}"]
         if data.get("table_description"):
             lines.append(f"Description: {data['table_description']}")
         for c in cols[:120]:
@@ -241,7 +398,8 @@ async def get_connection_schema(args: dict[str, Any]) -> dict[str, Any]:
     "Run ONE small read-only SELECT against a connection to verify assumptions "
     "(row counts, filter values, joins) before answering. The server enforces "
     "read-only and caps rows (~50). Zero rows is a finding — usually a filter "
-    "value that doesn't exist; say so rather than guessing. CHARTS: pass "
+    "value that doesn't exist; say so rather than guessing — and zero rows on "
+    "ONE connection says nothing about the others. CHARTS: pass "
     "chart='bar'|'line'|'area'|'pie'|'doughnut'|'hbar' (and chart_title) to get "
     "a ready-made chart block built from the rows — first text column = "
     "labels, numeric columns = series — that you paste into your reply "
@@ -263,26 +421,36 @@ async def get_connection_schema(args: dict[str, Any]) -> dict[str, Any]:
 )
 async def probe_connection_query(args: dict[str, Any]) -> dict[str, Any]:
     try:
-        conn_id, err = await _resolve_connection(args["connection"])
+        row, err = await _resolve_connection_row(args["connection"])
         if err:
             return _text(err, is_error=True)
+        conn_id = str(row.get("id"))
+        conn_name = str(row.get("name") or conn_id)
+        note = _resolution_note(args["connection"], row)
         data, status = await _post(f"/api/discover/query/{conn_id}",
                                    {"sql": str(args["sql"]).strip()})
         if data.get("rejected"):
-            return _text(f"Query rejected by the read-only gate: {data.get('error')}",
+            return _text(f"{note}Query rejected by the read-only gate: {data.get('error')}",
                          is_error=True)
         if data.get("sql_error"):
-            return _text(f"SQL error: {data.get('error')}", is_error=True)
+            return _text(f"{note}SQL error: {data.get('error')}", is_error=True)
         if not data.get("success"):
-            return _text(f"Probe failed (HTTP {status}): {data.get('error', data)}",
+            return _text(f"{note}Probe failed (HTTP {status}): {data.get('error', data)}",
                          is_error=True)
+        # The query ran against this connection: that is what a later negative
+        # claim can honestly cover (brain.run_turn's coverage note).
+        note_queried_connection(conn_name)
         rows = data.get("rows") or []
         cols = data.get("columns") or []
         if not rows:
-            return _text("0 rows returned. This is almost always a filter value that "
-                         "does not exist — verify values with get_connection_schema "
-                         "before assuming the data is missing.")
-        lines = [" | ".join(str(c) for c in cols)]
+            return _text(f"{note}0 rows returned from {conn_name}. This is almost "
+                         "always a filter value that does not exist — verify values "
+                         "with get_connection_schema before assuming the data is "
+                         "missing. It also says nothing about OTHER connections: "
+                         "before reporting data as absent, query the others that "
+                         "could hold it, or scope your statement to the ones you "
+                         "actually queried.")
+        lines = [note + " | ".join(str(c) for c in cols)]
         for r in rows[:15]:
             # rows arrive as dicts keyed by column — iterating the dict itself
             # would render the KEYS (column names) instead of the values

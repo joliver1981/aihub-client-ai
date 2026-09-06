@@ -109,8 +109,10 @@ def test_kpi_block_and_image_lines():
 # ---------------------------------------------------------------------------
 
 def test_probe_query_chart_parameter_appends_a_verbatim_block():
+    # The probe resolves through the row seam (2026-09-05 resolver ladder):
+    # id AND name come back so the output can echo what was resolved.
     async def fake_resolve(ref):
-        return "7", None
+        return {"id": "7", "name": "ERPDB"}, None
 
     async def fake_post(path, body, timeout=None):
         assert path == "/api/discover/query/7"
@@ -118,7 +120,7 @@ def test_probe_query_chart_parameter_appends_a_verbatim_block():
                 "rows": [{"status": "open", "n": 5}, {"status": "closed", "n": 12}],
                 "row_count": 2}, 200
 
-    with mock.patch.object(P, "_resolve_connection", fake_resolve), \
+    with mock.patch.object(P, "_resolve_connection_row", fake_resolve), \
          mock.patch.object(P, "_post", fake_post):
         res = _run(P.probe_connection_query.handler({"connection": "ERPDB", "sql": "select 1",
                                                      "chart": "pie", "chart_title": "Orders by status"}))

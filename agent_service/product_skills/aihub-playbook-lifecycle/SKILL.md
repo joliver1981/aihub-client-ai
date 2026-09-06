@@ -62,12 +62,28 @@ secrets, Python transforms). Contract:
   of stdout, so the JSON line must stay under ~1900 chars — print fewer
   rows/columns rather than a wide dump.
 
+## Delivering produced files
+
+A dry-run / run summary lists every file the run produced under **Files
+produced** as `/api/files/…` download links (staged automatically, exactly
+like `run_python`). Include those links VERBATIM in the reply — even when a
+step also emailed or uploaded the file. Email is an extra delivery, never a
+substitute for the in-chat link. If a summary shows an output path without a
+link, call `offer_file_download` on it.
+
 ## Gotchas that cost real debugging time
 
 - Probe the schema before writing SQL (`get_connection_schema`); never trust
   remembered table or column names — verify with a live probe.
 - Zero rows from a probe usually means a filter value that does not exist —
   verify values before concluding data is missing.
+- Zero rows on ONE connection says nothing about the others: before saying
+  data does not exist, query every connection that could hold it, or state
+  exactly which ones you checked and which you did not.
+- A connection name resolves by exact name, then base name ('EDW' → 'EDW
+  (SQL Server)'), then unique prefix; the tool echoes what it resolved to —
+  read that line, and treat an unresolved name as a source you have NOT
+  checked.
 - Scheduled/API runs execute ONLY the pinned version; dry-run tests the
   latest saved version.
 - Interval schedules need an anchored start date (the tools handle this).

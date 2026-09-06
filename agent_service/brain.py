@@ -22,7 +22,8 @@ from agent_config import (
     AGENT_MODEL, AGENT_MAX_TURNS, CLAUDE_CONFIG_DIR, WORKSPACE_DIR,
     ensure_anthropic_key, email_tools_enabled, logger,
 )
-from platform_tools import AIHUB_TOOLS, CURRENT_USER
+from platform_tools import (AIHUB_TOOLS, CURRENT_USER, coverage_snapshot,
+                            reset_coverage, _base_name)
 from authoring_tools import AUTHORING_TOOLS
 from code_tools import CODE_TOOLS
 from work_tools import WORK_TOOLS
@@ -235,6 +236,82 @@ def claims_completed_mutation(text: str) -> bool:
     return bool(MUTATION_CLAIM_RE.search(text or ""))
 
 
+# ---------------------------------------------------------------------------
+# Coverage guard (2026-09-05, handoff "three usability defects" #1).
+# Deterministic sibling of the mutation-claim guard: when a reply asserts that
+# data is ABSENT but the turn's row-level queries touched only some of the
+# connections the platform reported, the UI gets a coverage note naming the
+# connections that were never queried. It never rewrites the answer — it makes
+# the search's boundary visible where the reply hid it (live TA-26a: "no sales
+# data for August 2026" after querying 2 of 6 connections, while AIRDB held
+# $5.4M of August revenue). Kill switch AGENT_COVERAGE_GUARD=false.
+# ---------------------------------------------------------------------------
+_COVERAGE_GUARD_ON = os.getenv("AGENT_COVERAGE_GUARD", "true").lower() == "true"
+
+ABSENCE_CLAIM_RE = re.compile(
+    r"(\b(?:there\s+(?:is|are|was|were)|found|have|has|shows?|returned|contains?|"
+    r"holds?|see|recorded)\s+no\b)"
+    r"|(\bno\s+(?:[\w'’-]+\s+){0,3}(?:data|records?|rows?|entries|results?|activity|"
+    r"history|transactions?|sales|orders?|invoices?|figures?|numbers?|balance|"
+    r"revenue)\b)"
+    r"|(\b(?:nothing|none)\s+(?:has\s+been\s+|have\s+been\s+|was\s+|were\s+|is\s+|are\s+)?"
+    r"(?:recorded|loaded|entered|posted|booked|logged|found|available|exists?)\b)"
+    r"|(\b(?:does\s+not|doesn['’]?t|do\s+not|don['’]?t|did\s+not|didn['’]?t)\s+"
+    r"(?:exist|contain|have|hold|show|include|appear)\b)"
+    r"|(\b(?:has|have|was|were)(?:n['’]t|\s+not)\s+(?:yet\s+)?been\s+"
+    r"(?:loaded|recorded|entered|posted|booked|imported|captured|received)\b)"
+    r"|(\bnot\s+(?:yet\s+)?(?:recorded|loaded|available|present|captured)\b)"
+    r"|(\bzero\s+(?:rows|records|sales|invoices|transactions|orders|balance)\b)",
+    re.I)
+
+# Tools that can query ANY connection without the coverage record seeing it —
+# when one ran this turn, coverage is unknowable and the guard stays silent.
+_UNSCOPED_QUERY_TOOLS = frozenset({"run_python", "ask_agent"})
+
+
+def claims_absence(text: str) -> bool:
+    return bool(ABSENCE_CLAIM_RE.search(text or ""))
+
+
+def _prompt_names_connection(prompt: str, name: str) -> bool:
+    """True when the user's own message names this connection (full or base
+    name, whole-token match) — i.e. THEY chose that scope."""
+    p = str(prompt or "").lower()
+    for cand in {str(name or "").strip().lower(), _base_name(name).lower()}:
+        if cand and re.search(r"(?<![a-z0-9])" + re.escape(cand) + r"(?![a-z0-9])", p):
+            return True
+    return False
+
+
+def coverage_warning(prompt: str, reply_text: str, known: list, queried: list,
+                     tools_called=None) -> Optional[str]:
+    """The coverage note for this turn, or None. Fires only when ALL hold: the
+    reply asserts absence; the platform reported more than one connection; at
+    least one row-level query ran, but not against every connection; coverage
+    is knowable (no run_python / ask_agent this turn); and the user did not
+    scope the question to the queried connections themselves."""
+    if not claims_absence(reply_text):
+        return None
+    known = [str(k).strip() for k in (known or []) if str(k).strip()]
+    queried = [str(q).strip() for q in (queried or []) if str(q).strip()]
+    if len(known) < 2 or not queried:
+        return None
+    tools = {str(t).replace("mcp__aihub__", "") for t in (tools_called or [])}
+    if tools & _UNSCOPED_QUERY_TOOLS:
+        return None
+    qset = {q.lower() for q in queried}
+    covered = [k for k in known if k.lower() in qset]
+    missing = [k for k in known if k.lower() not in qset]
+    if not missing or not covered:
+        return None
+    if all(_prompt_names_connection(prompt, q) for q in queried):
+        return None
+    return (f"Coverage note: this reply reports data as missing or absent, but only "
+            f"{len(covered)} of {len(known)} connections were queried this turn "
+            f"({', '.join(covered)}). Not queried: {', '.join(missing)}. Ask the agent "
+            "to check those (or to scope its statement) before acting on the absence.")
+
+
 # Side-threads on work items run READ-ONLY: the thread answers questions with
 # evidence; it never mutates. Anything consequential goes through the item's
 # own action buttons or the main Assistant.
@@ -315,7 +392,9 @@ aihub.review_item() is skipped — promote to an Automation when a human gate
 matters. send_email / llm / ai_extract / query work normally from a step;
 send_email RAISES on a platform rejection (4xx) so a rejected send can never
 pass as a success — read each step's stdout in the walk summary before
-telling the user an email went out.
+telling the user an email went out. Files a run or walk produces are staged
+for the user automatically and listed under "Files produced" in the run
+summary — include those links VERBATIM (see FILES).
 
 CODE INTERPRETER (run_python) — IMMEDIATE ANALYSIS
 run_python executes Python NOW (pandas/numpy/matplotlib/openpyxl preinstalled)
@@ -354,6 +433,13 @@ frozen facts over a live probe. Loaded skills appear to you automatically when
 relevant. A wrong or obsolete skill: delete_skill (two-step — preview, then the
 user's explicit yes; tenant/product skills need an admin). To CHANGE a skill,
 save_skill under the same name overwrites it.
+Skills are procedure and ENRICHMENT, never silent scope: when a skill says
+"always consult table X before Y", look X up (join it, flag from it) for the
+population the USER asked about — it does not restrict the answer to the rows
+present in X. If following a skill changes an answer's scope, say so at the
+number (see SCOPE below). When you WRITE a skill that names a table to
+consult, say what the table is FOR (holds, disputes, history) and that it is
+an enrichment lookup, not a population filter.
 
 PREFERENCES — YOUR MEMORY OF THIS USER
 When the user states a STANDING preference or personal default ("always…",
@@ -412,6 +498,12 @@ or integration download, an automation output, an export), call
 offer_file_download with the server path and include the returned markdown
 link VERBATIM in your reply — the chat renders it as a working download
 button. Never tell a user to fetch a file from a server path.
+A file the user asked for is delivered IN THE CHAT, always: when an automation
+or code-flow run produces one, the run summary already carries its /api/files/
+link under "Files produced" (if it only shows an output path, call
+offer_file_download on it) — include that link in your reply EVEN WHEN the
+file was also emailed or uploaded. Email is an extra delivery, never a
+substitute for the link.
 EXPORTS: "give me this as Excel / a CSV / a PDF" -> export_data. Data from
 a database goes through connection+sql (one SELECT, every row, nothing
 retyped by you); small data already in the conversation goes through
@@ -691,6 +783,27 @@ beats three.
   lines verbatim — the picture shows inline. Charts are aihub-chart blocks
   and maps are render_map; never generate_image for those.
 
+SCOPE, COVERAGE AND NEGATIVE CLAIMS (non-negotiable)
+A positive finding is bounded by the query that produced it; a NEGATIVE
+finding ("there is no…", "nothing was recorded", "X has no open balance") is
+only as strong as the search behind it, so:
+- Before reporting that data does not exist, query EVERY connection that
+  could plausibly hold it (list_data_connections shows them all), or scope
+  the statement to exactly what you queried: "I checked ERPDB and EDW and
+  found nothing after July; I have not checked AIRDB, AIRDB2, PHARMA or
+  EDWDB." Never turn "not in the two places I looked" into "does not exist".
+  A failed or unresolved lookup (unknown name, error) is NOT a checked source.
+- A negative statement about a specific entity (a customer has no open
+  balance, a vendor has no POs) must come from a query whose population
+  included that entity — never from its absence in a list you had filtered.
+- When the user says EVERY / ALL, get the UNFILTERED total first, then narrow.
+  Any narrowing you apply — a WHERE clause the user did not ask for, a
+  population a skill told you to consult, a partial search — is stated AT THE
+  NUMBER it affects, with what was excluded: "19 past-due invoices across the
+  12 CGC-* accounts (8 more past-due invoices totalling $121,625.50 sit
+  outside that population)". A headline number or KPI tile whose scope is
+  narrower than the question is wrong, however consistent the rest is.
+
 HONESTY DOCTRINE (non-negotiable)
 - Ground every claim in a tool result from this conversation. Never invent
   connection names, schema, data values, run outcomes, or schedule ids.
@@ -761,6 +874,7 @@ async def run_turn(prompt: str, session_id: Optional[str],
     # init message and is set then — the contextvar holds this same dict, so
     # tools called later in the turn see it.
     user_ctx["session_id"] = session_id or None
+    reset_coverage(user_ctx)     # this turn's search coverage starts empty
     CURRENT_USER.set(user_ctx)
     logger.info(f"turn start user={user_ctx.get('username')} "
                 f"session={session_id or '(new)'} prompt={prompt[:200]!r}")
@@ -877,6 +991,21 @@ async def run_turn(prompt: str, session_id: Optional[str],
                                    f"{user_ctx.get('username')} session="
                                    f"{new_session_id}: {warning}")
                     yield {"type": "guard", "warning": warning}
+                # Coverage guard: an absence claim after a partial search gets
+                # its boundary stated in the UI, deterministically.
+                if _COVERAGE_GUARD_ON:
+                    try:
+                        known, queried = coverage_snapshot(user_ctx)
+                        cov = coverage_warning(prompt, "\n".join(all_text), known,
+                                               queried, tool_names.values())
+                    except Exception as e:      # a guard must never break a turn
+                        logger.warning(f"coverage guard skipped: {e}")
+                        cov = None
+                    if cov:
+                        logger.warning(f"COVERAGE GUARD user="
+                                       f"{user_ctx.get('username')} session="
+                                       f"{new_session_id}: {cov}")
+                        yield {"type": "guard", "warning": cov}
                 logger.info(f"turn done user={user_ctx.get('username')} "
                             f"session={new_session_id} subtype={subtype} cost={cost}")
                 yield {"type": "result", "session_id": new_session_id,
