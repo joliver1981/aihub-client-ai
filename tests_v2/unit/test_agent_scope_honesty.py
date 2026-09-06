@@ -2,8 +2,12 @@
 (docs/handoff-three-usability-defects.md):
 
 #1 connection resolver ladder (exact -> base name -> unique prefix/substring,
-   honest ambiguity), per-turn search coverage, and brain's coverage guard;
-#2 doctrine: skills are enrichment, never silent scope (prompt + save_skill);
+   honest ambiguity); per-turn coverage ledger surfaced as DATA at the end of
+   every probe result; search_tables across every connection in one call.
+   No inspection of the reply's wording (James: no regex/keyword judgement of
+   natural language).
+#2 doctrine: skills are enrichment, never silent scope (prompt + save_skill),
+   stated generically — no test oracle values in the prompt.
 #3 automation / code-flow runs hand produced files over as /api/files links
    deterministically (the run summary carries them, like run_python does).
 
@@ -127,7 +131,7 @@ def test_schema_and_probe_resolve_fuzzy_names_and_echo_them():
     tok = CURRENT_USER.set({"user_id": 7, "role": 2, "username": "dev"})
     calls = []
 
-    async def fake_get(path):
+    async def fake_get(path, timeout=None):
         calls.append(path)
         return {"tables": [{"TABLE_NAME": "Sales"}]}
 
@@ -168,7 +172,7 @@ def test_schema_and_probe_resolve_fuzzy_names_and_echo_them():
 
 
 # ---------------------------------------------------------------------------
-# #1 per-turn coverage record
+# #1 per-turn coverage ledger, surfaced as data in every probe result
 # ---------------------------------------------------------------------------
 
 def test_coverage_record_lives_on_the_turn_envelope_only():
@@ -181,6 +185,7 @@ def test_coverage_record_lives_on_the_turn_envelope_only():
     tok = CURRENT_USER.set(ctx)
     try:
         assert P.coverage_snapshot(ctx) == ([], [])
+        assert P.coverage_footer(ctx) == ""            # nothing known yet -> no line
         P.note_known_connections(LIVE)
         P.note_queried_connection("ERPDB")
         P.note_queried_connection("ERPDB")           # dedupe
@@ -193,24 +198,66 @@ def test_coverage_record_lives_on_the_turn_envelope_only():
         CURRENT_USER.reset(tok)
 
 
-def test_probe_records_coverage_including_zero_rows():
+def test_coverage_footer_states_the_boundary_as_data():
+    ctx = {"user_id": 7, "role": 2, "username": "dev", "_coverage": {
+        "known": KNOWN, "queried": ["ERPDB", "EDW (SQL Server)"]}}
+    line = P.coverage_footer(ctx)
+    assert line.startswith("\nCoverage this turn — queried: EDW (SQL Server), ERPDB; ")
+    assert "NOT queried: EDWDB (Postgres), AIRDB, AIRDB2, PHARMA." in line
+    assert "search_tables" in line
+    ctx["_coverage"]["queried"] = list(KNOWN)
+    assert P.coverage_footer(ctx) == (
+        "\nCoverage this turn: all 6 connection(s) queried "
+        "(EDW (SQL Server), ERPDB, EDWDB (Postgres), AIRDB, AIRDB2, PHARMA).")
+    ctx["_coverage"]["queried"] = []
+    assert "queried: (none); NOT queried: EDW (SQL Server), ERPDB" in P.coverage_footer(ctx)
+    # long tails are capped, never dropped silently
+    many = {"known": [f"C{i}" for i in range(20)], "queried": ["C0"]}
+    line = P.coverage_footer({"_coverage": many})
+    assert "C12" in line and "(+7 more)" in line
+
+
+def test_every_probe_result_ends_with_the_coverage_line():
     ctx = {"user_id": 7, "role": 2, "username": "dev"}
     tok = CURRENT_USER.set(ctx)
+    state = {"rows": []}
 
     async def fake_post(path, body, timeout=None):
-        return {"success": True, "columns": ["n"], "rows": [], "row_count": 0}, 200
+        return {"success": True, "columns": ["n"], "rows": state["rows"],
+                "row_count": len(state["rows"])}, 200
 
     try:
         with mock.patch.object(P, "_connections_index", _fake_index), \
              mock.patch.object(P, "_post", fake_post):
-            res = _run(P.probe_connection_query.handler({"connection": "AIRDB",
-                                                         "sql": "select 1"}))
-            out = _txt(res)
-            assert "0 rows returned from AIRDB" in out and "OTHER connections" in out
+            # zero rows: names the connection, then the ledger
+            out = _txt(_run(P.probe_connection_query.handler({"connection": "AIRDB",
+                                                              "sql": "select 1"})))
+            assert "0 rows returned from AIRDB" in out
+            assert "Coverage this turn — queried: AIRDB; NOT queried: EDW (SQL Server), " \
+                   "ERPDB, EDWDB (Postgres), AIRDB2, PHARMA." in out
             assert P.coverage_snapshot(ctx) == (KNOWN, ["AIRDB"])
+            # rows: the ledger follows the row-count note
+            state["rows"] = [{"n": 1}]
+            out = _txt(_run(P.probe_connection_query.handler({"connection": "ERPDB",
+                                                              "sql": "select 1"})))
+            assert "(1 rows returned)" in out
+            assert "queried: ERPDB, AIRDB; NOT queried: EDW (SQL Server), EDWDB (Postgres), " \
+                   "AIRDB2, PHARMA." in out
             # an unresolved name is NOT a checked source
             _run(P.probe_connection_query.handler({"connection": "Nope", "sql": "select 1"}))
-            assert P.coverage_snapshot(ctx)[1] == ["AIRDB"]
+            assert P.coverage_snapshot(ctx)[1] == ["AIRDB", "ERPDB"]
+            # a failed query is not a checked source either
+            async def failing_post(path, body, timeout=None):
+                return {"success": False, "sql_error": True, "error": "boom"}, 200
+            with mock.patch.object(P, "_post", failing_post):
+                res = _run(P.probe_connection_query.handler({"connection": "PHARMA",
+                                                             "sql": "select 1"}))
+            assert res.get("is_error") and P.coverage_snapshot(ctx)[1] == ["AIRDB", "ERPDB"]
+            # once everything was queried the line says so
+            for name in ("EDW", "EDWDB", "AIRDB2", "PHARMA"):
+                out = _txt(_run(P.probe_connection_query.handler({"connection": name,
+                                                                  "sql": "select 1"})))
+            assert "Coverage this turn: all 6 connection(s) queried" in out
     finally:
         CURRENT_USER.reset(tok)
 
@@ -219,98 +266,103 @@ def test_list_connections_carries_the_coverage_rule():
     with mock.patch.object(P, "_connections_index", _fake_index):
         out = _txt(_run(P.list_data_connections.handler({})))
     assert "id 5 — EDW (SQL Server)" in out and "Coverage rule" in out
-    assert "None" not in out
+    assert "search_tables" in out and "None" not in out
 
 
 # ---------------------------------------------------------------------------
-# #1 brain coverage guard
+# #1 search_tables — every connection in one call
 # ---------------------------------------------------------------------------
 
-def test_absence_claim_regex():
-    yes = [
-        "There's no sales data for August 2026 yet.",
-        "Nothing has been recorded for August.",
-        "August 2026 has no recorded sales in the warehouse.",
-        "Summit Provisions (CGC-010): no open balance.",
-        "The table doesn't contain any rows for August.",
-        "Sales for August have not been loaded yet.",
-        "There are no invoices past due for that customer.",
-        "The query returned zero rows for August.",
-    ]
-    no = [
-        "July revenue was $18,150 across 3 stores.",
-        "I found 27 past-due invoices totalling $267,089.90.",
-        "No problem — here is the August total: $5.4M.",
-        "Fairmont is on credit hold; do not dun.",
-    ]
-    for t in yes:
-        assert B.claims_absence(t), t
-    for t in no:
-        assert not B.claims_absence(t), t
+_TABLES = {
+    5: [{"TABLE_NAME": "dbo.Sales"}, {"TABLE_NAME": "dbo.SalesByDay"}, {"TABLE_NAME": "dbo.Employees"}],
+    20: [{"TABLE_NAME": "dbo.SalesOrders"}, {"TABLE_NAME": "dbo.Invoices"}],
+    28: [{"TABLE_NAME": "public.orders"}],
+    58: [{"TABLE_NAME": "TS.sales"}, {"TABLE_NAME": "TS.plan_sales_data"}, {"TABLE_NAME": "TS.location_master"}],
+    59: [{"TABLE_NAME": "TS.sales"}],
+}
 
 
-def test_coverage_warning_fires_on_the_live_shape_and_stays_quiet_otherwise():
-    prompt = ("[Context: now 2026-09-05 10:00 (America/New_York)]\n\n"
-              "How were sales last month?")
-    reply = ("**There's no sales data for August 2026 yet** — nothing has been "
-             "recorded for August.")
-    queried = ["ERPDB", "EDW (SQL Server)"]
-    note = B.coverage_warning(prompt, reply, KNOWN, queried,
-                              ["list_data_connections", "probe_connection_query"])
-    assert note and "only 2 of 6 connections were queried" in note
-    assert "(EDW (SQL Server), ERPDB)" in note
-    assert "Not queried: EDWDB (Postgres), AIRDB, AIRDB2, PHARMA" in note
-    # no absence claim -> silent
-    assert B.coverage_warning(prompt, "August revenue was $5,406,701.82 (AIRDB).",
-                              KNOWN, queried) is None
-    # every connection queried -> silent
-    assert B.coverage_warning(prompt, reply, KNOWN, KNOWN) is None
-    # nothing queried this turn (answer rests on an earlier turn) -> silent
-    assert B.coverage_warning(prompt, reply, KNOWN, []) is None
-    # a single connection on the platform -> nothing to cover
-    assert B.coverage_warning(prompt, reply, ["ERPDB"], ["ERPDB"]) is None
-    # run_python / ask_agent can query anything -> coverage unknowable -> silent
-    assert B.coverage_warning(prompt, reply, KNOWN, queried, ["run_python"]) is None
-    assert B.coverage_warning(prompt, reply, KNOWN, queried,
-                              ["mcp__aihub__ask_agent"]) is None
-    # the user scoped the question themselves (TA-20 shape) -> silent
-    scoped = ("Build me today's collections worklist from ERPDB: every customer "
-              "invoice that's past due")
-    assert B.coverage_warning(scoped, "CGC-010: no open balance.", KNOWN, ["ERPDB"]) is None
-    # ...but naming a DIFFERENT connection is not scoping the queried one
-    assert B.coverage_warning("check EDWDB for August", reply, KNOWN,
-                              ["EDW (SQL Server)"]) is not None
-    # a base-name mention counts as scoping ('EDW' for 'EDW (SQL Server)')
-    assert B.coverage_warning("what does EDW say about August?", reply, KNOWN,
-                              ["EDW (SQL Server)"]) is None
+async def _fake_tables_get(path, timeout=None):
+    cid = int(path.rsplit("/", 1)[1])
+    if cid == 168:
+        raise RuntimeError("HTTP 500: login timeout")
+    return {"success": True, "tables": _TABLES.get(cid, [])}
 
 
-def test_coverage_guard_wired_into_run_turn_with_kill_switch():
-    src = open(os.path.join(APP_ROOT, "agent_service", "brain.py"),
-               encoding="utf-8").read()
-    assert "reset_coverage(user_ctx)" in src
-    assert 'yield {"type": "guard", "warning": cov}' in src
-    assert 'os.getenv("AGENT_COVERAGE_GUARD", "true")' in src
+def test_search_tables_reports_hits_misses_and_unlisted_connections():
+    ctx = {"user_id": 7, "role": 2, "username": "dev"}
+    tok = CURRENT_USER.set(ctx)
+    try:
+        with mock.patch.object(P, "_connections_index", _fake_index), \
+             mock.patch.object(P, "_get", _fake_tables_get):
+            out = _txt(_run(P.search_tables.handler({"pattern": "sales"})))
+            assert "Tables matching [sales] across 6 connection(s):" in out
+            assert "- EDW (SQL Server) (id 5): dbo.Sales, dbo.SalesByDay" in out
+            assert "- ERPDB (id 20): dbo.SalesOrders" in out
+            assert "- AIRDB (id 58): TS.sales, TS.plan_sales_data" in out
+            assert "- AIRDB2 (id 59): TS.sales" in out
+            assert "No match on: EDWDB (Postgres) (id 28)" in out
+            assert "COULD NOT LIST (unchecked, not empty): PHARMA (id 168): HTTP 500" in out
+            assert "candidate, not a finding" in out
+            # the platform's connections are now known to the ledger (schema-level
+            # search is not a row-level query, so nothing is marked queried)
+            assert P.coverage_snapshot(ctx) == (KNOWN, [])
+            # several fragments, any-of
+            out = _txt(_run(P.search_tables.handler({"pattern": "invoice, orders"})))
+            assert "dbo.Invoices" in out and "public.orders" in out and "dbo.SalesOrders" in out
+            assert "No match on: EDW (SQL Server) (id 5), AIRDB (id 58), AIRDB2 (id 59)" in out
+            # restricted to fuzzy-resolved connections
+            out = _txt(_run(P.search_tables.handler({"pattern": "sales",
+                                                     "connections": ["EDW", "58"]})))
+            assert "across 2 connection(s)" in out and "dbo.Sales" in out and "TS.sales" in out
+            assert "ERPDB" not in out
+            res = _run(P.search_tables.handler({"pattern": "sales", "connections": ["AIR"]}))
+            assert res.get("is_error") and "ambiguous" in _txt(res)
+            res = _run(P.search_tables.handler({"pattern": " , "}))
+            assert res.get("is_error")
+            # nothing anywhere: explicit, with every connection accounted for
+            out = _txt(_run(P.search_tables.handler({"pattern": "zzz"})))
+            assert "(no connection has a matching table name)" in out
+            assert "No match on:" in out and "COULD NOT LIST" in out
+    finally:
+        CURRENT_USER.reset(tok)
+
+
+def test_search_tables_is_a_registered_read_tool():
+    names = {getattr(t, "name", "") for t in P.AIHUB_TOOLS}
+    assert "search_tables" in names
+    assert "search_tables" in B._READ_TOOL_NAMES
 
 
 # ---------------------------------------------------------------------------
-# #2 doctrine
+# #1/#2 doctrine — generic, and no judgement of the reply's wording
 # ---------------------------------------------------------------------------
 
-def test_prompt_and_skill_tool_carry_the_scope_doctrine():
+def test_brain_does_not_judge_replies_by_their_wording():
+    assert not hasattr(B, "ABSENCE_CLAIM_RE") and not hasattr(B, "coverage_warning")
+    src = open(os.path.join(APP_ROOT, "agent_service", "brain.py"), encoding="utf-8").read()
+    assert "AGENT_COVERAGE_GUARD" not in src and "Coverage note" not in src
+    assert "reset_coverage(user_ctx)" in src       # the per-turn ledger still resets
+
+
+def test_prompt_and_skill_tool_carry_the_scope_doctrine_generically():
     sp = B.SYSTEM_PROMPT
     assert "SCOPE, COVERAGE AND NEGATIVE CLAIMS" in sp
-    assert "query EVERY connection that" in sp and "I have not checked AIRDB" in sp
+    assert "search_tables checks every connection in one call" in sp
+    assert "coverage line" in sp and "I have not checked C or D" in sp
     assert "get the UNFILTERED total first" in sp
     assert "never silent scope" in sp
     assert "enrichment lookup, not a population filter" in sp
     assert "Email is an extra delivery, never a" in sp
+    # no test-oracle values baked into the doctrine
+    for leaked in ("$121,625.50", "CGC-*", "CGC-", "PHARMA", "AIRDB2", "EDWDB"):
+        assert leaked not in sp, leaked
     desc = getattr(W.save_skill, "description", None) or open(
         os.path.join(APP_ROOT, "agent_service", "work_tools.py"), encoding="utf-8").read()
     assert "never a silent filter" in desc and "must not" in desc
     skill = open(os.path.join(APP_ROOT, "agent_service", "product_skills",
                               "aihub-playbook-lifecycle", "SKILL.md"), encoding="utf-8").read()
-    assert "Delivering produced files" in skill and "says nothing about the others" in skill
+    assert "Delivering produced files" in skill and "search_tables" in skill
 
 
 # ---------------------------------------------------------------------------

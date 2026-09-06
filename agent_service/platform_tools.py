@@ -13,6 +13,7 @@ Honesty rules carried over from CC's tool bodies:
 - surface server rejections (gate refusals, SQL errors) verbatim
 """
 
+import asyncio
 import json
 import contextvars
 import re
@@ -92,6 +93,32 @@ def coverage_snapshot(ctx: Optional[dict] = None) -> tuple:
         return [], []
     return list(rec.get("known") or []), list(rec.get("queried") or [])
 
+
+_FOOTER_MAX_NAMES = 12
+
+
+def coverage_footer(ctx: Optional[dict] = None) -> str:
+    """One line for the END of every query result: which connections this
+    turn's row-level queries touched and which they have NOT. The boundary a
+    negative answer must be scoped to, stated as data at the moment the model
+    is about to conclude — never inferred from the wording of its reply."""
+    known, queried = coverage_snapshot(ctx)
+    if not known:
+        return ""
+    qset = {q.lower() for q in queried}
+    done = [k for k in known if k.lower() in qset]
+    left = [k for k in known if k.lower() not in qset]
+    if not left:
+        return (f"\nCoverage this turn: all {len(known)} connection(s) queried "
+                f"({', '.join(done[:_FOOTER_MAX_NAMES])}).")
+    more = (f" (+{len(left) - _FOOTER_MAX_NAMES} more)"
+            if len(left) > _FOOTER_MAX_NAMES else "")
+    return (f"\nCoverage this turn — queried: {', '.join(done) or '(none)'}; "
+            f"NOT queried: {', '.join(left[:_FOOTER_MAX_NAMES])}{more}. A 'no data' "
+            "answer covers only the queried list — check the rest (search_tables "
+            "finds candidate tables across all connections) or say which you did "
+            "not check.")
+
 _TIMEOUT = httpx.Timeout(30.0, read=120.0)
 
 
@@ -140,8 +167,8 @@ def _unwrap(data):
     return data
 
 
-async def _get(path: str):
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+async def _get(path: str, timeout: Optional[httpx.Timeout] = None):
+    async with httpx.AsyncClient(timeout=timeout or _TIMEOUT) as client:
         r = await client.get(f"{get_base_url()}{path}", headers=_headers())
         r.raise_for_status()
         return _unwrap(r.json())
@@ -286,10 +313,11 @@ async def _resolve_connection(ref) -> tuple:
 # ---------------------------------------------------------------------------
 
 COVERAGE_RULE = (
-    "Coverage rule: a 'no data / nothing recorded' answer is only as strong as "
-    "the connections you actually queried. Before reporting that something does "
-    "not exist, query EVERY connection here that could plausibly hold it, or say "
-    "exactly which ones you checked and which you did not.")
+    "Coverage rule: a 'no data / nothing recorded' answer covers only the "
+    "connections you actually queried. When you do not know where data lives, "
+    "search_tables checks every connection in one call; every query result ends "
+    "with a coverage line (queried / NOT queried this turn) — scope a negative "
+    "answer to the queried list, or check the rest first.")
 
 
 @tool(
@@ -426,31 +454,28 @@ async def probe_connection_query(args: dict[str, Any]) -> dict[str, Any]:
             return _text(err, is_error=True)
         conn_id = str(row.get("id"))
         conn_name = str(row.get("name") or conn_id)
-        note = _resolution_note(args["connection"], row)
+        rnote = _resolution_note(args["connection"], row)
         data, status = await _post(f"/api/discover/query/{conn_id}",
                                    {"sql": str(args["sql"]).strip()})
         if data.get("rejected"):
-            return _text(f"{note}Query rejected by the read-only gate: {data.get('error')}",
+            return _text(f"{rnote}Query rejected by the read-only gate: {data.get('error')}",
                          is_error=True)
         if data.get("sql_error"):
-            return _text(f"{note}SQL error: {data.get('error')}", is_error=True)
+            return _text(f"{rnote}SQL error: {data.get('error')}", is_error=True)
         if not data.get("success"):
-            return _text(f"{note}Probe failed (HTTP {status}): {data.get('error', data)}",
+            return _text(f"{rnote}Probe failed (HTTP {status}): {data.get('error', data)}",
                          is_error=True)
-        # The query ran against this connection: that is what a later negative
-        # claim can honestly cover (brain.run_turn's coverage note).
+        # The query ran against this connection — the per-turn coverage ledger
+        # (see coverage_footer) is what a negative answer can honestly cover.
         note_queried_connection(conn_name)
         rows = data.get("rows") or []
         cols = data.get("columns") or []
         if not rows:
-            return _text(f"{note}0 rows returned from {conn_name}. This is almost "
+            return _text(f"{rnote}0 rows returned from {conn_name}. This is almost "
                          "always a filter value that does not exist — verify values "
                          "with get_connection_schema before assuming the data is "
-                         "missing. It also says nothing about OTHER connections: "
-                         "before reporting data as absent, query the others that "
-                         "could hold it, or scope your statement to the ones you "
-                         "actually queried.")
-        lines = [note + " | ".join(str(c) for c in cols)]
+                         "missing." + coverage_footer())
+        lines = [rnote + " | ".join(str(c) for c in cols)]
         for r in rows[:15]:
             # rows arrive as dicts keyed by column — iterating the dict itself
             # would render the KEYS (column names) instead of the values
@@ -483,10 +508,120 @@ async def probe_connection_query(args: dict[str, Any]) -> dict[str, Any]:
                               f"{cnote}):\n" + block)
             else:
                 chart_part = f"\n\n(No chart block: {cnote})"
-        return _text("\n".join(lines) + note + chart_part)
+        return _text("\n".join(lines) + note + coverage_footer() + chart_part)
     except Exception as e:
         logger.error(f"probe_connection_query failed: {e}")
         return _text(f"Probe failed: {e}", is_error=True)
+
+
+# ---------------------------------------------------------------------------
+# Cross-connection table search (2026-09-05). The capability that was missing
+# when the model concluded "no August data" from 2 of 6 connections: there was
+# no way to ask the platform WHERE data of a kind lives except by walking the
+# connections one schema call at a time. One call, every connection, and the
+# result says which connections matched, which had no match, and which could
+# not be listed — so an unlisted connection reads as UNCHECKED, never as empty.
+# ---------------------------------------------------------------------------
+_SEARCH_MAX_PER_CONN = 40
+_SEARCH_TIMEOUT = httpx.Timeout(15.0, read=45.0)
+
+
+def _split_patterns(raw) -> list:
+    parts = re.split(r"[,\s]+", str(raw or "").strip().lower())
+    return [p for p in parts if p]
+
+
+def _match_table(name: str, pats: list) -> bool:
+    n = str(name or "").lower()
+    return any(p in n for p in pats)
+
+
+async def _tables_for(conn: dict) -> tuple:
+    """(connection, [qualified table names], error) — never raises."""
+    try:
+        data = await _get(f"/api/discover/tables/{conn.get('id')}", timeout=_SEARCH_TIMEOUT)
+        if isinstance(data, dict) and data.get("success") is False:
+            return conn, [], str(data.get("error") or "listing failed")
+        tables = (data or {}).get("tables") or []
+        names = [str(t.get("TABLE_NAME") or t.get("table_name") or "")
+                 for t in tables if isinstance(t, dict)]
+        return conn, [n for n in names if n], None
+    except Exception as e:
+        return conn, [], str(e) or type(e).__name__
+
+
+@tool(
+    "search_tables",
+    "Find which connections hold a table whose name contains any of the given "
+    "words — across EVERY data connection in ONE call (e.g. 'sales, orders' or "
+    "'invoice'). The first step when you do not know where some data lives, and "
+    "the required step before saying data does not exist anywhere: it reports "
+    "matches per connection, the connections with NO match, and any connection "
+    "it could not list (unlisted = unchecked, not empty). Then probe the "
+    "candidates. Pass `connections` to restrict the search.",
+    {
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string",
+                        "description": "One or more name fragments, comma or space "
+                                       "separated; case-insensitive substring match "
+                                       "on schema.table names"},
+            "connections": {"type": "array", "items": {"type": "string"},
+                            "description": "Optional connection ids/names to search "
+                                           "(default: all)"},
+        },
+        "required": ["pattern"],
+        "additionalProperties": False,
+    },
+)
+async def search_tables(args: dict[str, Any]) -> dict[str, Any]:
+    pats = _split_patterns(args.get("pattern"))
+    if not pats:
+        return _text("Give at least one table-name fragment to search for.", is_error=True)
+    try:
+        conns = await _connections_index()
+        note_known_connections(conns)
+        if not conns:
+            return _text("No data connections are configured.")
+        wanted = args.get("connections") or []
+        if wanted:
+            picked, errs = [], []
+            for ref in wanted:
+                row, err = match_connection(ref, conns)
+                if err:
+                    errs.append(err)
+                elif row not in picked:
+                    picked.append(row)
+            if errs:
+                return _text("; ".join(errs), is_error=True)
+            conns = picked
+        results = await asyncio.gather(*(_tables_for(c) for c in conns))
+        hits, misses, failed = [], [], []
+        for conn, names, err in results:
+            label = f"{conn.get('name')} (id {conn.get('id')})"
+            if err:
+                failed.append(f"{label}: {err[:160]}")
+                continue
+            found = [n for n in names if _match_table(n, pats)]
+            if found:
+                shown = ", ".join(found[:_SEARCH_MAX_PER_CONN])
+                extra = (f" (+{len(found) - _SEARCH_MAX_PER_CONN} more)"
+                         if len(found) > _SEARCH_MAX_PER_CONN else "")
+                hits.append(f"- {label}: {shown}{extra}")
+            else:
+                misses.append(label)
+        lines = [f"Tables matching [{', '.join(pats)}] across {len(conns)} connection(s):"]
+        lines += hits or ["- (no connection has a matching table name)"]
+        if misses:
+            lines.append(f"No match on: {', '.join(misses)}")
+        if failed:
+            lines.append("COULD NOT LIST (unchecked, not empty): " + "; ".join(failed))
+        lines.append("A name match is a candidate, not a finding — probe it "
+                     "(probe_connection_query) before concluding anything about its data.")
+        return _text("\n".join(lines))
+    except Exception as e:
+        logger.error(f"search_tables failed: {e}")
+        return _text(f"Table search failed: {e}", is_error=True)
 
 
 @tool(
@@ -846,6 +981,7 @@ AIHUB_TOOLS = [
     list_data_connections,
     get_connection_schema,
     probe_connection_query,
+    search_tables,
     ask_agent,
     get_my_contact_info,
     find_user_contact,

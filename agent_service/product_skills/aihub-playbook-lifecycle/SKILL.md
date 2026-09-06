@@ -77,9 +77,10 @@ link, call `offer_file_download` on it.
   remembered table or column names — verify with a live probe.
 - Zero rows from a probe usually means a filter value that does not exist —
   verify values before concluding data is missing.
-- Zero rows on ONE connection says nothing about the others: before saying
-  data does not exist, query every connection that could hold it, or state
-  exactly which ones you checked and which you did not.
+- Zero rows on ONE connection says nothing about the others: `search_tables`
+  finds candidate tables across every connection in one call, and each probe
+  result ends with a coverage line (queried / NOT queried this turn) — scope
+  a "no data" answer to the queried list, or check the rest first.
 - A connection name resolves by exact name, then base name ('EDW' → 'EDW
   (SQL Server)'), then unique prefix; the tool echoes what it resolved to —
   read that line, and treat an unresolved name as a source you have NOT
