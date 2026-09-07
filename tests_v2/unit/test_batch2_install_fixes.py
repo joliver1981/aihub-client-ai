@@ -27,6 +27,22 @@ def _read(*parts):
     return io.open(os.path.join(REPO, *parts), encoding="utf-8").read()
 
 
+def _latest_iss():
+    """Text of the HIGHEST-numbered installer script.
+
+    Installer fixes land in a new AIHub_Setup_Script_vN_OneDir_Dev.iss rather
+    than editing the previous one, so pinning a version by name silently rots:
+    the checks keep passing against a file that no longer ships (v6 landed with
+    these tests still reading v5). Resolve N at run time instead.
+    """
+    import glob
+    import re as _re
+    paths = glob.glob(os.path.join(REPO, "AIHub_Setup_Script_v*_OneDir_Dev.iss"))
+    assert paths, "no AIHub_Setup_Script_vN_OneDir_Dev.iss found in the repo root"
+    newest = max(paths, key=lambda p: int(_re.search(r"_v(\d+)_", p).group(1)))
+    return io.open(newest, encoding="utf-8").read()
+
+
 # ------------------------------------------------------------ startup probe
 
 class _FakeClient:
@@ -115,12 +131,18 @@ def test_agent_route_and_context_carry_the_all_users_flag():
     assert "The Agent is in preview for Developers and Admins." in src
 
 
-def test_shipped_env_enables_the_front_door_for_developers_only():
+def test_shipped_env_turns_the_front_door_on():
+    """dist/.env is what a FRESH install receives verbatim, so it must turn The
+    Agent on. It no longer decides WHO gets in: through v6 it shipped
+    AGENT_ALLOW_ALL_USERS=false and that was the effective posture, but v7's
+    ConfigText appends an overriding 'true' after this file is copied. Assert
+    only the two flags dist/.env still owns — see
+    test_installer_opens_the_agent_to_all_users_on_both_paths for the rest.
+    """
     env = _read("dist", ".env") if os.path.isfile(os.path.join(REPO, "dist", ".env")) else ""
     if not env:
         pytest.skip("dist/.env is machine-local (not tracked)")
     assert re.search(r"^THE_AGENT_ENABLED=true$", env, re.M)
-    assert re.search(r"^AGENT_ALLOW_ALL_USERS=false$", env, re.M)
     assert re.search(r"^THE_AGENT_MODE=true$", env, re.M)
 
 
@@ -141,16 +163,27 @@ def test_logout_clears_the_sticky_classic_choice():
     assert "logout_user()" in body and "session.pop('classic_mode', None)" in body
 
 
-def test_installer_seeds_the_all_users_key():
-    iss = _read("AIHub_Setup_Script_v6_OneDir_Dev.iss")
-    assert "EnsureEnvKeyExists(EnvConfigFile, 'AGENT_ALLOW_ALL_USERS', 'false')" in iss
+def test_installer_opens_the_agent_to_all_users_on_both_paths():
+    """v7 flipped the front-door posture from Developer/Admin preview to every
+    signed-in user, and it has to land on BOTH install paths or the two diverge:
+
+      upgrade - keeps the client's own .env, so the key must be FORCED (Ensure
+                would preserve a pre-existing 'false' forever)
+      fresh   - receives dist\\.env verbatim, which still ships
+                AGENT_ALLOW_ALL_USERS=false, so ConfigText (appended after it,
+                last assignment wins) must carry an overriding 'true'
+    """
+    iss = _latest_iss()
+    assert "ForceEnvKeyValue(EnvConfigFile, 'AGENT_ALLOW_ALL_USERS', 'true')" in iss
+    assert "EnsureEnvKeyExists(EnvConfigFile, 'AGENT_ALLOW_ALL_USERS'" not in iss
+    assert "'AGENT_ALLOW_ALL_USERS=true' + #13#10" in iss
 
 
 def test_installer_forces_the_front_door_flags_on_upgrade():
     """Every client arrives by upgrade and keeps its .env; a preserved file that
     predates the keys (or carries the legacy false) must still end up with
     THE_AGENT_ENABLED/THE_AGENT_MODE resolving true. Append-only on purpose."""
-    iss = _read("AIHub_Setup_Script_v6_OneDir_Dev.iss")
+    iss = _latest_iss()
     assert "function ForceEnvKeyValue(const FilePath, Key, Value: String): Boolean;" in iss
     assert "ForceEnvKeyValue(EnvConfigFile, 'THE_AGENT_ENABLED', 'true')" in iss
     assert "ForceEnvKeyValue(EnvConfigFile, 'THE_AGENT_MODE', 'true')" in iss
@@ -163,7 +196,7 @@ def test_iss_pascal_never_starts_a_line_with_a_char_code():
     """Inno's preprocessor reads a line that begins with '#' as a directive: a
     wrapped Pascal expression whose continuation started with #13#10 broke the
     installer compile ("Unknown preprocessor directive", 2026-09-04)."""
-    iss = _read("AIHub_Setup_Script_v6_OneDir_Dev.iss")
+    iss = _latest_iss()
     offenders = [n + 1 for n, ln in enumerate(iss.splitlines())
                  if ln.lstrip().startswith("#") and ln.lstrip()[1:2].isdigit()]
     assert offenders == [], f"lines beginning with a #NN char code: {offenders}"
@@ -182,7 +215,7 @@ def test_installer_forces_the_engine_defaults_and_reads_the_last_env_line():
         the stale early value every upgrade and appended another override block,
         accumulating one duplicate pair per run.
     """
-    iss = _read("AIHub_Setup_Script_v6_OneDir_Dev.iss")
+    iss = _latest_iss()
     assert "ForceEnvKeyValue(EnvConfigFile, 'NLQ_ENGINE_DEFAULT', 'agentic')" in iss
     assert "ForceEnvKeyValue(EnvConfigFile, 'DOC_SEARCH_ENGINE_DEFAULT', 'v2')" in iss
     body = iss[iss.index("function ReadEnvFileFromPath"):
