@@ -4513,6 +4513,49 @@ def save_type_category():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@app.route('/unfile/type_category', methods=['POST'])
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def unfile_type_category():
+    """UN-file one document type: delete its DocumentTypeCategories row.
+
+    Migration 016's fail-closed rule: a type with NO category row is readable
+    by admins only. This is the one route that REMOVES access (hence admin
+    only — not Developer-reachable): it is how an admin undoes a mis-filing
+    without having to park the type somewhere else, and it is what makes the
+    fail-closed branch reachable at all. The type then shows under `unmapped`
+    on /get/document_category_admin until /save/type_category files it again
+    (its INSERT branch handles the missing row).
+
+    Idempotent: unfiling a type with no row is success with unfiled=0 — the
+    end state the caller asked for already holds."""
+    try:
+        data = request.json or {}
+        document_type = (data.get('document_type') or '').strip()
+        if not document_type:
+            return jsonify({'status': 'error',
+                            'message': 'document_type required'}), 400
+        who = getattr(current_user, 'user_name', None) or 'admin'
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("DELETE FROM DocumentTypeCategories WHERE document_type = ?",
+                       document_type)
+        unfiled = cursor.rowcount
+        conn.commit()
+        conn.close()
+        if unfiled:
+            logger.info(f"[category-review] '{document_type}' UNFILED (now "
+                        f"admin-only) by {who}")
+        else:
+            logger.info(f"[category-review] '{document_type}' unfile by {who}: "
+                        f"no category row (already admin-only)")
+        return jsonify({'status': 'success', 'unfiled': unfiled})
+    except Exception as e:
+        logger.error(f"[unfile_type_category] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/save/document_category', methods=['POST'])
 @cross_origin()
 @api_key_or_session_required(min_role=3)

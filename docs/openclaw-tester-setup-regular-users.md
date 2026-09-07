@@ -272,14 +272,24 @@ its categories (leave **Manage** off — that makes the group a steward), Save.
 > ⚠ Also check the **existing** groups on the box — an older group may already hold access to the
 > categories you are using. Confirm your five test users belong **only** to the groups in §3.3.
 
-#### (d) The unmapped-document-type fixture — known gap
+#### (d) The unmapped-document-type fixture
 
 Brief 3 §3.3 also names the fail-closed rule *"a `document_type` with no category row is readable by
-admins only"*. **There is no API or UI route that un-files a type from its category** — `/save/type_category`
-only inserts or moves, and `/merge/document_category` moves types rather than orphaning them.
+admins only"*. Since 2026-09-07 the product can reach that state: **`POST /unfile/type_category`**
+(admin-only; body `{"document_type": "<type>"}`; API key or admin session) deletes the type's
+`DocumentTypeCategories` row, and every row of the mapping table on `/document_categories` has an
+**Unfile** button that does the same after a confirm. The type then shows under `unmapped` on
+`/get/document_category_admin` (the page's "Needs review" card), its documents are admin-only, and
+re-filing it on that page (or `/save/type_category`) restores access. Unfiling a type that has no row
+is a no-op success (`unfiled: 0`); a Developer session gets 403. Pick one populated type that a test
+group is granted (e.g. a second invoice type) and unfile it — that is the whole fixture.
 
-So on a box where every type is already mapped (as 10.0.0.6 was — `UNMAPPED types: []`), this
-fixture cannot be built through the platform. Your options:
+> ⚠ The route ships with the NEXT build. A box on an older frozen build (10.0.0.6 at the time of
+> writing) does not have it: there `/save/type_category` only inserts or moves, and
+> `/merge/document_category` moves types rather than orphaning them.
+
+On a box **without** the route, where every type is already mapped (as 10.0.0.6 was —
+`UNMAPPED types: []`), the fixture cannot be built through the platform. Your options:
 
 1. **Accept partial coverage** (the default). The *granted-to-nobody* category already proves a
    regular user cannot read a category they hold no grant for. Mark RU-06(c)'s unmapped half
@@ -585,7 +595,7 @@ invoice                     cat id  4  16 docs  -> Agent Test B
 master_supply_agreement     cat id 18   1 doc   -> NOBODY
     MSA_Clearwater_Distributors.pdf
 (the other 14 categories on the box are granted to nobody)
-UNMAPPED document types: NONE -> RU-06(c) unmapped half = SKIP (see 3.5(d))
+UNMAPPED document types: NONE -> RU-06(c) unmapped half = SKIP (see 3.5(d); box predates /unfile/type_category)
 
 -- AGENTS -------------------------------------------------------------
 Test Agent Alpha     id 10023  -> Agent Test A
@@ -635,8 +645,10 @@ pack runs. Any RU-06 / RU-10 / RU-11 failure the tester sees is a real regressio
    control. **Recommend clearing the `model` key** (leaving `role1_model` unset) so Dev+/admin run
    sonnet-5 and pass 1 reads as the true shipped posture. Not done — it is a config change on the
    box and it is James's call.
-2. **No unmapped document type exists, and one cannot be created through the API.** See §3.5(d):
-   either accept the SKIP or run a single `DELETE FROM DocumentTypeCategories` on the app DB.
+2. **No unmapped document type exists, and this build cannot create one through the API.** See §3.5(d):
+   `POST /unfile/type_category` (and the Unfile button on `/document_categories`) exists from
+   2026-09-07 and reaches 10.0.0.6 with the next build; until then either accept the SKIP or run a
+   single `DELETE FROM DocumentTypeCategories` on the app DB.
 
 ### 8.4 Not done (and why)
 

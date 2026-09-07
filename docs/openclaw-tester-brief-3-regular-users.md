@@ -76,9 +76,11 @@ Straight from the setup document — this is what makes the boundary observable:
 Granted to B — `VINV-20260012.pdf`, `VINV-20260011.pdf`. Granted to nobody —
 `MSA_Clearwater_Distributors.pdf`.
 
-> **No unmapped document type exists on this box**, and one cannot be created through the API — so
-> RU-06(c)'s *unmapped-type* half is a **SKIP**. Its *granted-to-nobody* half (the MSA) still runs.
-> Setup document §3.5(d) has the detail and the one-line DB alternative.
+> **No unmapped document type exists on this box**, and its frozen build predates
+> `POST /unfile/type_category` (added 2026-09-07, with an **Unfile** button on `/document_categories`)
+> — so on 10.0.0.6 RU-06(c)'s *unmapped-type* half stays a **SKIP** until the next build is installed.
+> On a box that has the route, `admin` unfiles one populated type (Setup §3.5(d)) and (c) runs in
+> full. Its *granted-to-nobody* half (the MSA) still runs either way.
 
 ---
 

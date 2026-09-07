@@ -43,6 +43,8 @@
     .dc-btn:hover { opacity: 0.9; }
     .dc-btn.subtle { background: var(--bg-input); color: var(--text-primary);
                      border: 1px solid var(--border-accent); }
+    .dc-btn.unfile { background: var(--bg-input); color: var(--status-error);
+                     border: 1px solid var(--border-accent); }
     .dc-btn:disabled { opacity: 0.5; cursor: default; }
     .dc-row-actions { display: flex; gap: 8px; align-items: center; }
     .dc-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px;
@@ -83,7 +85,9 @@
     <div class="dc-card">
         <h3>All document types</h3>
         <div class="dc-sub">Change a category to re-file the type — takes effect on the
-            next search, no re-ingest needed.</div>
+            next search, no re-ingest needed. <b>Unfile</b> removes the type from its
+            category: its documents become visible to <b>admins only</b> until it is
+            filed again (it moves up to the review card).</div>
         <div class="dc-toolbar">
             <input type="text" class="dc-input" id="dcSearch"
                    placeholder="Filter types or categories…" style="min-width:260px;">
@@ -219,8 +223,12 @@
                 <td><span class="dc-badge ${esc(m.assigned_by)}">${esc(m.assigned_by)}</span>
                     ${m.assigned_by === 'ai' && m.ai_confidence != null
                         ? `<span class="dc-conf" style="font-size:0.75rem;color:var(--text-secondary);"> ${Math.round(m.ai_confidence)}%</span>` : ''}</td>
-                <td><button class="dc-btn dc-recat-btn" data-type="${esc(m.document_type)}"
-                        style="display:none;">Save</button></td>
+                <td><div class="dc-row-actions">
+                    <button class="dc-btn dc-recat-btn" data-type="${esc(m.document_type)}"
+                        style="display:none;">Save</button>
+                    <button class="dc-btn unfile dc-unfile-btn" data-type="${esc(m.document_type)}"
+                        title="Remove this type from its category (admin-only until re-filed)">Unfile</button>
+                </div></td>
             </tr>`);
         }
         if (!shown) body.append('<tr><td colspan="6" class="dc-empty">No matching types.</td></tr>');
@@ -253,6 +261,26 @@
     $(document).on('click', '.dc-recat-btn', function () {
         const t = $(this).data('type');
         fileType(t, $(`.dc-recat-sel[data-type="${CSS.escape(t)}"]`).val(), $(this));
+    });
+    $(document).on('click', '.dc-unfile-btn', function () {
+        const t = $(this).data('type');
+        const m = DATA.mappings.find(x => x.document_type === t) || {};
+        const cat = m.category_name || 'its category';
+        const n = m.doc_count || 0;
+        if (!confirm(`Unfile '${t}' from '${cat}'?\n\n` +
+                     `Every document of this type (${n} document${n === 1 ? '' : 's'}) ` +
+                     `becomes visible to ADMINS ONLY until the type is filed into a ` +
+                     `category again. Group grants on '${cat}' are not changed.`)) return;
+        const btn = $(this).prop('disabled', true);
+        $.ajax({
+            url: '/unfile/type_category', method: 'POST', contentType: 'application/json',
+            data: JSON.stringify({ document_type: t })
+        }).done(resp => {
+            if (resp.status === 'success') {
+                flash(`Unfiled '${t}' — admin-only until re-filed`, true); load();
+            } else flash(resp.message || 'Unfile failed', false);
+        }).fail(x => flash((x.responseJSON || {}).message || 'Unfile failed', false))
+          .always(() => btn.prop('disabled', false));
     });
     $('#dcSearch').on('input', renderMappings);
 
