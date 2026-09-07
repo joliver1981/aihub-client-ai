@@ -142,7 +142,7 @@ def test_logout_clears_the_sticky_classic_choice():
 
 
 def test_installer_seeds_the_all_users_key():
-    iss = _read("AIHub_Setup_Script_v5_OneDir_Dev.iss")
+    iss = _read("AIHub_Setup_Script_v6_OneDir_Dev.iss")
     assert "EnsureEnvKeyExists(EnvConfigFile, 'AGENT_ALLOW_ALL_USERS', 'false')" in iss
 
 
@@ -150,7 +150,7 @@ def test_installer_forces_the_front_door_flags_on_upgrade():
     """Every client arrives by upgrade and keeps its .env; a preserved file that
     predates the keys (or carries the legacy false) must still end up with
     THE_AGENT_ENABLED/THE_AGENT_MODE resolving true. Append-only on purpose."""
-    iss = _read("AIHub_Setup_Script_v5_OneDir_Dev.iss")
+    iss = _read("AIHub_Setup_Script_v6_OneDir_Dev.iss")
     assert "function ForceEnvKeyValue(const FilePath, Key, Value: String): Boolean;" in iss
     assert "ForceEnvKeyValue(EnvConfigFile, 'THE_AGENT_ENABLED', 'true')" in iss
     assert "ForceEnvKeyValue(EnvConfigFile, 'THE_AGENT_MODE', 'true')" in iss
@@ -163,10 +163,32 @@ def test_iss_pascal_never_starts_a_line_with_a_char_code():
     """Inno's preprocessor reads a line that begins with '#' as a directive: a
     wrapped Pascal expression whose continuation started with #13#10 broke the
     installer compile ("Unknown preprocessor directive", 2026-09-04)."""
-    iss = _read("AIHub_Setup_Script_v5_OneDir_Dev.iss")
+    iss = _read("AIHub_Setup_Script_v6_OneDir_Dev.iss")
     offenders = [n + 1 for n, ln in enumerate(iss.splitlines())
                  if ln.lstrip().startswith("#") and ln.lstrip()[1:2].isdigit()]
     assert offenders == [], f"lines beginning with a #NN char code: {offenders}"
+
+
+def test_installer_forces_the_engine_defaults_and_reads_the_last_env_line():
+    """v6. Two silent downgrades on the UPGRADE path, where a client keeps its
+    OWN .env and never receives the shipped dist copy:
+
+      * NLQ_ENGINE_DEFAULT / DOC_SEARCH_ENGINE_DEFAULT were seeded with
+        EnsureEnvKeyExists, which preserves an existing value - so an install
+        already carrying 'legacy' stayed on the old NL->SQL / agent-knowledge
+        engine through every upgrade, silently. Both must FORCE.
+      * ReadEnvFileFromPath returned the FIRST assignment while python-dotenv
+        resolves the LAST. That made ForceEnvKeyValue non-idempotent: it re-read
+        the stale early value every upgrade and appended another override block,
+        accumulating one duplicate pair per run.
+    """
+    iss = _read("AIHub_Setup_Script_v6_OneDir_Dev.iss")
+    assert "ForceEnvKeyValue(EnvConfigFile, 'NLQ_ENGINE_DEFAULT', 'agentic')" in iss
+    assert "ForceEnvKeyValue(EnvConfigFile, 'DOC_SEARCH_ENGINE_DEFAULT', 'v2')" in iss
+    body = iss[iss.index("function ReadEnvFileFromPath"):
+               iss.index("function GetConfiguredPort")]
+    assert "Break;" not in body, \
+        "ReadEnvFileFromPath must scan on and return the LAST assignment"
 
 
 def test_dotenv_lets_a_later_line_override_an_earlier_one(tmp_path):
