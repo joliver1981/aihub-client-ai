@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+
+<div class="container-fluid py-4">
+
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-1">
+                <i class="fas fa-heart-pulse text-primary mr-2"></i>
+                Config Health
+            </h2>
+            <p class="text-muted mb-0">
+                Is this install's <code>user_config.py</code> actually being applied &mdash; and is any of it a trap?
+            </p>
+        </div>
+        <div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="load(true)" title="Re-scan the source tree">
+                <i class="fas fa-sync-alt mr-1"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    <div id="banner"></div>
+
+    <div class="row mb-4" id="statsRow" style="display:none;">
+        <div class="col-md-3"><div class="card"><div class="card-body py-3">
+            <div class="text-muted small text-uppercase">Settings in file</div>
+            <div class="h3 mb-0" id="cTotal">&mdash;</div>
+        </div></div></div>
+        <div class="col-md-3"><div class="card"><div class="card-body py-3">
+            <div class="text-muted small text-uppercase">Applied</div>
+            <div class="h3 mb-0 text-success" id="cApplied">&mdash;</div>
+        </div></div></div>
+        <div class="col-md-3"><div class="card"><div class="card-body py-3">
+            <div class="text-muted small text-uppercase">Having no effect</div>
+            <div class="h3 mb-0 text-warning" id="cInert">&mdash;</div>
+        </div></div></div>
+        <div class="col-md-3"><div class="card"><div class="card-body py-3">
+            <div class="text-muted small text-uppercase">Issues found</div>
+            <div class="h3 mb-0" id="cFindings">&mdash;</div>
+        </div></div></div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong><i class="fas fa-triangle-exclamation mr-2"></i>Findings</strong>
+            <span class="small text-muted" id="genAt"></span>
+        </div>
+        <div class="card-body" id="findings">
+            <div class="text-muted"><i class="fas fa-spinner fa-spin mr-1"></i> Loading&hellip;</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <strong><i class="fas fa-list mr-2"></i>Settings in this file</strong>
+            <span class="small text-muted ml-2" id="filePath"></span>
+        </div>
+        <div class="card-body p-0">
+            <div style="overflow-x:auto;">
+                <table class="table table-sm table-hover mb-0" id="keysTable">
+                    <thead>
+                        <tr>
+                            <th style="width:3rem;">Line</th>
+                            <th>Setting</th>
+                            <th>Value in file</th>
+                            <th>Running value</th>
+                            <th>How it's read</th>
+                            <th style="width:9rem;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="keysBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <p class="text-muted small mt-3 mb-0">
+        This screen is read-only &mdash; it never edits <code>user_config.py</code>, never changes a
+        setting, and never displays a credential's value. Most settings need a service restart to
+        take effect.
+    </p>
+</div>
+</div>
+
+<script>
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const LEVEL = {
+    critical: {cls: 'danger',  icon: 'fa-circle-exclamation'},
+    warning:  {cls: 'warning', icon: 'fa-triangle-exclamation'},
+    info:     {cls: 'info',    icon: 'fa-circle-info'}
+};
+
+const CATEGORY = {
+    'config-attr': ['Config attribute', 'secondary', 'Read as cfg.NAME - this file sets it'],
+    'env-only':    ['Environment only', 'warning',   'Read via os.getenv() - this file cannot set it'],
+    'split':       ['Both',             'warning',   'Read both ways - this file only moves half'],
+    'unused':      ['No readers found', 'secondary', 'Nothing in the scanned tree reads it'],
+    'unknown':     ['Unknown',          'light',     'Consumer scan unavailable']
+};
+
+function banner(r) {
+    const b = document.getElementById('banner');
+    if (!r.exists) {
+        b.innerHTML = `<div class="alert alert-info"><i class="fas fa-circle-info mr-2"></i>
+            <strong>No user_config.py on this install.</strong> Every setting comes from
+            <code>.env</code> or a built-in default.</div>`;
+        return;
+    }
+    if (!r.loaded) {
+        const e = r.error || {};
+        b.innerHTML = `<div class="alert alert-danger">
+            <h5 class="alert-heading"><i class="fas fa-circle-exclamation mr-2"></i>
+              user_config.py is not being applied</h5>
+            <p class="mb-2"><code>${esc(e.type)}: ${esc(e.message)}</code>
+               ${e.line ? ' at <strong>line ' + esc(e.line) + '</strong>' : ''}</p>
+            ${e.source_line ? `<pre class="mb-2 p-2" style="background:rgba(0,0,0,.25);border-radius:4px;"><code>${esc(e.source_line)}</code></pre>` : ''}
+            <hr><p class="mb-0 small">config.py compiles the whole file in one pass, so this
+            discards <strong>every</strong> setting in it. Nothing else in the UI reports this.</p>
+        </div>`;
+        return;
+    }
+    const bad = (r.findings || []).filter(f => f.level !== 'info').length;
+    b.innerHTML = bad
+        ? `<div class="alert alert-warning"><i class="fas fa-triangle-exclamation mr-2"></i>
+             <strong>user_config.py loads cleanly</strong>, but ${bad} setting${bad === 1 ? '' : 's'}
+             need${bad === 1 ? 's' : ''} attention below.</div>`
+        : `<div class="alert alert-success"><i class="fas fa-circle-check mr-2"></i>
+             <strong>user_config.py loads cleanly</strong> and every setting in it is being applied.</div>`;
+}
+
+function render(r) {
+    banner(r);
+    document.getElementById('genAt').textContent =
+        'Checked ' + (r.generated_at || '') + (r.mtime ? ' · file modified ' + r.mtime : '');
+    document.getElementById('filePath').textContent = r.path || '';
+
+    const c = r.counts || {};
+    document.getElementById('statsRow').style.display = r.exists ? '' : 'none';
+    document.getElementById('cTotal').textContent = c.total ?? 0;
+    document.getElementById('cApplied').textContent = c.applied ?? 0;
+    document.getElementById('cInert').textContent = c.inert ?? 0;
+    document.getElementById('cFindings').textContent = (r.findings || []).length;
+
+    const fw = document.getElementById('findings');
+    const fs = r.findings || [];
+    fw.innerHTML = fs.length ? fs.map(f => {
+        const L = LEVEL[f.level] || LEVEL.info;
+        return `<div class="d-flex mb-3">
+            <div class="mr-3 text-${L.cls}"><i class="fas ${L.icon} fa-lg"></i></div>
+            <div>
+              <div><strong>${esc(f.title)}</strong>
+                ${f.line ? `<span class="badge badge-light ml-1">line ${esc(f.line)}</span>` : ''}</div>
+              <div class="text-muted small">${esc(f.detail)}</div>
+              ${f.fix ? `<div class="small mt-1"><strong>Fix:</strong> ${esc(f.fix)}</div>` : ''}
+            </div></div>`;
+    }).join('') : `<div class="text-success"><i class="fas fa-circle-check mr-2"></i>
+                   Nothing to report.</div>`;
+
+    const tb = document.getElementById('keysBody');
+    const rows = r.keys || [];
+    tb.innerHTML = rows.length ? rows.map(k => {
+        const cat = CATEGORY[k.category] || CATEGORY.unknown;
+        let status, scls;
+        // env-only first: such a key is a real setting that simply lives in
+        // .env, not a typo. Ordering this after !known mislabels it.
+        if (k.category === 'env-only')   { status = 'No effect';    scls = 'warning'; }
+        else if (!k.known)               { status = 'Not a setting'; scls = 'warning'; }
+        else if (k.category === 'split')    { status = 'Half applied'; scls = 'warning'; }
+        else if (k.applied)              { status = 'Applied';      scls = 'success'; }
+        else                             { status = 'Not matching';  scls = 'secondary'; }
+        return `<tr>
+            <td class="text-muted small">${esc(k.line)}</td>
+            <td><code>${esc(k.key)}</code>${k.secret
+                ? ' <i class="fas fa-key text-warning" title="Credential - value hidden"></i>' : ''}</td>
+            <td><code class="small">${esc(k.value)}</code></td>
+            <td><code class="small text-muted">${esc(k.effective)}</code></td>
+            <td><span class="badge badge-${cat[1]}" title="${esc(cat[2])}">${esc(cat[0])}</span></td>
+            <td><span class="badge badge-${scls}">${esc(status)}</span></td>
+        </tr>`;
+    }).join('') : `<tr><td colspan="6" class="text-muted p-3">
+                     No settings to show.</td></tr>`;
+}
+
+function load(rescan) {
+    fetch('/settings/api/config-health' + (rescan ? '?rescan=1' : ''))
+        .then(r => r.json())
+        .then(render)
+        .catch(e => {
+            document.getElementById('banner').innerHTML =
+                `<div class="alert alert-danger">Could not load the report: ${esc(e)}</div>`;
+        });
+}
+load(false);
+</script>
+{% endblock %}

@@ -13797,6 +13797,18 @@ except Exception as _sp_err:
     logging.getLogger(__name__).error(
         f"System Prompts admin screen unavailable: {_sp_err}")
 
+# Register the Config Health screen (read-only: does user_config.py actually
+# parse and apply, and is any setting in it silently inert). load_user_config()
+# discards the WHOLE file on one bad line and reports it only to a service log,
+# so this is the only place that state is visible. Guarded like the screen
+# above — an optional read-only admin surface must never block startup.
+try:
+    from config_health_routes import config_health_bp
+    app.register_blueprint(config_health_bp)
+except Exception as _ch_err:
+    logging.getLogger(__name__).error(
+        f"Config Health admin screen unavailable: {_ch_err}")
+
 # Import the identity provider admin blueprint
 from auth_identity_routes import identity_bp
 app.register_blueprint(identity_bp)

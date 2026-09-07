@@ -1431,6 +1431,11 @@
                             <span class="nav-text">System Prompts</span>
                         </a>
 
+                        {# Hardcoded path, same rationale as System Prompts above. #}
+                        <a href="/settings/config-health" class="new-nav-link">
+                            <span class="nav-text">Config Health</span>
+                        </a>
+
                         <a href="{{ url_for('system_logs') }}" class="new-nav-link">
                             <span class="nav-text">System Logs</span>
                         </a>
@@ -1781,6 +1786,11 @@
                            on every page render if it ever failed to register. #}
                         <a href="/settings/system-prompts" class="new-nav-link">
                             <span class="nav-text">System Prompts</span>
+                        </a>
+
+                        {# Hardcoded path, same rationale as System Prompts above. #}
+                        <a href="/settings/config-health" class="new-nav-link">
+                            <span class="nav-text">Config Health</span>
                         </a>
 
                         <a href="{{ url_for('system_logs') }}" class="new-nav-link">
