@@ -1,0 +1,14 @@
+{
+ "stamp": "20260903_184001",
+ "commit": "29ee185",
+ "target": "local",
+ "results": [
+  {
+   "id": "knowledge_ingest_delete",
+   "area": "Knowledge/Docs",
+   "status": "PASS",
+   "evidence": "agent=1024, ingest=success, chars=2450, type=vendor_guide, deleted=True",
+   "duration_s": 5.5
+  }
+ ]
+}

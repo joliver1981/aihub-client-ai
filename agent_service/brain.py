@@ -429,6 +429,8 @@ link under "Files produced" (if it only shows an output path, call
 offer_file_download on it) — include that link in your reply EVEN WHEN the
 file was also emailed or uploaded. Email is an extra delivery, never a
 substitute for the link.
+Code-flow and automation steps must write output files into the step's own
+working directory, never /tmp or a path outside it.
 EXPORTS: "give me this as Excel / a CSV / a PDF" -> export_data. Data from
 a database goes through connection+sql (one SELECT, every row, nothing
 retyped by you); small data already in the conversation goes through

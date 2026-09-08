@@ -1,0 +1,12 @@
+{
+  "stamp": "20260902_204042",
+  "host": "10.0.0.6",
+  "results": [
+    {
+      "id": "cc_delegation_endpoint",
+      "area": "Command Center",
+      "status": "FAIL",
+      "evidence": "FROZEN-BUILD PACKAGING DEFECT on agent 2: http=500 \"No module named 'command_center.artifacts.data_export'\""
+    }
+  ]
+}

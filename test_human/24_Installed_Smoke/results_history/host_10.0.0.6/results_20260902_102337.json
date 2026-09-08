@@ -1,0 +1,30 @@
+{
+  "stamp": "20260902_102337",
+  "host": "10.0.0.6",
+  "results": [
+    {
+      "id": "svc_health",
+      "area": "Services",
+      "status": "PASS",
+      "evidence": "{'app': 200, 'command_center': 200, 'agent_service': 200, 'builder': 200}"
+    },
+    {
+      "id": "nlq_real_answer",
+      "area": "Data/NLQ",
+      "status": "PASS",
+      "evidence": "agent 2 answered in 8.6s without the fallback; payload=3059b | tried: agent 2: http=200 8.6s fallback=False no_schema=False"
+    },
+    {
+      "id": "cc_chat_turn",
+      "area": "Command Center",
+      "status": "SKIP",
+      "evidence": "SKIP: CC rejected a locally-minted token (401) \u2014 the installed box uses a different API_KEY, so CC chat cannot be driven from here without its key"
+    },
+    {
+      "id": "agent_service_turn",
+      "area": "The Agent",
+      "status": "SKIP",
+      "evidence": "SKIP: installed box rejected a locally-minted token (http=401) \u2014 it uses a different API_KEY"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+# AuthZ Matrix - 20260903_130537 (INSTALLED 10.0.0.6)
+
+- Tier: A | Baseline: `results_20260902_211152.json`
+
+## Verdict: **CLEAN** - 9 PASS / 6 SKIP / 1 XFAIL / 1 XPASS
+
+## Matrix
+
+| check | status | evidence |
+|---|---|---|
+| a1_global_auth_middleware_wired | XPASS | middleware-module-present=True, init_auth_middleware called by=['app.py'], anon GET /api/scheduler/jobs -> 401 (reachable=False) |
+| a2_allowlist_contract | PASS | allowlist=11 (pinned 11); ADDED=none; removed=none |
+| a3_dry_run_disabled | XFAIL | env='true', .env=AUTH_MIDDLEWARE_DRY_RUN=true (must not be true) |
+| a4_login_rejects_bad_password | PASS | authenticated-with-wrong-password=False (must be False) |
+| a5_anonymous_browser_redirects | PASS | landed=http://10.0.0.6:5001/login?next=http://10.0.0.6:5001/users, http=200 |
+| a6_anonymous_api_401 | PASS | http=401 (want 401/403) |
+| a7_session_cookie_flags | PASS | HttpOnly=True, SameSite=False, hdr='session=.eJwljjtORDEMAO-SmiJ2Yifey6z8FQgJpPd2K8Td9yHKmWnmp93ryPO93R7HM9_a_SParQ3MmjyMHQmyl' |
+| a8_logout_invalidates_session | PASS | pre-logout http=200, post-logout http=302, still-readable=False |
+| a9_role1_blocked_from_admin | PASS | blocked={'users_page': True, 'save_workflow': True, 'automations_create': True} |
+| a10_bad_api_key_rejected | PASS | http=401 (want 401/403) |
+| a11_anonymous_get_sweep_ratchet | PASS | probed=236, ANONYMOUSLY REACHABLE=6 vs pinned 29 (ratchet: must not grow - PASS is NOT 'no problem'), errors=0, cleaned-up-minted-rows=0; first: /, /api/setup/status, /api_check, /index, /landing, /login |
+| b1_role1_cannot_escalate_own_role | SKIP | competency tier (run with --competency) |
+| b2_no_horizontal_agent_access | SKIP | competency tier (run with --competency) |
+| b3_anonymous_write_actually_persists | SKIP | competency tier (run with --competency) |
+| b4_unauth_sensitive_reads | SKIP | competency tier (run with --competency) |
+| b5_role1_write_sweep | SKIP | competency tier (run with --competency) |
+| b6_sweep_reachable_are_harmless | SKIP | competency tier (run with --competency) |
+
+## Anonymously reachable routes (a11)
+
+| route | response |
+|---|---|
+| `/` | 200 20459b |
+| `/api/setup/status` | 200 132b |
+| `/api_check` | 200 555b |
+| `/index` | 200 55629b |
+| `/landing` | 200 20459b |
+| `/login` | 200 56585b |

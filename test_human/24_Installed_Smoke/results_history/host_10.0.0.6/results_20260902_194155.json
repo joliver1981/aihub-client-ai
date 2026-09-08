@@ -1,0 +1,30 @@
+{
+  "stamp": "20260902_194155",
+  "host": "10.0.0.6",
+  "results": [
+    {
+      "id": "svc_health",
+      "area": "Services",
+      "status": "PASS",
+      "evidence": "{'app': 200, 'command_center': 200, 'agent_service': 200, 'builder': 200}"
+    },
+    {
+      "id": "nlq_real_answer",
+      "area": "Data/NLQ",
+      "status": "PASS",
+      "evidence": "agent 2 answered in 22.2s without the fallback; payload=2399b | tried: agent 2: http=200 22.2s fallback=False no_schema=False"
+    },
+    {
+      "id": "cc_chat_turn",
+      "area": "Command Center",
+      "status": "PASS",
+      "evidence": "http=200, contains-75=True, tail=c4-5715-4f51-938a-b43e912a8707\", \"trace_id\": \"a96a016c-8c38-4aac-bc6d-7fa806f16a1a\"}\n\nevent: done\ndata: {\"session_id\": \"cf0b30c4-5715-4f51-938a-b43e912a8707\"}\n\n"
+    },
+    {
+      "id": "agent_service_turn",
+      "area": "The Agent",
+      "status": "FAIL",
+      "evidence": "health model=claude-opus-5, stream=364b, contains-75=False, tail=ata: {\"type\": \"error\", \"error\": \"Claude Code returned an error result: success\", \"session_id\": \"ceed1ea7-f26d-4bc9-a8cc-edcb8306dcdf\"}\n\ndata: {\"type\": \"done\"}\n\n"
+    }
+  ]
+}

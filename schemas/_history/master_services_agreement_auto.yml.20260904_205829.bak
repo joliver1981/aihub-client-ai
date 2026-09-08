@@ -1,0 +1,62 @@
+document_type: master_services_agreement
+fields:
+  confidentiality.duration_trigger:
+    description: Event that triggers start of confidentiality duration
+  confidentiality.duration_years:
+    description: Duration (years) of confidentiality obligations post-termination
+  dates.effective_date:
+    description: Date the agreement becomes effective
+  document_status:
+    description: Status of the document (e.g. draft, executed)
+  document_type:
+    description: Type/classification of the document
+  fees_and_payment.invoice_terms:
+    description: Invoicing/payment terms
+  fees_and_payment.late_payment_interest_rate.period:
+    description: Period basis of the late payment interest rate
+  fees_and_payment.late_payment_interest_rate.rate:
+    description: Interest rate applied to late payments
+  fees_and_payment.monthly_fee.amount:
+    description: Recurring monthly fee amount
+  fees_and_payment.monthly_fee.currency:
+    description: Currency of the monthly fee
+  limitation_of_liability.aggregate_cap:
+    description: Aggregate cap on liability
+  limitation_of_liability.cap_period_months:
+    description: Period (months) over which liability cap applies
+  parties.client.name:
+    description: Name of the client party
+  parties.client.role:
+    description: Role/designation of the client party
+  parties.provider.name:
+    description: Name of the service provider party
+  parties.provider.role:
+    description: Role/designation of the provider party
+  service_levels.late_delivery_penalty.cap_days:
+    description: Maximum number of days the late delivery penalty can accrue
+  service_levels.late_delivery_penalty.current_amount.currency:
+    description: Currency of the late delivery penalty
+  service_levels.late_delivery_penalty.current_amount.unit:
+    description: Unit of the late delivery penalty (e.g. per day)
+  service_levels.late_delivery_penalty.current_amount.value:
+    description: Current value of the late delivery penalty
+  term_and_termination.initial_term_months:
+    description: Length of initial term in months
+  term_and_termination.term_commencement:
+    description: Date the initial term commences
+  term_and_termination.termination_for_convenience.allowed:
+    description: Whether termination for convenience is permitted
+  term_and_termination.termination_for_convenience.notice_period_days:
+    description: Notice period (days) required for termination for convenience
+  term_and_termination.termination_for_convenience.notice_type:
+    description: Form/type of notice required for termination
+  original_agreement_date:
+    description: Date of the original master agreement being amended
+    evolved: '2026-09-04'
+  renewal_term_years:
+    description: Length of each successive automatic renewal term
+    evolved: '2026-09-04'
+  non_renewal_notice_period_days:
+    description: Notice period (days) required for either party to give notice of
+      non-renewal before end of term
+    evolved: '2026-09-04'

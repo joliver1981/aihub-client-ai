@@ -1,0 +1,20 @@
+{
+ "stamp": "20260902_204923",
+ "commit": "97f5794",
+ "target": "local",
+ "results": [
+  {
+   "id": "mcp_servers_api",
+   "area": "MCP",
+   "status": "PASS",
+   "evidence": "http=200, servers=4, gw-port=True",
+   "duration_s": 2.0
+  },
+  {
+   "id": "comp_mcp_tools_enumerate",
+   "area": "MCP",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  }
+ ]
+}

@@ -1,0 +1,18 @@
+{
+  "stamp": "20260902_203829",
+  "host": "10.0.0.6",
+  "results": [
+    {
+      "id": "cc_delegation_endpoint",
+      "area": "Command Center",
+      "status": "FAIL",
+      "evidence": "FROZEN-BUILD PACKAGING DEFECT on agent 2: http=500 \"No module named 'command_center.artifacts.data_export'\""
+    },
+    {
+      "id": "cc_data_agent_turn",
+      "area": "Command Center",
+      "status": "FAIL",
+      "evidence": "http=200, agent=2, number=True, delegation-failed=True, packaging=['No module named'], tail=\"Agent returned status 500: No module named 'command_center.artifacts.data_export'\", \"ts\": \"2026-09-02T20:38:25.719654\"}]}]}\n\nevent: done\ndata: {\"session_id\": \"ecb48bbe-000c-4fc4-8d43-592aafa77768\"}\n\n"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+ "target": "10.0.0.6",
+ "base": "http://10.0.0.6:5001",
+ "when": "2026-09-03T12:50:19",
+ "dry_run": false,
+ "airdb2_connection_id": 1071,
+ "airdb_connection_id": 1072,
+ "dictionary_tables": 10,
+ "oracle_agent_id": 7019,
+ "second_agent_id": 7020,
+ "sim_agent_id": 7021,
+ "verified": true
+}

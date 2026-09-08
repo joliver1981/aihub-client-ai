@@ -101,10 +101,10 @@ DEBUG = os.getenv("AGENT_SERVICE_DEBUG", "false").lower() == "true"
 AGENT_ALLOW_ALL_USERS = os.getenv("AGENT_ALLOW_ALL_USERS", "false").lower() == "true"
 
 # Brain model (James, plan §8: Claude, default opus, env-overridable)
-AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-opus-5")
+AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-sonnet-5")
 # Regular users (role < 2) run their own — typically cheaper — model (james
 # 2026-08-24, all-users rollout): admin-settable at runtime, haiku by default.
-AGENT_MODEL_ROLE1 = os.getenv("AGENT_MODEL_ROLE1", "claude-haiku-4-5-20251001")
+AGENT_MODEL_ROLE1 = os.getenv("AGENT_MODEL_ROLE1", "claude-haiku-4-5")
 AGENT_MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "40"))
 
 

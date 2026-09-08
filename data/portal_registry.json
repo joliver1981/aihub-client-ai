@@ -39,6 +39,14 @@
           "username_secret": "PORTAL_U13_ALPACA_USERNAME",
           "password_secret": "PORTAL_U13_ALPACA_PASSWORD",
           "totp_secret": null
+        },
+        "localhost3900": {
+          "name": "localhost3900",
+          "url": "http://localhost:3900",
+          "allowed_domains": [],
+          "username_secret": "PORTAL_U13_LOCALHOST3900_USERNAME",
+          "password_secret": "PORTAL_U13_LOCALHOST3900_PASSWORD",
+          "totp_secret": null
         }
       }
     },

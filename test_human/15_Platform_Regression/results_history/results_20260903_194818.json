@@ -1,0 +1,14 @@
+{
+ "stamp": "20260903_194818",
+ "commit": "ea76a83",
+ "target": "local",
+ "results": [
+  {
+   "id": "pages_render",
+   "area": "Pages",
+   "status": "PASS",
+   "evidence": "33/33 ok",
+   "duration_s": 2.6
+  }
+ ]
+}

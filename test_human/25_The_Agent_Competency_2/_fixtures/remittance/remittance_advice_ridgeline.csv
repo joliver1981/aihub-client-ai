@@ -1,0 +1,11 @@
+Remittance advice,Ridgeline Distributors,Customer no. CGC-001,Statement date 2026-09-01
+
+Invoice,Invoice date,Balance per our records,Status / comment
+CG-INV-10001,2026-05-05,18400.00,Open - scheduled 09/15
+CG-INV-10002,2026-06-14,7205.00,"Open - short pay, damaged carton"
+CG-INV-10003,2026-07-16,5100.00,Open
+CG-INV-10004,2026-07-28,2300.00,Open - awaiting credit memo
+CG-INV-10007,2026-05-30,0.00,Paid in full 07/04 (ACH)
+CG-INV-20002,2026-04-25,11200.00,Open
+
+Total open per our records,,44205.00,

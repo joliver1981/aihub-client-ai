@@ -1,0 +1,30 @@
+{
+  "stamp": "20260902_102225",
+  "host": "10.0.0.6",
+  "results": [
+    {
+      "id": "svc_health",
+      "area": "Services",
+      "status": "PASS",
+      "evidence": "{'app': 200, 'command_center': 200, 'agent_service': 200, 'builder': 200}"
+    },
+    {
+      "id": "nlq_real_answer",
+      "area": "Data/NLQ",
+      "status": "PASS",
+      "evidence": "agent 2 answered in 8.8s without the fallback; payload=2263b | tried: agent 2: http=200 8.8s fallback=False no_schema=False"
+    },
+    {
+      "id": "cc_chat_turn",
+      "area": "Command Center",
+      "status": "SKIP",
+      "evidence": "SKIP: could not mint a CC token (RuntimeError: No JWT secret configured. Set CC_JWT_SECRET, or ensure API_KEY is loaded (secure_config.load_secure_config()).)"
+    },
+    {
+      "id": "agent_service_turn",
+      "area": "The Agent",
+      "status": "SKIP",
+      "evidence": "SKIP: agent service requires auth this rig cannot supply (http=401)"
+    }
+  ]
+}

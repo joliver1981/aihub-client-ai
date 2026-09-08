@@ -1,0 +1,18 @@
+{
+  "stamp": "20260903_124751",
+  "host": "10.0.0.6",
+  "results": [
+    {
+      "id": "cc_data_agent_turn",
+      "area": "Command Center",
+      "status": "PASS",
+      "evidence": "http=200, agent=2, number=True, delegation-failed=False, packaging=-, tail=ontent\": \"              table_name  row_count\\n0  daily_store_inventory     279136\", \"ts\": \"2026-09-03T12:47:42.271076\"}]}]}\n\nevent: done\ndata: {\"session_id\": \"c33a5656-b62f-47a6-a2f9-b344c754373a\"}\n\n"
+    },
+    {
+      "id": "agent_service_turn",
+      "area": "The Agent",
+      "status": "PASS",
+      "evidence": "health model=claude-opus-5, stream=200b, contains-75=True, tail=ta: {\"type\": \"result\", \"session_id\": \"2abf7f64-cede-48bc-a889-2b1cf9668415\", \"ok\": true, \"subtype\": \"success\", \"cost_usd\": 0.24630375}\n\ndata: {\"type\": \"done\"}\n\n"
+    }
+  ]
+}

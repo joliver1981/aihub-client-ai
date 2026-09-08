@@ -1,0 +1,127 @@
+{
+  "generated": "2026-09-05 10:17:02",
+  "engine": "AgenticNLQEngine",
+  "agent": 281,
+  "db": "AIRDB2",
+  "summary": {
+    "n": 5,
+    "pass": 5,
+    "partial": 0,
+    "fail": 0,
+    "error": 0,
+    "p50_s": 7.3,
+    "max_s": 11.0
+  },
+  "rows": [
+    {
+      "id": "T1-01",
+      "tier": 1,
+      "chain": null,
+      "kind": "count",
+      "comp": [
+        "count",
+        "single-table"
+      ],
+      "prompt": "How many stores are in the data?",
+      "expected": "15 stores.",
+      "answer": "There are 15 stores in the data.",
+      "answer_type": "string",
+      "engine_sql": "SELECT TOP 10000 COUNT(DISTINCT store_id) AS store_count FROM TS.location_master",
+      "truth": 15,
+      "oracle_err": null,
+      "verdict": "PASS",
+      "note": "count 15 present",
+      "elapsed_s": 5.9,
+      "engine_class": "AgenticNLQEngine"
+    },
+    {
+      "id": "T1-02",
+      "tier": 1,
+      "chain": null,
+      "kind": "list",
+      "comp": [
+        "list",
+        "single-table"
+      ],
+      "prompt": "List the four product categories we sell.",
+      "expected": "Electronics, Clothing, Home & Kitchen, Beauty & Personal Care.",
+      "answer": "              category\nBeauty & Personal Care\n              Clothing\n           Electronics\n        Home & Kitchen",
+      "answer_type": "dataframe",
+      "engine_sql": "SELECT DISTINCT TOP 10000 category FROM TS.product_master ORDER BY category",
+      "truth": [
+        "Beauty & Personal Care",
+        "Clothing",
+        "Electronics",
+        "Home & Kitchen"
+      ],
+      "oracle_err": null,
+      "verdict": "PASS",
+      "note": "4/4 items present",
+      "elapsed_s": 7.3,
+      "engine_class": "AgenticNLQEngine"
+    },
+    {
+      "id": "T1-03",
+      "tier": 1,
+      "chain": null,
+      "kind": "count",
+      "comp": [
+        "count",
+        "single-table"
+      ],
+      "prompt": "How many employees do we have in total?",
+      "expected": "75 employees.",
+      "answer": "We have 75 employees in total.",
+      "answer_type": "string",
+      "engine_sql": "SELECT TOP 10000 COUNT(DISTINCT employee_id) AS total_employees FROM TS.employee_data",
+      "truth": 75,
+      "oracle_err": null,
+      "verdict": "PASS",
+      "note": "count 75 present",
+      "elapsed_s": 7.3,
+      "engine_class": "AgenticNLQEngine"
+    },
+    {
+      "id": "T1-04",
+      "tier": 1,
+      "chain": null,
+      "kind": "count",
+      "comp": [
+        "count",
+        "single-table"
+      ],
+      "prompt": "How many distinct products are in the catalog?",
+      "expected": "200 products.",
+      "answer": "There are 200 distinct products in the catalog.",
+      "answer_type": "string",
+      "engine_sql": "SELECT TOP 10000 COUNT(DISTINCT product_id) AS distinct_products FROM TS.product_master",
+      "truth": 200,
+      "oracle_err": null,
+      "verdict": "PASS",
+      "note": "count 200 present",
+      "elapsed_s": 11.0,
+      "engine_class": "AgenticNLQEngine"
+    },
+    {
+      "id": "T1-05",
+      "tier": 1,
+      "chain": null,
+      "kind": "count",
+      "comp": [
+        "count",
+        "distinct"
+      ],
+      "prompt": "In how many different cities do we have stores?",
+      "expected": "15 cities.",
+      "answer": "We have stores in **15 different cities**.",
+      "answer_type": "string",
+      "engine_sql": "SELECT TOP 10000 COUNT(DISTINCT city) AS different_cities_with_stores FROM TS.location_master",
+      "truth": 15,
+      "oracle_err": null,
+      "verdict": "PASS",
+      "note": "count 15 present",
+      "elapsed_s": 4.3,
+      "engine_class": "AgenticNLQEngine"
+    }
+  ]
+}

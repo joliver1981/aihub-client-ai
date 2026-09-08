@@ -1,0 +1,14 @@
+{
+ "stamp": "20260903_194844",
+ "commit": "ea76a83",
+ "target": "local",
+ "results": [
+  {
+   "id": "users_role1_authz",
+   "area": "Users/Groups",
+   "status": "PASS",
+   "evidence": "login=True, blocked={'users_page': True, 'save_workflow': True, 'automations_create': True}, user-deleted=True",
+   "duration_s": 5.6
+  }
+ ]
+}

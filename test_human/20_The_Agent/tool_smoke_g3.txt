@@ -1,0 +1,101 @@
+target=http://127.0.0.1:5111 app=http://localhost:5001
+[PASS] T-0 inventory: every expected tool is mounted on the target (95 expected) — mounted=98 missing=none not-in-expected-set=['get_connection_tools', 'list_my_connections', 'use_my_connection'] model=claude-haiku-4-5 mcp=[{'name': 'aihub', 'status': 'connected'}]
+[PASS] T-list_data_connections read: list_data_connections — ok: 'Data connections:\n- id 5 — EDW (SQL Server) (None, db LLMDB)\n- id 18 — EDW (Postgres) (None, db edw)\n- id 19 —'
+[PASS] T-get_connection_schema read: get_connection_schema — ok: 'Tables on connection 59:\n- TS._bak_cost_20260727\n- TS._bak_sales_2024_20260727\n- TS._bak_sales_txn_20260727\n- '
+[PASS] T-probe_connection_query read: probe_connection_query — ok: 'one\n1\n(1 rows returned, server cap 50 applied)'
+[PASS] T-list_playbooks read: list_playbooks — ok: 'Playbooks (workflows, code flows, automations):\n- [workflow] id 25 — RCM Process\n- [workflow] id 30 — Loan For'
+[PASS] T-list_recent_runs read: list_recent_runs — ok: 'Recent workflow executions:\n- exec D3997998-CC25-4E13-9EFB-D8522C0CB97D — workflow 1218 — Completed — started '
+[PASS] T-list_secret_names read: list_secret_names — ok: 'Stored secret names (160):\n- ALPACA_API_KEY — Alpaca paper-trading API key ID (market data + trading API)\n- AL'
+[PASS] T-get_my_contact_info read: get_my_contact_info — ok: 'Your contact info on file — name: Joe Smith; email: jsmith@somecompany.com; phone: +17323729022; username: jsm'
+[PASS] T-find_user_contact read: find_user_contact — ok: "2 users match 'admin' — ask which one they mean:\n- admin (username admin): email joliver81@gmail.com; phone +1"
+[PASS] T-ask_agent lookup: ask_agent — ok: 'Agent 999999 answered:\nThe request couldn’t be completed because the configuration for agent `999999` is missi'
+[PASS] T-list_agents read: list_agents — ok: 'Agents (272):\n- id 1007 — Doc Agent 1001 (general)\n- id 998 — Pack 22 GA code interpreter competency (general)'
+[PASS] T-get_agent_builder_options read: get_agent_builder_options — ok: 'CORE TOOLS (selectable), by category:\n  [agent_collaboration] Multi-agent communication and coordination\n    -'
+[PASS] T-get_agent_config lookup: get_agent_config — honest-error: "No agent named 'zz-pack20-none'."
+[PASS] T-create_general_agent lifecycle: create_general_agent — ok: 'Created General Agent id 1013 — "pack20-smoke-agent" (enabled), verified by read-back.\nObjective (platform def'
+[PASS] T-update_general_agent lifecycle: update_general_agent — ok: "Updated agent 1013 'pack20-smoke-agent': objective rewritten — verified by read-back; tools (2 core, 0 custom)"
+[PASS] T-set_agent_tools lifecycle: set_agent_tools — ok: "Tools updated for agent 1013 'pack20-smoke-agent' (mode replace), verified by read-back:\nCore tools now (2): g"
+[PASS] T-set_agent_document_types lifecycle: set_agent_document_types — ok: "Agent 1013 'pack20-smoke-agent' already has that document-type access — nothing changed."
+[PASS] T-assign_agent_groups lifecycle: assign_agent_groups — ok: "Agent 1013 'pack20-smoke-agent' is already shared with exactly no groups — nothing changed."
+[PASS] T-add_agent_knowledge lookup: add_agent_knowledge — honest-error: 'No such file on the server: C:/pack20-smoke-none.txt. Give a full path (list_server_files can help locate it),'
+[PASS] T-delete_agent_knowledge lookup: delete_agent_knowledge — honest-error: "No active knowledge item with knowledge_id 999999. get_agent_config lists an agent's knowledge_ids."
+[PASS] T-delete_general_agent lifecycle: delete_general_agent — ok: 'Deleted agent 1013 "pack20-smoke-agent" (verified by read-back: it no longer exists).'
+[PASS] T-create_automation lifecycle: create_automation — ok: "Created automation 'pack20_smoke_auto' — automation_id 525cbf4e-b952-4cb3-978f-df934b7de7e7 (v0, nothing saved"
+[PASS] T-save_automation_code lifecycle: save_automation_code — ok: 'Saved v1 (verified by read-back; pinned is still v0). Not live until you promote — dry_run_automation first.'
+[PASS] T-get_automation lifecycle: get_automation — ok: "Automation 'pack20_smoke_auto' — id 525cbf4e-b952-4cb3-978f-df934b7de7e7\nstatus active | current v1 | pinned v"
+[PASS] T-dry_run_automation lifecycle: dry_run_automation — ok: 'Run outcome: **success** (exit 0) — run_id 35e9e50a-e030-4855-b075-4dde59eac403, version v1\n  output files: _h'
+[PASS] T-check_automation_run lookup: check_automation_run — honest-error: 'Could not fetch run (HTTP 404): run not found'
+[PASS] T-run_automation lookup: run_automation — honest-error: "No automation named '999999'. Known: add-figures-to-template, ar-dunning-run, ar-dunning-run-v2, dayforce-doc-"
+[PASS] T-promote_automation lookup: promote_automation — honest-error: "No automation named '999999'. Known: add-figures-to-template, ar-dunning-run, ar-dunning-run-v2, dayforce-doc-"
+[PASS] T-schedule_automation lookup: schedule_automation — honest-error: "No automation named '999999'. Known: add-figures-to-template, ar-dunning-run, ar-dunning-run-v2, dayforce-doc-"
+[PASS] T-decide_automation_checkpoint lookup: decide_automation_checkpoint — honest-error: 'Decision failed (HTTP 404): run not found'
+[PASS] T-delete_automation lifecycle: delete_automation — ok: "Deleted 'pack20_smoke_auto' — 0 schedule(s) deactivated. Run history is retained."
+[PASS] T-list_code_flows read: list_code_flows — ok: 'Code flows:\n- cont43-test (workflow id 1269, 4 steps) — Query AIRDB for store counts, write results to CSV, an'
+[PASS] T-get_code_flow lookup: get_code_flow — honest-error: 'Get failed (HTTP 404): code flow not found'
+[PASS] T-create_code_flow lifecycle: create_code_flow — ok: "Created code flow 'pack20-smoke-flow' (workflow id 1569). Next: add_code_step."
+[PASS] T-add_code_step lifecycle: add_code_step — ok: "Added step 's1' (id sa73237df) to 'pack20-smoke-flow'."
+[PASS] T-wire_steps lifecycle: wire_steps — ok: "Wired sa73237df —[pass]→ s6af364a9 in 'pack20-smoke-flow'."
+[PASS] T-unwire_steps lifecycle: unwire_steps — ok: "Removed edge sa73237df → s6af364a9 (all types) in 'pack20-smoke-flow' (verified by read-back). Dry-run again b"
+[PASS] T-update_step_code lifecycle: update_step_code — ok: "Updated the code of step sa73237df in 'pack20-smoke-flow' (12 chars). Dry-run the flow again before promoting "
+[PASS] T-remove_code_step lifecycle: remove_code_step — ok: "Removed step s6af364a9 (and its edges) from 'pack20-smoke-flow' — 1 step(s) remain (verified by read-back). Ch"
+[PASS] T-dry_run_code_flow lifecycle: dry_run_code_flow — ok: 'Walk outcome: **success** — 1 step(s) executed for real (live credentials, real side effects)\n✓ step 1 — s1 (e'
+[PASS] T-run_code_flow lookup: run_code_flow — ok: 'Code flow could not run: code flow not found'
+[PASS] T-schedule_code_flow lookup: schedule_code_flow — honest-error: 'Schedule failed (HTTP 404): code flow not found'
+[PASS] T-delete_code_flow lifecycle: delete_code_flow — ok: "Deleted code flow 'pack20-smoke-flow' (verified by read-back: it no longer exists)."
+[PASS] T-list_documents read: list_documents — ok: '25 of 397 matching document(s) (store holds 397):\n  SKY-COI-SCHEDULE-004.csv  ·  insurance_schedule  ·  1p  · '
+[PASS] T-query_document_records read: query_document_records — ok: 'AVAILABLE RECORD SETS:\n- sample_records: 502 row(s) across 2 document(s)\n  COVERAGE: 4 of 4 order_log document'
+[PASS] T-search_documents read: search_documents — honest-error: 'Command failed with no output'
+[PASS] T-get_document lookup: get_document — honest-error: 'All connection attempts failed'
+[PASS] T-list_server_files read: list_server_files — ok: 'C:\\src\\aihub-client-ai-dev\\agent_service\n  3 folder(s), 35 file(s) · 1 importable document(s)\n  [dir]  __pycac'
+[PASS] T-import_documents lookup: import_documents — honest-error: 'No such file or folder on the server: C:/pack20-smoke-none'
+[PASS] T-read_file read: read_file — ok: "Image '321be5e9-5f0a-4384-9d1e-68c3df515926__r6_bars.png' (8.9 KB) is attached above — you can SEE it. Describ"
+[PASS] T-offer_file_download lookup: offer_file_download — honest-error: "Refused: that path is outside the platform's data area — only files produced under the AI Hub root can be offe"
+[PASS] T-manipulate_pdf read: manipulate_pdf — ok: "'5b7e6e4a-c1c0-42a9-bd7f-5d460a7ccf1e__P2_annual_SOP.pdf': 4 page(s), page size 612x792pt, encrypted=False\n- T"
+[PASS] T-run_python read: run_python — ok: '42\n\n[Workbook sheet visibility] These staged workbooks contain HIDDEN sheet(s), which pandas/openpyxl read lik'
+[PASS] T-export_data read: export_data — ok: 'Exported 2 row(s) × 1 column(s) from the conversation to pack20_smoke.csv. Include this link VERBATIM in your '
+[PASS] T-render_map read: render_map — ok: 'Map ready — paste the 3-line block below into your reply EXACTLY as it is (it is a reference; the map data is '
+[PASS] T-geocode_places read: geocode_places — ok: 'Geocoding results:\n- Austin TX: (30.27113, -97.7437) — Austin, Travis County, Texas, United States'
+[PASS] T-search_web read: search_web — ok: 'Web search (tavily) for: AI Hub regression smoke\nSummary (from the search provider): Smoke testing checks if a'
+[PASS] T-list_saved_views read: list_saved_views — ok: 'Saved Views (1):\n- [tenant] ERPDB pulse (v1, 4 tiles) — Invoices and orders at a glance — pinned SQL, determin'
+[PASS] T-get_view lookup: get_view — honest-error: "No view named 'zz-pack20-none' is visible to this user."
+[PASS] T-save_view lifecycle: save_view — honest-error: 'Not saved: tiles must be a non-empty JSON array'
+[PASS] T-rename_view lifecycle: rename_view — honest-error: 'Not renamed: view not found (or not visible to you)'
+[PASS] T-schedule_view_refresh lookup: schedule_view_refresh — honest-error: "No view named 'zz-pack20-none' is visible to this user — nothing scheduled."
+[PASS] T-schedule_view_email lookup: schedule_view_email — honest-error: "No view named 'zz-pack20-none' is visible to this user — nothing scheduled."
+[PASS] T-delete_view lifecycle: delete_view — honest-error: "No view named 'pack20-smoke-view2' is visible to this user."
+[PASS] T-list_integrations read: list_integrations — ok: 'Integrations available to this user (12):\n- id 28 — AI Hub SharePoint Test (SharePoint Online (Service Account'
+[PASS] T-list_mcp_servers read: list_mcp_servers — ok: 'MCP servers (4; pass server=<name or id> for details):\n- [1] AI Hub Test MCP Server (remote) — 0 tools\n- [30] '
+[PASS] T-get_integration_operations lookup: get_integration_operations — honest-error: 'No integration with id 999999 is configured.'
+[PASS] T-execute_integration_operation lookup: execute_integration_operation — honest-error: 'No integration with id 999999 is configured.'
+[PASS] T-assign_integration_groups lookup: assign_integration_groups — honest-error: 'Assignment FAILED (HTTP 404): integration 999999 not found — nothing changed.'
+[PASS] T-lookup_portal read: lookup_portal — ok: 'No saved portals yet. For a first run the user gives the portal URL and login in chat (portal_fetch ad-hoc); a'
+[PASS] T-list_portal_workflows read: list_portal_workflows — ok: "Saved portal workflows (describe_portal_workflow shows one's steps):\n- Recorded workflow [downloads] target: h"
+[PASS] T-describe_portal_workflow lookup: describe_portal_workflow — honest-error: "No saved portal workflow matches 'zz-pack20-none'. Call list_portal_workflows to see the exact names."
+[PASS] T-run_portal_workflow lookup: run_portal_workflow — honest-error: "no saved workflow named 'zz-pack20-none'. Call list_portal_workflows to see the exact names."
+[PASS] T-schedule_portal_workflow lookup: schedule_portal_workflow — honest-error: "No saved portal workflow matches 'zz-pack20-none'. Call list_portal_workflows to see the exact names."
+[PASS] T-cancel_portal_workflow_schedule lookup: cancel_portal_workflow_schedule — honest-error: "No saved portal workflow matches 'zz-pack20-none'. Call list_portal_workflows to see the exact names."
+[PASS] T-check_portal_run lookup: check_portal_run — honest-error: 'Portal run 999999 is no longer active (the browser service may have restarted). Start the portal task again.'
+[PASS] T-portal_fetch lookup: portal_fetch — honest-error: "I don't have a login URL for 'zz-pack20-none'. Ask the user for the portal's URL (and their login, unless it's"
+[PASS] T-get_agent_email_status read: get_agent_email_status — ok: 'Address: pack21-runner-agent.1@mail.everiai.ai (ENABLED)\nSettings: outbound ON, auto-send OFF (replies wait fo'
+[PASS] T-list_my_email read: list_my_email — ok: 'Inbox for pack21-runner-agent.1@mail.everiai.ai — 0 logged row(s) (skipped_* rows hidden; include_skipped=true'
+[PASS] T-read_email lookup: read_email — honest-error: 'That email is not in your activity log or the live inbound feed — you can only open mail addressed to this use'
+[PASS] T-list_email_attachments lookup: list_email_attachments — honest-error: 'That email is not in your activity log or the live inbound feed — you can only open mail addressed to this use'
+[PASS] T-read_attachment lookup: read_attachment — honest-error: 'That email is not in your activity log or the live inbound feed — you can only open mail addressed to this use'
+[PASS] T-save_attachment lookup: save_attachment — honest-error: 'That email is not in your activity log or the live inbound feed — you can only open mail addressed to this use'
+[PASS] T-list_my_work read: list_my_work — ok: 'Open work items (19):\n- [do_offline] Portal run needs you — http://localhost:3000/login-2fa (id 562515eb…, ope'
+[PASS] T-list_skills read: list_skills — ok: 'Skills (9):\n- [product] aihub-agent-builder — Use when a user wants to create, configure, share or delete one\n'
+[PASS] T-remember_preference pair: remember_preference — ok: 'Saved. It will be honored in every future conversation. Current preferences (1):\n- pack20 smoke: prefers one-l'
+[PASS] T-forget_preference pair: forget_preference — ok: 'Forgot: pack20 smoke: prefers one-line answers. Remaining preferences (0):\n(none)'
+[PASS] T-store_platform_secret lifecycle: store_platform_secret — ok: "Secret 'PACK20_SMOKE_SECRET' stored in the encrypted Local Secrets store (verified by read-back). Reference it"
+[PASS] T-send_email elsewhere: send_email — SKIP: exercised by A6-6 (sends real mail)
+[PASS] T-draft_email_reply elsewhere: draft_email_reply — SKIP: exercised by A6-3
+[PASS] T-setup_agent_email elsewhere: setup_agent_email — SKIP: exercised by A6-7
+[PASS] T-raise_work_item elsewhere: raise_work_item — SKIP: exercised by A2-1
+[PASS] T-schedule_agent_task elsewhere: schedule_agent_task — SKIP: exercised by PT-11 / M-2
+[PASS] T-save_skill elsewhere: save_skill — SKIP: exercised by A3-1
+[PASS] T-save_portal elsewhere: save_portal — SKIP: exercised by PT-4
+[PASS] T-generate_image elsewhere: generate_image — SKIP: exercised by R-10 (opt-in, real money)
+[PASS] T-Σ per-tool smoke: 87 probed + 8 elsewhere in 269s — not-called=none
+
+T-* 97/97 PASS
+smoke exit=0

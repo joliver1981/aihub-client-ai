@@ -1,0 +1,12 @@
+{
+ "target": "localhost",
+ "base": "http://localhost:5001",
+ "when": "2026-09-05T10:07:16",
+ "dry_run": false,
+ "airdb2_connection_id": 59,
+ "airdb_connection_id": 58,
+ "dictionary_tables": 10,
+ "oracle_agent_id": 281,
+ "second_agent_id": 283,
+ "sim_agent_id": 1028
+}

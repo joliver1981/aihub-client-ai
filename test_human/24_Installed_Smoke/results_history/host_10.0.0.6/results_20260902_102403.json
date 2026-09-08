@@ -1,0 +1,12 @@
+{
+  "stamp": "20260902_102403",
+  "host": "10.0.0.6",
+  "results": [
+    {
+      "id": "svc_health",
+      "area": "Services",
+      "status": "PASS",
+      "evidence": "{'app': 200, 'command_center': 200, 'agent_service': 200, 'builder': 200}"
+    }
+  ]
+}

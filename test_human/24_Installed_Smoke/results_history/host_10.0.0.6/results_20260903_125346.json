@@ -1,0 +1,42 @@
+{
+  "stamp": "20260903_125346",
+  "host": "10.0.0.6",
+  "results": [
+    {
+      "id": "svc_health",
+      "area": "Services",
+      "status": "PASS",
+      "evidence": "{'app': 200, 'command_center': 200, 'agent_service': 200, 'builder': 200}"
+    },
+    {
+      "id": "nlq_real_answer",
+      "area": "Data/NLQ",
+      "status": "PASS",
+      "evidence": "agent 2 answered in 6.6s without the fallback; payload=1124b | tried: agent 2: http=200 6.6s fallback=False no_schema=False"
+    },
+    {
+      "id": "cc_chat_turn",
+      "area": "Command Center",
+      "status": "PASS",
+      "evidence": "http=200, contains-75=True, tail=ec-4289-40db-a8e2-621b6dd350f8\", \"trace_id\": \"9471f7fb-39a7-41b1-a92f-06fdd097f19d\"}\n\nevent: done\ndata: {\"session_id\": \"d72ff4ec-4289-40db-a8e2-621b6dd350f8\"}\n\n"
+    },
+    {
+      "id": "cc_delegation_endpoint",
+      "area": "Command Center",
+      "status": "PASS",
+      "evidence": "agent 2 answered via the delegation endpoint in 6.8s; answer_type=string artifacts=False | tried: agent 2: http=200 6.8s status=success answer=70b fallback=False"
+    },
+    {
+      "id": "cc_data_agent_turn",
+      "area": "Command Center",
+      "status": "PASS",
+      "evidence": "http=200, agent=2, number=True, delegation-failed=False, packaging=-, tail=\"content\": \"The largest table is **daily_store_inventory**, with **279,136 rows**.\", \"ts\": \"2026-09-03T12:53:35.892329\"}]}]}\n\nevent: done\ndata: {\"session_id\": \"36172a03-0848-4d4f-ba81-bc93876b0336\"}\n\n"
+    },
+    {
+      "id": "agent_service_turn",
+      "area": "The Agent",
+      "status": "PASS",
+      "evidence": "health model=claude-opus-5, stream=200b, contains-75=True, tail=ta: {\"type\": \"result\", \"session_id\": \"b4b00e01-fde9-400b-bac7-3fc41fe49d91\", \"ok\": true, \"subtype\": \"success\", \"cost_usd\": 0.25068875}\n\ndata: {\"type\": \"done\"}\n\n"
+    }
+  ]
+}

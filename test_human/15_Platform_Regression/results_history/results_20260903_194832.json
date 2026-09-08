@@ -1,0 +1,14 @@
+{
+ "stamp": "20260903_194832",
+ "commit": "ea76a83",
+ "target": "local",
+ "results": [
+  {
+   "id": "documents_api",
+   "area": "Knowledge/Docs",
+   "status": "PASS",
+   "evidence": "http=200, documents=20",
+   "duration_s": 0.0
+  }
+ ]
+}

@@ -1,0 +1,42 @@
+{
+  "stamp": "20260902_205921",
+  "host": "10.0.0.6",
+  "results": [
+    {
+      "id": "svc_health",
+      "area": "Services",
+      "status": "PASS",
+      "evidence": "{'app': 200, 'command_center': 200, 'agent_service': 200, 'builder': 200}"
+    },
+    {
+      "id": "nlq_real_answer",
+      "area": "Data/NLQ",
+      "status": "PASS",
+      "evidence": "agent 2 answered in 8.6s without the fallback; payload=2855b | tried: agent 2: http=200 8.6s fallback=False no_schema=False"
+    },
+    {
+      "id": "cc_chat_turn",
+      "area": "Command Center",
+      "status": "PASS",
+      "evidence": "http=200, contains-75=True, tail=fd-0b5d-4176-94c5-6cd6ec99d884\", \"trace_id\": \"0719b137-b2cc-44f2-8b91-bb6f8e7ecbf9\"}\n\nevent: done\ndata: {\"session_id\": \"1bea28fd-0b5d-4176-94c5-6cd6ec99d884\"}\n\n"
+    },
+    {
+      "id": "cc_delegation_endpoint",
+      "area": "Command Center",
+      "status": "FAIL",
+      "evidence": "FROZEN-BUILD PACKAGING DEFECT on agent 2: http=500 \"No module named 'command_center.artifacts.data_export'\""
+    },
+    {
+      "id": "cc_data_agent_turn",
+      "area": "Command Center",
+      "status": "FAIL",
+      "evidence": "http=200, agent=2, number=True, delegation-failed=True, packaging=['No module named'], tail=\"Agent returned status 500: No module named 'command_center.artifacts.data_export'\", \"ts\": \"2026-09-02T20:59:15.539497\"}]}]}\n\nevent: done\ndata: {\"session_id\": \"87485617-684b-4920-8582-2e064cf9119a\"}\n\n"
+    },
+    {
+      "id": "agent_service_turn",
+      "area": "The Agent",
+      "status": "FAIL",
+      "evidence": "health model=claude-opus-5, stream=364b, contains-75=False, tail=ata: {\"type\": \"error\", \"error\": \"Claude Code returned an error result: success\", \"session_id\": \"b58dd776-804b-49db-a09a-45105bf6b472\"}\n\ndata: {\"type\": \"done\"}\n\n"
+    }
+  ]
+}
