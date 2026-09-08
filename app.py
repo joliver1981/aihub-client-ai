@@ -14435,6 +14435,31 @@ def api_get_documents():
             'document_types': stats_row[2] or 0,
             'last_updated': stats_row[3].isoformat() if stats_row[3] else None
         }
+
+        # Scope honesty for a RESTRICTED caller (RU-06b, james 2026-09-07,
+        # "option B"). The Agent relayed this ACL-filtered total as "the store
+        # holds N": the number is right, the label was wrong, and the tool had
+        # no data with which to describe the caller's boundary instead. So a
+        # caller under a category allow-list also receives the DISTINCT
+        # document types their access covers -- names only, from inside the
+        # SAME filter as the rows, i.e. nothing they cannot already list via
+        # /api/document-types. Emitted ONLY when the store holds a type this
+        # caller cannot see: an unrestricted caller (admin, absent identity)
+        # or one whose grants cover every type present gets today's payload
+        # byte for byte, so seats without the problem see no change. The
+        # unfiltered type set is read only to make that decision and never
+        # leaves the server.
+        if allowed_types is not None:
+            cursor.execute("""
+                SELECT DISTINCT d.document_type
+                FROM Documents d
+                WHERE d.is_knowledge_document = 0
+            """)
+            present = [str(r[0]) for r in cursor.fetchall() if r and r[0]]
+            allowed_lc = {str(t).lower() for t in allowed_types}
+            if any(t.lower() not in allowed_lc for t in present):
+                stats['accessible_document_types'] = sorted(
+                    t for t in present if t.lower() in allowed_lc)
         
         # Calculate pagination info
         total_pages = (total_count + per_page - 1) // per_page

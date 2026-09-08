@@ -58,11 +58,15 @@ _ROW_HIDDEN = ("doc-2", "Project Falcon - termination terms.pdf", "settlement_ag
 class _Cursor:
     """Records every execute(); answers each query by its shape."""
 
-    def __init__(self, rows, single):
+    def __init__(self, rows, single, present_types=None):
         self.calls = []
         self._rows = rows
         self._single = single
         self._last = ""
+        # DISTINCT document_type over the whole, UNFILTERED store — the
+        # scope-honesty probe (2026-09-07). Defaults to the types of `rows`.
+        self._present = (list(present_types) if present_types is not None
+                         else sorted({r[2] for r in rows}))
 
     def execute(self, sql, params=None):
         self._last = " ".join(sql.split())
@@ -79,6 +83,8 @@ class _Cursor:
     def fetchall(self):
         if "GROUP BY document_type" in self._last:        # /api/document-types
             return [("vendor_guide", 5), ("settlement_agreement", 1)]
+        if "SELECT DISTINCT d.document_type" in self._last:  # scope probe
+            return [(t,) for t in self._present]
         return list(self._rows)
 
 
@@ -130,8 +136,9 @@ def _session(uid, role):
 
 
 class _Harness:
-    def __init__(self, rows=(_ROW_VISIBLE,), single=_ROW_VISIBLE, session_user=None):
-        self.cursor = _Cursor(list(rows), single)
+    def __init__(self, rows=(_ROW_VISIBLE,), single=_ROW_VISIBLE, session_user=None,
+                 present_types=None):
+        self.cursor = _Cursor(list(rows), single, present_types)
         self.db_calls = 0
 
         def _get_db_connection():
@@ -268,6 +275,59 @@ def test_documents_resolver_failure_is_deny_all(monkeypatch):
 
 
 # ========================================================== /api/document-types
+# ------------------------------------------- scope honesty (2026-09-07, F-2)
+# A restricted caller whose grants leave part of the store hidden also gets the
+# DISTINCT types their access covers in `stats.accessible_document_types`, so
+# The Agent can describe the boundary of what it can search instead of relaying
+# the filtered total as "the store holds N" (RU-06b, option B). Everyone else
+# gets today's payload, byte for byte; the deny-all test above already pins
+# that path's exact stats dict.
+_TYPE_PROBE = "SELECT DISTINCT d.document_type"
+_STATS_KEYS = {"total_documents", "total_pages", "document_types", "last_updated"}
+
+
+def test_documents_restricted_caller_with_hidden_types_gets_their_accessible_names(fake_grants):
+    # rows = what the ACL-filtered row query returns; present_types = what the
+    # unfiltered probe sees (the harness applies no SQL, so keep them apart)
+    h = _Harness(rows=(_ROW_VISIBLE,),
+                 present_types=["settlement_agreement", "vendor_guide"])
+    body = h.get("/api/documents", _assertion(141, 2)).get_json()
+    assert body["stats"]["accessible_document_types"] == ["vendor_guide"], \
+        "types inside the grant that hold documents; lease_agreement is granted but empty"
+    probe_sql, probe_params = h.sql(_TYPE_PROBE)[0]
+    assert "document_type IN" not in probe_sql and probe_params == [], \
+        "the probe must see every type present to decide whether any is hidden"
+    assert "settlement_agreement" not in str(body), "hidden types never leave the server"
+
+
+def test_documents_restricted_caller_covering_every_present_type_gets_no_names(fake_grants):
+    h = _Harness(rows=(_ROW_VISIBLE,), present_types=["vendor_guide"])
+    body = h.get("/api/documents", _assertion(141, 2)).get_json()
+    assert set(body["stats"]) == _STATS_KEYS
+
+
+def test_documents_type_probe_compares_like_the_db_collation_not_python_case(fake_grants):
+    h = _Harness(rows=(_ROW_VISIBLE,),
+                 present_types=["Vendor_Guide", "settlement_agreement"])
+    body = h.get("/api/documents", _assertion(141, 2)).get_json()
+    assert body["stats"]["accessible_document_types"] == ["Vendor_Guide"]
+
+
+def test_documents_restricted_caller_whose_grants_hold_no_documents_gets_an_empty_list(fake_grants):
+    h = _Harness(rows=(_ROW_HIDDEN,), present_types=["settlement_agreement"])
+    body = h.get("/api/documents", _assertion(141, 2)).get_json()
+    assert body["stats"]["accessible_document_types"] == []
+
+
+@pytest.mark.parametrize("who", ["absent", "admin"])
+def test_documents_unrestricted_caller_never_runs_the_type_probe(fake_grants, who):
+    h = _Harness(rows=(_ROW_VISIBLE, _ROW_HIDDEN))
+    body = h.get("/api/documents",
+                 _assertion(12, 3) if who == "admin" else None).get_json()
+    assert h.sql(_TYPE_PROBE) == []
+    assert set(body["stats"]) == _STATS_KEYS
+
+
 def test_types_absent_header_is_unfiltered(fake_grants):
     h = _Harness()
     r = h.get("/api/document-types")

@@ -705,6 +705,40 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
 # list_documents / get_document
 # ---------------------------------------------------------------------------
 
+# Scope honesty for a RESTRICTED caller (RU-06b/RU-06c, james 2026-09-07,
+# "option B"). /api/documents' totals are computed inside the caller's category
+# ACL, so the model saw "11" and told a regular user "the store contains 11
+# documents" -- a per-user slice reported as the platform's state, in a way the
+# user cannot detect. The listing wording now says "you can see N"; this footer
+# supplies the other half of the frame -- the boundary of what the model can
+# search -- so it can answer "I can't find it in what I can search; my access
+# covers X and Y" without confirming or denying that anything exists beyond
+# that boundary (existence-hiding is deliberate and stays). Names only, as DATA
+# at the end of the result: the coverage-ledger pattern (platform_tools
+# coverage_footer), NOT a guard over the model's reply. The server emits
+# `stats.accessible_document_types` ONLY for a caller whose grants leave part
+# of the store hidden, so an admin or any unrestricted caller gets no line and
+# no change at all.
+_SCOPE_MAX_NAMES = 20
+
+
+def access_scope_line(stats) -> str:
+    """'\\n(Your access covers: a, b.)' for a restricted caller, else ''."""
+    names = stats.get("accessible_document_types") if isinstance(stats, dict) else None
+    if not isinstance(names, list):
+        return ""
+    names = [str(n) for n in names if n not in (None, "")]
+    if not names:
+        # Restricted, and none of the types currently holding documents is
+        # inside the grant (the grant covers only empty types).
+        return ("\n(Your access covers none of the document types that "
+                "currently hold documents.)")
+    shown = ", ".join(names[:_SCOPE_MAX_NAMES])
+    more = (f", +{len(names) - _SCOPE_MAX_NAMES} more"
+            if len(names) > _SCOPE_MAX_NAMES else "")
+    return f"\n(Your access covers: {shown}{more}.)"
+
+
 @tool(
     "list_documents",
     "List documents currently in the AI Hub document store, most recent first — "
@@ -754,17 +788,23 @@ async def list_documents(args: dict[str, Any]) -> dict[str, Any]:
     docs = data.get("documents") or []
     stats = data.get("stats") or {}
     total = (data.get("pagination") or {}).get("total_count", len(docs))
+    # Scope honesty (RU-06b, james 2026-09-07 "option B"): the server's totals
+    # are computed inside the caller's category ACL, so they describe what the
+    # CALLER can see -- never "the store". A restricted caller's result also
+    # ends with the types their access covers, as data (access_scope_line).
+    visible = stats.get("total_documents", 0)
+    scope = access_scope_line(stats)
     if not docs:
-        return _text("No documents in the store match that. "
-                     f"(Store total: {stats.get('total_documents', 0)} document(s).)")
+        return _text("No match among the documents you can search. "
+                     f"(You can see {visible} document(s).)" + scope)
     lines = [f"{len(docs)} of {total} matching document(s) "
-             f"(store holds {stats.get('total_documents', 0)}):"]
+             f"(you can see {visible}):"]
     for d in docs:
         when = (d.get("processed_at") or "")[:16].replace("T", " ")
         lines.append(f"  {d.get('filename')}  ·  {d.get('document_type') or '?'}  "
                      f"·  {d.get('page_count') or '?'}p  ·  {when}  "
                      f"·  id {d.get('document_id')}")
-    return _text("\n".join(lines))
+    return _text("\n".join(lines) + scope)
 
 
 @tool(
@@ -789,8 +829,10 @@ async def get_document(args: dict[str, Any]) -> dict[str, Any]:
     data, status = await _get(f"/api/documents/{did}")
     if status != 200 or not isinstance(data, dict) or data.get("error") \
             or not data.get("filename"):
-        return _text(f"No document with id {did} is in the store. Use "
-                     "list_documents to see valid ids.", is_error=True)
+        # Hidden == missing server-side (404 either way, no id oracle), so
+        # this can only honestly describe the caller's view, never the store.
+        return _text(f"No document with id {did} is among the documents you can "
+                     "see. Use list_documents to see valid ids.", is_error=True)
     fields = [
         ("filename", data.get("filename")),
         ("document_type", data.get("document_type")),

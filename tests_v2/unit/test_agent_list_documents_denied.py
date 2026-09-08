@@ -76,16 +76,19 @@ def test_denied_marker_without_a_message_uses_the_same_wording():
     assert "not an empty store" in text and "Groups page" in text
 
 
-def test_plain_empty_listing_is_unchanged():
+def test_plain_empty_listing_stays_a_plain_empty_listing():
+    # Wording moved from "the store" to the caller's view on 2026-09-07 (scope
+    # honesty — test_agent_document_scope_honesty.py); still no access talk.
     _res, text = _run(EMPTY)
-    assert "No documents in the store match that" in text
+    assert "No match among the documents you can search" in text
     assert "access" not in text.lower()
 
 
-def test_filtered_listing_is_unchanged():
+def test_filtered_listing_stays_a_plain_listing():
     _res, text = _run(ONE)
-    assert "1 of 1 matching document(s) (store holds 1)" in text
+    assert "1 of 1 matching document(s) (you can see 1)" in text
     assert "a.pdf" in text and "vendor_guide" in text
+    assert "access" not in text.lower()
 
 
 def test_http_error_still_reads_as_an_error():
