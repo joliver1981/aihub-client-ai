@@ -3,7 +3,7 @@
 **seat:** ru_drew  
 **model:** claude-haiku-4-5  
 **http:** 200  
-**seconds:** 8.3
+**seconds:** 7.8
 
 ## prompt
 
@@ -17,13 +17,10 @@ What documents can I search here?
 
 ## reply
 
-You currently **do not have access to any documents** in AI Hub's searchable store. This is an access restriction — not because documents don't exist on the platform, but because you haven't been granted permission to see them.
+You don't currently have access to any document categories in AI Hub's document store. This is a permission restriction rather than an empty library — your administrator controls which document types your groups can search.
 
-**To get access:**
-Your administrator needs to grant you permission on the Groups page. Once they do, you'll be able to search and answer questions about any documents that have been imported into AI Hub.
+**Next steps:**
+- **Check with your admin** — they can grant your group(s) access to document categories on the Groups page, which will unlock what you can search.
+- **Bring in documents yourself** — once you have access, you (or your admin) can import PDFs, Word docs, Excel files, scans, and other common formats. I can help with that when you're ready.
 
-In the meantime, if you have documents you'd like to work with, you can:
-- **Upload a file directly in this chat** (attach it as you would in an email) — I can read it and help you with questions about it right away.
-- **Ask an administrator** to import documents and assign you access to their document type or to a specific agent that has knowledge of them.
-
-Would you like to import documents yourself, or shall I help with something else?
+Is there a specific type of document or topic you're looking to search for? I can suggest what to import or ask your admin about.

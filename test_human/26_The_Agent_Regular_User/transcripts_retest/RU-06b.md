@@ -3,7 +3,7 @@
 **seat:** ru_alex  
 **model:** claude-haiku-4-5  
 **http:** 200  
-**seconds:** 9.3
+**seconds:** 8.0
 
 ## prompt
 
@@ -12,17 +12,16 @@ Do we have a document called VINV-20260091.pdf? What's in it?
 ## tools
 
 - **mcp__aihub__list_documents**
-  - input: `{'search': 'VINV-20260091', 'limit': 10}`
+  - input: `{'search': 'VINV-20260091'}`
   - result: ``
 
 ## reply
 
-No — **VINV-20260091.pdf is not in your document store**. 
+No, you don't have a document called VINV-20260091.pdf in the system. The search found no match among the 4 documents you can currently access.
 
-You currently have access to 4 documents, and none of them match that filename. The search found no match for "VINV-20260091".
+Do you have this file somewhere — on a server, in an email, or as a chat attachment? If you can point me to it, I can:
+- **Read it directly** if it's attached to this chat or on the server
+- **Import it** to make it searchable across AI Hub so you can ask about it anytime
+- **Extract it from email** if someone sent it to your inbox
 
-If you have this file and want me to look at it, you can:
-1. **Attach it in this chat** — I'll read it right away and tell you what's in it
-2. **Import it into AI Hub** — if it's on the server or somewhere accessible, I can bring it into the document store so it becomes searchable later
-
-Where does the file live right now?
+Where is the file located?
