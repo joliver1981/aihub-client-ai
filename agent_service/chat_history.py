@@ -43,19 +43,29 @@ DEFERRED_MARKERS = {SCHEDULED_RUN_MARKER: "scheduled_run",
                     PORTAL_UPDATE_MARKER: "portal_update"}
 
 # Every turn is prefixed by main.py with one "[Context: now … (zone) …]" line
-# (current time in the user's zone). It is for the model; replay strips it so
-# the user sees only their own words.
+# (current time in the user's zone), followed since 2026-09-08 by one
+# "[Signed-in user: … — End User]" line (main._identity_line; absent for the
+# service principal). Both are for the model; replay strips them so the user
+# sees only their own words.
 CONTEXT_MARKER = "[Context:"
+IDENTITY_MARKER = "[Signed-in user:"
+
+
+def _drop_first_line(t: str) -> str:
+    nl = t.find("\n")
+    if nl < 0:
+        return ""
+    return t[nl + 1:].lstrip("\n")
 
 
 def strip_context_line(text: str) -> str:
     t = str(text or "")
     if not t.startswith(CONTEXT_MARKER):
         return t
-    nl = t.find("\n")
-    if nl < 0:
-        return ""
-    return t[nl + 1:].lstrip("\n")
+    t = _drop_first_line(t)
+    if t.startswith(IDENTITY_MARKER):
+        t = _drop_first_line(t)
+    return t
 
 
 def build_deferred_prompt(job_name: str, fired_at: str, task_prompt: str) -> str:

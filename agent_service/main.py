@@ -112,12 +112,48 @@ def _verify_request(request: Request) -> dict:
     }
 
 
+# Role wording = the Users page (templates/users.html: 3 Admin, 2 Developer,
+# 1 End User) so the model and the UI call a seat the same thing.
+_ROLE_LABELS = {3: "Admin", 2: "Developer", 1: "End User"}
+
+
+def _identity_line(user: dict) -> str:
+    """One line naming the CALLER — "[Signed-in user: Alex Rivera (ru_alex) —
+    End User]" — from the verified token claims (or a headless run's stored
+    principal). CONTEXT ONLY (2026-09-08): every gate keeps reading the real
+    role from CURRENT_USER; this line only lets the model say who it is
+    talking to and check a claimed role against what the platform holds
+    (RU-01 / RU-25a in test_human/26_The_Agent_Regular_User). Returns '' —
+    the line is omitted, never half-filled — for the service principal / no
+    real identity: no user_id, no name and no username, or a role the Users
+    page has no word for."""
+    try:
+        u = user or {}
+        uid = int(u.get("user_id") or 0)
+        role = int(u.get("role") or 0)
+        name = " ".join(str(u.get("name") or "").split())
+        username = " ".join(str(u.get("username") or "").split())
+    except (TypeError, ValueError, AttributeError):
+        return ""
+    label = _ROLE_LABELS.get(role)
+    if uid <= 0 or not label or not (name or username):
+        return ""
+    if name and username and name.lower() != username.lower():
+        who = f"{name} ({username})"
+    else:
+        who = name or username
+    return f"[Signed-in user: {who[:160]} — {label}]"
+
+
 def _turn_envelope(user: dict, body: dict) -> str:
     """Stamp the user's BROWSER timezone (sent by the UI as body.timezone, the
     IANA zone from Intl — exactly the Command Center contract) onto the
-    envelope the tools read, and return the one-line [Context: now … (zone)]
-    the model needs for any time arithmetic. Invalid/missing zone -> the
-    server-side default order (AGENT_DEFAULT_TZ, then the server's zone)."""
+    envelope the tools read, and return the [Context: now … (zone)] line the
+    model needs for any time arithmetic, followed by the caller's identity
+    line (see _identity_line) and their standing preferences. Invalid/missing
+    zone -> the server-side default order (AGENT_DEFAULT_TZ, then the
+    server's zone). chat_history.strip_context_line removes the first two
+    lines on replay."""
     import work_tools
     tz = str((body or {}).get("timezone") or "").strip()[:64]
     if tz:
@@ -128,6 +164,11 @@ def _turn_envelope(user: dict, body: dict) -> str:
             logger.info(f"ignoring unusable browser timezone {tz!r}")
     zone, _src = work_tools.default_zone_label(user)
     line = work_tools.now_line(zone)
+    # Who is asking (2026-09-08): the caller's own name and role, right after
+    # the time line. Context only — no gate or tool reads this text.
+    ident = _identity_line(user)
+    if ident:
+        line += "\n" + ident
     # Standing preferences (2026-09-02): stamped into EVERY turn — chat,
     # scheduled runs, inbound-email sessions — so a saved default is honored
     # without anything having to "trigger" it (skills load on demand; this
