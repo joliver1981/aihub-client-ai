@@ -13844,18 +13844,6 @@ app.register_blueprint(create_dca_blueprint())
 from local_secrets_routes import secrets_bp
 app.register_blueprint(secrets_bp)
 
-# Reserved names (2026-09-08): heal a store poisoned before the guard existed. An
-# entry under a platform-identity name (API_KEY, CC_JWT_SECRET, vendor keys) can
-# only shadow the real credential — the browser_use service gated on a pasted
-# API_KEY for three days — so rename it to CUSTOM_<name>, value preserved, loudly.
-try:
-    from local_secrets import quarantine_reserved_secrets as _quarantine_reserved_secrets
-    for _moved in _quarantine_reserved_secrets():
-        logger.warning("Local Secrets startup quarantine: renamed platform-reserved entry "
-                       f"'{_moved['from']}' -> '{_moved['to']}' (value preserved)")
-except Exception as _qe:
-    logger.warning(f"Local Secrets startup quarantine skipped: {_qe}")
-
 # Import local history routes
 from local_history_routes import history_bp
 app.register_blueprint(history_bp)

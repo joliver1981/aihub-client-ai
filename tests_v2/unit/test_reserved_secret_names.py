@@ -9,7 +9,8 @@ Covers:
   * the denylist + rename helper in local_secrets (identity tier everywhere, platform
     namespaces on the service path only, idempotent, bounded)
   * LocalSecretsManager.set refuses identity names at the chokepoint
-  * quarantine_reserved_secrets heals an already-poisoned store (value preserved, dry-run)
+  * NO automatic rewrite of existing entries (james: low-risk only — the startup
+    "quarantine" was removed after it renamed a live automation key)
   * the three write paths: /workflow/secrets/store (app.py, via the ast harness — the
     exact shipped source), the Local Secrets page add + import routes (blueprint)
   * portal_fetch / portal_workflow_run: a 401 from the Browser Use service is reported as
@@ -77,14 +78,14 @@ def test_platform_namespaces_reserved_only_on_the_service_path(name):
     assert final == "CUSTOM_" + name and reason
 
 
-def test_vendor_keys_are_not_quarantined_the_store_is_their_legit_home(tmp_path):
+def test_vendor_keys_stay_writable_the_store_is_their_legit_home(tmp_path):
     """automations/runner.py resolves manifest `secrets` from the store BY NAME and injects
-    them as env vars — a bare ANTHROPIC_API_KEY entry is how an automation gets its key. The
-    startup quarantine must leave it alone (2026-09-08 it renamed a live one; reverted)."""
+    them as env vars — a bare ANTHROPIC_API_KEY entry is how an automation gets its key. So
+    set() must accept it and the UI path must not rename it (only The Agent's path does)."""
     m = LS.LocalSecretsManager(str(tmp_path))
     m.set("ANTHROPIC_API_KEY", "tenant-automation-key")   # direct platform/admin write is fine
-    assert LS.quarantine_reserved_secrets(m, dry_run=True) == []
     assert m.get("ANTHROPIC_API_KEY") == "tenant-automation-key"
+    assert LS.resolve_reserved_secret_name("ANTHROPIC_API_KEY") == ("ANTHROPIC_API_KEY", None)
 
 
 def test_rename_is_a_single_hop_and_never_reserved():
@@ -100,7 +101,7 @@ def test_denylist_not_allowlist():
 
 
 # ---------------------------------------------------------------------------
-# chokepoint + quarantine (real manager on a tmp data dir)
+# chokepoint (real manager on a tmp data dir)
 # ---------------------------------------------------------------------------
 @pytest.fixture
 def manager(tmp_path):
@@ -117,41 +118,18 @@ def test_manager_set_refuses_identity_names(manager):
     assert {s["name"] for s in manager.list()} == {"CUSTOM_API_KEY", "PORTAL_U13_ACME_PASSWORD"}
 
 
-def test_quarantine_renames_poisoned_entries_and_preserves_the_value(manager):
-    # Poison the store the way the pre-guard code could (bypass set()'s new refusal).
+def test_no_automatic_rewrite_of_existing_entries(manager):
+    """An entry already stored under a reserved name is left exactly as it is: no helper
+    renames or deletes it, and the module exposes nothing that would (james: low-risk)."""
     raw = manager._load_secrets(use_cache=False)
     raw["API_KEY"] = {"value": "pasted-14-chars", "description": "API key provided by user in chat",
                       "category": "api_keys", "created": "2026-09-05T16:00:24", "updated": "x"}
-    raw["SENDGRID_API_KEY"] = {"value": "keep", "description": "", "category": "api_keys",
-                               "created": "c", "updated": "u"}
     manager._save_secrets(raw)
-
-    preview = LS.quarantine_reserved_secrets(manager, dry_run=True)
-    assert preview == [{"from": "API_KEY", "to": "CUSTOM_API_KEY"}]
-    assert manager.exists("API_KEY"), "dry_run must not write"
-
-    moved = LS.quarantine_reserved_secrets(manager)
-    assert moved == [{"from": "API_KEY", "to": "CUSTOM_API_KEY"}]
-    assert not manager.exists("API_KEY")
-    assert manager.get("CUSTOM_API_KEY") == "pasted-14-chars"
-    meta = {s["name"]: s for s in manager.list()}["CUSTOM_API_KEY"]
-    assert meta["created"] == "2026-09-05T16:00:24"
-    assert "renamed from API_KEY" in meta["description"]
-    assert manager.get("SENDGRID_API_KEY") == "keep"
-    # idempotent
-    assert LS.quarantine_reserved_secrets(manager) == []
-
-
-def test_quarantine_never_clobbers_an_existing_custom_entry(manager):
-    raw = manager._load_secrets(use_cache=False)
-    raw["API_KEY"] = {"value": "pasted", "description": "", "category": "api_keys",
-                      "created": "c", "updated": "u"}
-    raw["CUSTOM_API_KEY"] = {"value": "mine", "description": "", "category": "api_keys",
-                             "created": "c", "updated": "u"}
-    manager._save_secrets(raw)
-    assert LS.quarantine_reserved_secrets(manager) == [{"from": "API_KEY", "to": "CUSTOM_CUSTOM_API_KEY"}]
-    assert manager.get("CUSTOM_API_KEY") == "mine"
-    assert manager.get("CUSTOM_CUSTOM_API_KEY") == "pasted"
+    assert not hasattr(LS, "quarantine_reserved_secrets")
+    # a normal read/list cycle does not touch it
+    assert manager.get("API_KEY") == "pasted-14-chars"
+    assert {s["name"] for s in manager.list()} == {"API_KEY"}
+    assert manager.get("API_KEY") == "pasted-14-chars"
 
 
 # ---------------------------------------------------------------------------

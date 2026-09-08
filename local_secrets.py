@@ -143,39 +143,11 @@ def resolve_reserved_secret_name(name: str, platform_namespaces: bool = False):
     return final, reason
 
 
-def quarantine_reserved_secrets(manager: 'LocalSecretsManager' = None, dry_run: bool = False) -> List[Dict[str, str]]:
-    """Rename any RESERVED_SECRET_NAMES entry already in the store to its CUSTOM_ name
-    (value, category and created date preserved; the description records the move).
-    Heals a store poisoned before the guard existed — the entry can only shadow the
-    platform's real credential. Returns [{'from', 'to'}] for every entry moved (or that
-    WOULD move, with dry_run=True). Never raises into the caller's startup."""
-    manager = manager or get_secrets_manager()
-    try:
-        secrets = manager._load_secrets(use_cache=False)
-    except Exception as e:
-        logger.error(f"quarantine_reserved_secrets: could not load the store: {e}")
-        return []
-    moved = []
-    for bad in sorted(RESERVED_SECRET_NAMES):
-        if bad not in secrets:
-            continue
-        final, _reason = resolve_reserved_secret_name(bad)
-        while final in secrets:  # never clobber an existing CUSTOM_ entry
-            final = RESERVED_RENAME_PREFIX + final
-        moved.append({'from': bad, 'to': final})
-        if dry_run:
-            continue
-        entry = dict(secrets.pop(bad))
-        desc = (entry.get('description') or '').strip()
-        entry['description'] = (desc + ' ' if desc else '') + f"(renamed from {bad}: platform-reserved name)"
-        entry['updated'] = manager._now()
-        secrets[final] = entry
-    if moved and not dry_run:
-        manager._save_secrets(secrets)
-        for m in moved:
-            logger.warning(f"Local Secrets: '{m['from']}' is a platform-reserved name — "
-                           f"renamed the stored entry to '{m['to']}'")
-    return moved
+# Deliberately NO automatic clean-up of entries already in the store (james, 2026-09-08:
+# low-risk changes only — a startup "quarantine" that rewrote stored entries was built,
+# renamed a live automation key, and was removed). An existing entry under a reserved
+# name is a human decision: browser_use logs/health report an API_KEY shadow, the
+# Local Secrets page deletes it.
 
 
 class LocalSecretsManager:

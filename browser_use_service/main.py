@@ -88,9 +88,9 @@ _shadow = config.internal_token_store_shadow(INTERNAL_TOKEN)
 if _shadow:
     log.warning(
         "The encrypted Local Secrets store contains an API_KEY entry (%s the platform key). "
-        "API_KEY is a platform-reserved name: the entry is IGNORED for internal auth here, and "
-        "the main app renames it to CUSTOM_API_KEY at its next start. Callers send the "
-        "registry/.env key, so a store entry could only ever cause 401s.", _shadow)
+        "API_KEY is a platform-reserved name: the entry is IGNORED for internal auth here. "
+        "Callers send the registry/.env key, so a store entry could only ever cause 401s — "
+        "delete it from the Local Secrets page (nothing is removed automatically).", _shadow)
 
 # Resolve the driver transport up front so a misconfiguration is obvious at startup rather
 # than on the first portal run. Never logs key material. This is the STARTUP snapshot; each run
