@@ -13,8 +13,8 @@ platform endpoints (same brain/body doctrine as platform_tools):
   file already imported from the same server path, so a re-run never duplicates
   (the duplicate-row mess that motivated this).
 - search_documents  : POST /api/internal/document-search (the CC-consumed
-  whole-store semantic+field search). No knowledge agent required — the old
-  skill wrongly implied one was.
+  semantic+field search, scoped to the caller's category ACL). No knowledge
+  agent required — the old skill wrongly implied one was.
 - list_documents / get_document : wrap /api/documents (GET) for read-back and
   "what's in the system?".
 
@@ -583,11 +583,12 @@ def _pick(row: dict, *keys, default=None):
 @tool(
     "search_documents",
     "Search the AI Hub document library and get the most relevant passages to "
-    "answer a question about imported documents. It searches the WHOLE store "
-    "(semantic + field search) — you do NOT need a knowledge agent or an API "
-    "key. Use it to answer any question about documents that were imported. "
-    "Returns matching passages with their source filename and page so you can "
-    "cite them. If it returns nothing, say so honestly and suggest importing "
+    "answer a question about imported documents. It searches every document "
+    "this user can access (semantic + field search) — you do NOT need a "
+    "knowledge agent or an API key. Use it to answer any question about "
+    "documents that were imported. Returns matching passages with their source "
+    "filename and page so you can cite them. If it returns nothing, say you "
+    "found nothing among the documents you can search and suggest importing "
     "the documents first.",
     {
         "type": "object",
@@ -741,8 +742,9 @@ def access_scope_line(stats) -> str:
 
 @tool(
     "list_documents",
-    "List documents currently in the AI Hub document store, most recent first — "
-    "optionally filtered by a filename search or document type. Read-only. Use "
+    "List the documents this user can see in the AI Hub document store, most "
+    "recent first — optionally filtered by a filename search or document type. "
+    "Read-only; its totals cover the user's access, not the whole platform. Use "
     "it to see what's been imported or to verify an import landed.",
     {
         "type": "object",

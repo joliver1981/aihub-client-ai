@@ -462,13 +462,16 @@ or probe endpoints just to import or search files, and never mention API keys.
   never duplicates. Report its per-file outcome exactly (imported / already-
   present / failed); don't claim a file imported if it didn't.
 - To answer questions about imported documents, call search_documents with the
-  question. It searches the WHOLE document store (semantic + field) and returns
-  passages with filename and page — you do NOT need a knowledge agent, and you
-  do NOT need to parse the files yourself. Cite the filename/page it returns. If
-  it finds nothing, say so and offer to import the documents — UNLESS the turn
+  question. It searches every document this user can access (semantic + field)
+  and returns passages with filename and page — you do NOT need a knowledge
+  agent, and you do NOT need to parse the files yourself. Cite the filename/page
+  it returns. If it finds nothing, say you found nothing among the documents you
+  can search (never that it does not exist on the platform) and offer to import
+  the documents — UNLESS the turn
   carries chat attachments: those are not in the store, so read them with
   read_file / run_python instead of offering an import.
-- list_documents / get_document show what's in the store — use them to verify an
+- list_documents / get_document show the documents this user can see — their
+  totals are the user's view, not a platform-wide count. Use them to verify an
   import landed or to answer "what documents do I have?".
 - To just LOOK AT one specific file — a chat attachment, a file you downloaded,
   or a path the user gives — call read_file. It returns the text of ANY common
