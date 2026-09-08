@@ -421,10 +421,10 @@ def main():
     sh = workitem_store.create_item("review", "Pack20 shared exception review",
                                     summary="claim me", created_by="pack20")
     cl, st1 = work_api("POST", "/api/work/claim", {"id": sh["work_item_id"]})
-    lst_other = workitem_store.list_items(999)   # another user's view
+    lst_other = workitem_store.list_items(999, role=2)   # another user's view
     hidden = all(i["work_item_id"] != sh["work_item_id"] for i in lst_other)
     rl, st2 = work_api("POST", "/api/work/release", {"id": sh["work_item_id"]})
-    lst_other2 = workitem_store.list_items(999)
+    lst_other2 = workitem_store.list_items(999, role=2)
     visible_again = any(i["work_item_id"] == sh["work_item_id"] for i in lst_other2)
     evs3 = [e["event"] for e in workitem_store.list_events(sh["work_item_id"])]
     check("A2-3", "claim hides a shared item from others; release restores it",
@@ -544,7 +544,7 @@ def main():
         deadline = _t.time() + 240   # engine polls ~60s; first fire ≤ ~105s
         while _t.time() < deadline and not fired_item:
             _t.sleep(10)
-            for it in workitem_store.list_items(1, include_closed=True):
+            for it in workitem_store.list_items(1, role=2, include_closed=True):
                 if (it.get("from_kind") == "agent_headless"
                         and it.get("from_ref") == "Agent: pack20 heartbeat"):
                     fired_item = it
@@ -989,7 +989,7 @@ def main():
     _ec.execute("DELETE FROM processed_emails WHERE event_id IN (990001, 990002)")
     _ec.commit()
     _ec.close()
-    for _it in workitem_store.list_items(77, include_closed=True):
+    for _it in workitem_store.list_items(77, role=2, include_closed=True):
         if (_it.get("payload") or {}).get("event_id") in (990001, 990002):
             workitem_store.respond(_it["work_item_id"], 77,
                                    {"decision": "acknowledged"})
@@ -1081,7 +1081,7 @@ def main():
         ev_self = dict(ev1, event_id=990002, sender_email=pack_addr)
         o3 = _aio.run(email_poller.process_event(ev_self, owner, {pack_addr},
                                                  fake_run_turn))
-        fyi = [i for i in workitem_store.list_items(77, include_closed=True)
+        fyi = [i for i in workitem_store.list_items(77, role=2, include_closed=True)
                if (i.get("payload") or {}).get("event_id") == 990001]
         check("A6-2", "poller: processes once (FYI in owner's My Work), dedupes "
                       "repeats, skips self-mail without a brain call",
@@ -1203,7 +1203,7 @@ def main():
                 {"to": ["x@example.com"], "subject": "auto probe",
                  "body": "hello"}))
             auto_ok = ("SENT" in str(res_auto) and len(sent_calls) == 1)
-            audit = [i for i in workitem_store.list_items(77, include_closed=True)
+            audit = [i for i in workitem_store.list_items(77, role=2, include_closed=True)
                      if (i.get("payload") or {}).get("kind") == "agent_email_autosent"]
 
             async def fail_send(*a, **k):
@@ -2552,7 +2552,7 @@ def main():
             # up to 60s after the reply is visible.
             item_deadline = _t12.time() + 60
             while item12 is None and _t12.time() < item_deadline:
-                for it in _ws12.list_items(1, include_closed=True):
+                for it in _ws12.list_items(1, role=2, include_closed=True):
                     if (it.get("from_kind") == "agent_headless"
                             and (it.get("payload") or {}).get("chat_session_id") == sid12):
                         item12 = it
