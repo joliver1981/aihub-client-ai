@@ -16,7 +16,8 @@ from typing import Any, Dict, Optional
 import requests
 
 from command_center.tools import portal_registry, portal_workflows
-from command_center.tools.portal_fetch import _register_artifacts, browser_use_base_url
+from command_center.tools.portal_fetch import (_register_artifacts, browser_use_base_url,
+                                               service_error_text)
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +96,9 @@ def run_workflow_by_name(name: str, session_id: str = "",
                 "blocks": [], "file_count": 0, "final_result": None, "steps": []}
 
     if resp.status_code != 200:
+        # 401/403 = AI Hub's own internal-token gate, never the portal's login
         return {"status": "error",
-                "error": f"service returned {resp.status_code}: {resp.text[:300]}",
+                "error": service_error_text(resp.status_code, resp.text),
                 "blocks": [], "file_count": 0, "final_result": None, "steps": []}
     try:
         data = resp.json()

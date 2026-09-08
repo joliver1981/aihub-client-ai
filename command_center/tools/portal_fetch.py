@@ -114,6 +114,24 @@ def _internal_headers() -> Dict[str, str]:
     return h
 
 
+def service_error_text(status_code: int, body: str = "") -> str:
+    """Error text for a non-200 from the Browser Use service.
+
+    A 401/403 here is AI Hub's OWN internal-token gate (X-AIHub-Internal) rejecting the
+    platform key — a configuration fault between two AI Hub services, never a portal login
+    failure. Say so explicitly: on 2026-09-05 the agent read a bare 'service returned 401'
+    as an expired PORTAL password and asked the user to paste portal credentials into chat
+    (wrong diagnosis, and the wrong interaction to teach)."""
+    if status_code in (401, 403):
+        return (f"AI Hub's Browser Use service rejected AI Hub's own internal token (HTTP "
+                f"{status_code}). This is a platform configuration problem between two AI Hub "
+                "services — NOT a portal login failure and NOT an expired portal password, so do "
+                "not ask the user for portal credentials. An administrator should check the "
+                "Browser Use service's /health 'internal_auth' block: it must resolve the same "
+                "API_KEY as the main app.")
+    return f"service returned {status_code}: {(body or '')[:300]}"
+
+
 def _local_ip() -> str:
     """Mirror CommonUtils.get_local_ip (only consulted when a host is configured as 0.0.0.0)."""
     import socket
@@ -203,7 +221,7 @@ def start_portal_fetch(portal_name: str, start_url: str, task: str,
     except Exception as e:
         return {"error": f"could not reach Browser Use service at {base}: {e}"}
     if resp.status_code != 200:
-        return {"error": f"service returned {resp.status_code}: {resp.text[:200]}"}
+        return {"error": service_error_text(resp.status_code, resp.text)}
     try:
         data = resp.json()
     except Exception as e:
@@ -225,7 +243,7 @@ def get_portal_result(run_id: str, timeout: int = 15) -> Dict[str, Any]:
     except Exception as e:
         return {"error": str(e), "done": False}
     if resp.status_code != 200:
-        return {"error": f"service returned {resp.status_code}", "done": False}
+        return {"error": service_error_text(resp.status_code, resp.text), "done": False}
     try:
         return resp.json()
     except Exception as e:
@@ -282,7 +300,7 @@ def fetch_portal(portal_name: str, start_url: str, task: str,
 
     if resp.status_code != 200:
         return {"status": "error",
-                "error": f"service returned {resp.status_code}: {resp.text[:300]}",
+                "error": service_error_text(resp.status_code, resp.text),
                 "blocks": [], "file_count": 0, "final_result": None}
 
     try:

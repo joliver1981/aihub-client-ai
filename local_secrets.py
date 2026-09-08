@@ -44,6 +44,133 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Reserved names (2026-09-08)
+# =============================================================================
+# Two tiers, one rule each — a DENYLIST, never an allowlist:
+#
+# 1. RESERVED_SECRET_NAMES — platform IDENTITY. The platform resolves these from
+#    the Windows registry / .env / build config (secure_config.load_secure_config,
+#    shared_auth, encrypt), never from this store, so a store entry under one of
+#    these names is never right and can only SHADOW the real value. That is
+#    exactly what happened 2026-09-05: a key a user pasted in chat was saved as
+#    API_KEY; the Browser Use service preferred the store, gated internal calls
+#    on the pasted value, and every portal run 401'd for three days while
+#    /health said ok. These names are refused at the chokepoint (set()) and
+#    renamed on every user-facing write path.
+#
+# 2. PLATFORM_MANAGED_* — namespaces platform code writes with its own ids
+#    (connection passwords, integration credentials, saved portals, OAuth app
+#    registrations, solution bundles, BYOK vendor keys, the email/WinRM/WinTask
+#    settings that secure_config migrates). A human may still edit these from
+#    the Local Secrets page (rotate a portal password, re-enter a client
+#    secret), so they are reserved ONLY on the platform-service write path
+#    (/workflow/secrets/store — The Agent's store_platform_secret), where there
+#    is no legitimate reason to write into a platform namespace.
+#
+# On a collision the write is NOT refused: the name gets RESERVED_RENAME_PREFIX
+# and the caller is told the final name (james, 2026-09-08: "add a prefix or
+# suffix"). The value is kept, the platform slot stays untouched.
+RESERVED_SECRET_NAMES = frozenset({
+    'API_KEY',              # platform/tenant key: registry > .env (secure_config)
+    'AI_HUB_API_KEY',       # The Agent's copy of the same key (agent_config)
+    'CC_JWT_SECRET',        # Command Center / service JWT signing secret (shared_auth)
+    'ANTHROPIC_API_KEY',    # vendor keys: *_ENCRYPTED in .env / build config (encrypt);
+    'OPENAI_API_KEY',       #   the relay stuffs the tenant licence into ANTHROPIC_API_KEY.
+    'AZURE_OPENAI_API_KEY', #   BYOK lives under USER_<VENDOR>_API_KEY, never the bare name.
+})
+
+PLATFORM_MANAGED_SECRET_NAMES = frozenset({
+    'USER_OPENAI_API_KEY', 'USER_ANTHROPIC_API_KEY',     # BYOK (api_keys_config)
+    'EMAIL_SMTP_PASSWORD', 'EMAIL_AZURE_CONN_STR',       # Email Settings (email_settings)
+    'WINTASK_USER', 'WINTASK_PWD', 'LOCAL_DOMAIN',       # secure_config._SECRET_KEYS
+    'WINRM_USER', 'WINRM_PWD', 'WINRM_DOMAIN',
+    'SMTP_USER', 'SMTP_PASSWORD',
+})
+
+PLATFORM_MANAGED_SECRET_PREFIXES = (
+    'CONN_PWD_',   # connection_secrets: CONN_PWD_<connection id>
+    'INT_',        # integration_manager: INT_<integration id>_<field>
+    'PORTAL_',     # portal_registry: PORTAL_U<user>_<slug>_USERNAME/PASSWORD/TOTP
+    'OAUTH_',      # OAuth app registrations (OAUTH_<PROVIDER>_CLIENT_ID/_SECRET)
+    'SOL_',        # connection_install_routes: SOL_<solution>_<conn>_<field>
+)
+
+RESERVED_RENAME_PREFIX = 'CUSTOM_'
+
+
+def reserved_secret_reason(name: str, platform_namespaces: bool = False) -> Optional[str]:
+    """Why `name` may not be written by a user/agent, or None when it may.
+
+    platform_namespaces=True adds the PLATFORM_MANAGED_* tier (the service write path).
+    """
+    n = (name or '').strip().upper()
+    if not n:
+        return None
+    if n in RESERVED_SECRET_NAMES:
+        return (f"'{n}' is reserved for the platform's own credentials (resolved from the "
+                "registry/.env, never from the Local Secrets store)")
+    if platform_namespaces:
+        if n in PLATFORM_MANAGED_SECRET_NAMES:
+            return f"'{n}' is managed by an AI Hub settings screen, not by chat"
+        for prefix in PLATFORM_MANAGED_SECRET_PREFIXES:
+            if n.startswith(prefix):
+                return (f"'{n}' is in the platform-managed '{prefix}*' namespace "
+                        "(written by AI Hub itself)")
+    return None
+
+
+def resolve_reserved_secret_name(name: str, platform_namespaces: bool = False):
+    """Return (final_name, reason). final_name == name when the name is free; otherwise
+    the name is prefixed with RESERVED_RENAME_PREFIX until it no longer collides (one
+    hop in practice — the prefix itself is never reserved) and `reason` says why."""
+    n = (name or '').strip().upper()
+    reason = reserved_secret_reason(n, platform_namespaces)
+    if reason is None:
+        return n, None
+    final = n
+    for _ in range(3):  # defensive bound; a single hop always suffices today
+        final = RESERVED_RENAME_PREFIX + final
+        if reserved_secret_reason(final, platform_namespaces) is None:
+            break
+    return final, reason
+
+
+def quarantine_reserved_secrets(manager: 'LocalSecretsManager' = None, dry_run: bool = False) -> List[Dict[str, str]]:
+    """Rename any RESERVED_SECRET_NAMES entry already in the store to its CUSTOM_ name
+    (value, category and created date preserved; the description records the move).
+    Heals a store poisoned before the guard existed — the entry can only shadow the
+    platform's real credential. Returns [{'from', 'to'}] for every entry moved (or that
+    WOULD move, with dry_run=True). Never raises into the caller's startup."""
+    manager = manager or get_secrets_manager()
+    try:
+        secrets = manager._load_secrets(use_cache=False)
+    except Exception as e:
+        logger.error(f"quarantine_reserved_secrets: could not load the store: {e}")
+        return []
+    moved = []
+    for bad in sorted(RESERVED_SECRET_NAMES):
+        if bad not in secrets:
+            continue
+        final, _reason = resolve_reserved_secret_name(bad)
+        while final in secrets:  # never clobber an existing CUSTOM_ entry
+            final = RESERVED_RENAME_PREFIX + final
+        moved.append({'from': bad, 'to': final})
+        if dry_run:
+            continue
+        entry = dict(secrets.pop(bad))
+        desc = (entry.get('description') or '').strip()
+        entry['description'] = (desc + ' ' if desc else '') + f"(renamed from {bad}: platform-reserved name)"
+        entry['updated'] = manager._now()
+        secrets[final] = entry
+    if moved and not dry_run:
+        manager._save_secrets(secrets)
+        for m in moved:
+            logger.warning(f"Local Secrets: '{m['from']}' is a platform-reserved name — "
+                           f"renamed the stored entry to '{m['to']}'")
+    return moved
+
+
 class LocalSecretsManager:
     """
     Manages locally-stored secrets with encryption.
@@ -261,7 +388,15 @@ class LocalSecretsManager:
         
         if not name.replace('_', '').isalnum():
             raise ValueError("Secret name must be alphanumeric with underscores only")
-        
+
+        # Chokepoint guard: every writer converges here. A platform-identity name can
+        # only shadow the real credential (see RESERVED_SECRET_NAMES); the routes
+        # rename BEFORE reaching this, so a raise means a direct caller got it wrong.
+        if name in RESERVED_SECRET_NAMES:
+            raise ValueError(
+                f"'{name}' is a platform-reserved secret name and cannot live in the Local "
+                f"Secrets store; store it as '{RESERVED_RENAME_PREFIX}{name}' instead")
+
         secrets = self._load_secrets(use_cache=False)
         
         # Preserve creation date if updating

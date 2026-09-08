@@ -925,7 +925,11 @@ async def list_secret_names(args: dict[str, Any]) -> dict[str, Any]:
     "their manifest and the server injects the value at run time. Use this "
     "IMMEDIATELY when a user hands you a credential in chat — never hard-code "
     "it, never echo it back (in full or in part), and refer to it only by "
-    "name afterwards. Name must be UPPER_SNAKE_CASE (e.g. SENDGRID_API_KEY).",
+    "name afterwards. Name must be UPPER_SNAKE_CASE (e.g. SENDGRID_API_KEY). "
+    "Platform-reserved names (API_KEY, CC_JWT_SECRET, ANTHROPIC_API_KEY, "
+    "OPENAI_API_KEY, ...) and platform-managed namespaces (PORTAL_, INT_, "
+    "CONN_PWD_, OAUTH_, SOL_) are never overwritten: the value is saved under a "
+    "CUSTOM_ prefix instead and the result tells you the FINAL name — use that.",
     {
         "type": "object",
         "properties": {
@@ -965,6 +969,16 @@ async def store_platform_secret(args: dict[str, Any]) -> dict[str, Any]:
             return _text(f"Store call returned success but '{data.get('name')}' "
                          "does not appear in the read-back list — report this "
                          "as NOT stored.", is_error=True)
+        if data.get("renamed"):
+            # Reserved-name collision (2026-09-08): the server kept the value but
+            # moved the name. Tell the model the FINAL name so it never refers to
+            # (or believes it wrote) the platform's own slot.
+            return _text(f"Secret {verb} as '{data['name']}' in the encrypted Local "
+                         f"Secrets store (verified by read-back). NOTE: "
+                         f"{data.get('reason') or 'the requested name is reserved'}, "
+                         f"so '{data.get('requested_name')}' was NOT written — the "
+                         f"value lives under '{data['name']}'. Reference it by THAT "
+                         "name in manifests; the value is never shown again.")
         return _text(f"Secret '{data['name']}' {verb} in the encrypted Local "
                      "Secrets store (verified by read-back). Reference it by "
                      "this name in manifests; the value is never shown again.")

@@ -178,6 +178,46 @@ def get_secret(name, default=None):
     return os.getenv(name, default)
 
 
+def resolve_internal_token():
+    """The platform API_KEY this service gates internal calls on (X-AIHub-Internal).
+
+    Platform IDENTITY resolves exactly the way secure_config does for every other service —
+    Windows registry > .env/process env — and NEVER through the encrypted Local Secrets store.
+    get_secret() above deliberately prefers the store (right for portal credentials, which
+    must never live in .env) and was used for this too until 2026-09-08: a key a user pasted
+    in chat had been saved to the store under the reserved name API_KEY (2026-09-05), this
+    service gated on the pasted value, and every internal call from Command Center 401'd for
+    three days while /health said ok. Two components resolving one name through two different
+    precedence orders is how it drifted silently; this is the single ladder.
+
+    Returns (token_or_None, source) with source in {'registry', 'env', 'none'}. The value is
+    never logged — main.py logs the source plus a truncated sha256 fingerprint at startup.
+    """
+    token = os.getenv("API_KEY") or None
+    if not token:
+        return None, "none"
+    try:
+        import secure_config as _sc
+        reg = _sc._load_api_key_from_registry()
+    except Exception:
+        reg = None
+    return token, ("registry" if reg and reg == token else "env")
+
+
+def internal_token_store_shadow(token):
+    """Does the encrypted store hold an API_KEY entry — the exact poisoning that caused the
+    2026-09-05 outage? None = no entry; 'matches' = present but equal to the platform key;
+    'differs' = present and different (older builds gated on it). Never returns the value."""
+    try:
+        from local_secrets import get_local_secret
+        stored = get_local_secret("API_KEY")
+    except Exception:
+        return None
+    if not stored:
+        return None
+    return "matches" if stored == (token or "") else "differs"
+
+
 def _provider_for_model(model):
     """Map a model id to its (provider, raw-env-var-name) the browser-use wrapper expects."""
     m = (model or "").lower()

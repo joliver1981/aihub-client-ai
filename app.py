@@ -10129,11 +10129,28 @@ def workflow_secrets_store():
         if not value or len(str(value)) > 10000:
             return jsonify({"success": False,
                             "error": "Secret value required (max 10,000 chars)"}), 400
+        # Reserved names (2026-09-08): this is the PLATFORM-SERVICE write path (The
+        # Agent's store_platform_secret), so both tiers apply — platform identity
+        # (API_KEY, CC_JWT_SECRET, vendor keys) AND platform-managed namespaces
+        # (PORTAL_, INT_, CONN_PWD_, OAUTH_, SOL_, BYOK/email/WinRM names). The
+        # value is kept under a CUSTOM_ name and the caller is told the final name;
+        # a chat-pasted key can no longer shadow the platform's own API_KEY.
+        from local_secrets import resolve_reserved_secret_name
+        requested_name = name
+        name, reserved_reason = resolve_reserved_secret_name(name, platform_namespaces=True)
+        if name != requested_name:
+            is_valid, err = validate_secret_name(name)
+            if not is_valid:
+                return jsonify({"success": False, "error": err}), 400
         manager = get_secrets_manager()
         is_update = manager.exists(name)
         manager.set(name, str(value), str(data.get('description') or ''),
                     str(data.get('category') or 'api_keys'))
-        return jsonify({"success": True, "name": name, "is_update": is_update})
+        resp = {"success": True, "name": name, "is_update": is_update}
+        if name != requested_name:
+            resp.update({"requested_name": requested_name, "renamed": True,
+                         "reason": reserved_reason})
+        return jsonify(resp)
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -13826,6 +13843,18 @@ app.register_blueprint(create_dca_blueprint())
 # Import local secrets routes
 from local_secrets_routes import secrets_bp
 app.register_blueprint(secrets_bp)
+
+# Reserved names (2026-09-08): heal a store poisoned before the guard existed. An
+# entry under a platform-identity name (API_KEY, CC_JWT_SECRET, vendor keys) can
+# only shadow the real credential — the browser_use service gated on a pasted
+# API_KEY for three days — so rename it to CUSTOM_<name>, value preserved, loudly.
+try:
+    from local_secrets import quarantine_reserved_secrets as _quarantine_reserved_secrets
+    for _moved in _quarantine_reserved_secrets():
+        logger.warning("Local Secrets startup quarantine: renamed platform-reserved entry "
+                       f"'{_moved['from']}' -> '{_moved['to']}' (value preserved)")
+except Exception as _qe:
+    logger.warning(f"Local Secrets startup quarantine skipped: {_qe}")
 
 # Import local history routes
 from local_history_routes import history_bp

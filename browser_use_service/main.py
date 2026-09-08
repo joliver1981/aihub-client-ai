@@ -70,13 +70,27 @@ except Exception as _bu_patch_err:  # fail-soft: never block startup on a harden
 
 app = FastAPI(title="AI Hub Browser Use Service", version="0.1.0")
 
-INTERNAL_TOKEN = config.get_secret("API_KEY")
+# Platform identity: registry > .env, NEVER the Local Secrets store (see
+# config.resolve_internal_token for the 2026-09-05 outage this ladder prevents).
+INTERNAL_TOKEN, INTERNAL_TOKEN_SOURCE = config.resolve_internal_token()
 AUTH_ENFORCE = os.getenv("BROWSER_USE_AUTH_ENFORCE", "true").lower() == "true"
 if AUTH_ENFORCE and not INTERNAL_TOKEN:
     log.error(
-        "Internal auth token NOT resolved (no API_KEY via registry/secure_config, .env, or the "
-        "secrets store) — auth enforcement is ON, so EVERY internal call (Command Center portal "
-        "runs) will be rejected with 401 'invalid or missing internal token'.")
+        "Internal auth token NOT resolved (no API_KEY via the registry/secure_config or .env) "
+        "— auth enforcement is ON, so EVERY internal call (Command Center portal runs) will be "
+        "rejected with 401 'invalid or missing internal token'.")
+elif INTERNAL_TOKEN:
+    import hashlib as _hashlib
+    log.info("Internal auth token resolved from %s (sha256[:12]=%s, enforce=%s)",
+             INTERNAL_TOKEN_SOURCE,
+             _hashlib.sha256(INTERNAL_TOKEN.encode()).hexdigest()[:12], AUTH_ENFORCE)
+_shadow = config.internal_token_store_shadow(INTERNAL_TOKEN)
+if _shadow:
+    log.warning(
+        "The encrypted Local Secrets store contains an API_KEY entry (%s the platform key). "
+        "API_KEY is a platform-reserved name: the entry is IGNORED for internal auth here, and "
+        "the main app renames it to CUSTOM_API_KEY at its next start. Callers send the "
+        "registry/.env key, so a store entry could only ever cause 401s.", _shadow)
 
 # Resolve the driver transport up front so a misconfiguration is obvious at startup rather
 # than on the first portal run. Never logs key material. This is the STARTUP snapshot; each run
@@ -170,8 +184,17 @@ class PortalFetchRequest(BaseModel):
 def health():
     # llm_model is resolved LIVE (admin-UI override in data/model_overrides.json > .env), so this
     # is the model the NEXT run will use — a cheap way to confirm a UI change landed without a run.
+    # internal_auth: booleans/labels only (no fingerprint — /health is unauthenticated). A
+    # caller who sees token_resolved=false, or store_shadow set, has the 2026-09-05 401
+    # outage diagnosed in one GET instead of three days.
     return {"status": "ok", "service": "browser_use", "port": config.PORT, "enabled": config.ENABLED,
-            "llm_model": config.resolve_llm_model()}
+            "llm_model": config.resolve_llm_model(),
+            "internal_auth": {
+                "enforced": AUTH_ENFORCE,
+                "token_resolved": bool(INTERNAL_TOKEN),
+                "source": INTERNAL_TOKEN_SOURCE,
+                "store_shadow": config.internal_token_store_shadow(INTERNAL_TOKEN),
+            }}
 
 
 def _portal_call_kwargs(req: "PortalFetchRequest", run_id=None):

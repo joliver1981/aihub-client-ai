@@ -30,7 +30,8 @@ from flask_login import login_required
 from local_secrets import (
     get_secrets_manager,
     get_local_secret,
-    has_local_secret
+    has_local_secret,
+    resolve_reserved_secret_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -181,20 +182,37 @@ def add_secret():
                 'error': 'Secret value must be 10,000 characters or less'
             }), 400
         
+        # Platform-reserved names (API_KEY, CC_JWT_SECRET, the vendor keys) are never
+        # stored under their own name — they would shadow the platform's real
+        # credential. Keep the value, save it under the CUSTOM_ name, say so.
+        requested_name = name
+        name, reserved_reason = resolve_reserved_secret_name(name)
+        if name != requested_name:
+            is_valid, error = validate_secret_name(name)
+            if not is_valid:
+                return jsonify({'success': False, 'error': error}), 400
+
         # Check if updating existing
         manager = get_secrets_manager()
         is_update = manager.exists(name)
-        
+
         # Save the secret
         manager.set(name, value, description, category)
-        
-        return jsonify({
+
+        message = f"Secret '{name}' {'updated' if is_update else 'saved'} locally"
+        if name != requested_name:
+            message += f" — {reserved_reason}, so it was stored as '{name}'"
+        resp = {
             'success': True,
-            'message': f"Secret '{name}' {'updated' if is_update else 'saved'} locally",
+            'message': message,
             'name': name,
             'is_update': is_update,
             'note': 'This secret is stored only on your local machine and is never transmitted to the cloud.'
-        })
+        }
+        if name != requested_name:
+            resp.update({'requested_name': requested_name, 'renamed': True,
+                         'reason': reserved_reason})
+        return jsonify(resp)
         
     except Exception as e:
         logger.error(f"Error saving secret: {e}")
@@ -458,7 +476,8 @@ def import_secrets():
         imported = 0
         skipped = 0
         errors = []
-        
+        renamed = []
+
         for name, secret_data in secrets_dict.items():
             try:
                 # Validate name
@@ -467,7 +486,13 @@ def import_secrets():
                     errors.append(f"{name}: {error}")
                     skipped += 1
                     continue
-                
+
+                # Same reserved-name rule as add_secret: keep the value, move the name.
+                requested_name = name
+                name, reserved_reason = resolve_reserved_secret_name(name)
+                if name != requested_name:
+                    renamed.append({'from': requested_name, 'to': name, 'reason': reserved_reason})
+
                 # Check if exists and overwrite is False
                 if manager.exists(name) and not overwrite:
                     skipped += 1
@@ -500,7 +525,8 @@ def import_secrets():
             'success': True,
             'imported': imported,
             'skipped': skipped,
-            'errors': errors if errors else None
+            'errors': errors if errors else None,
+            'renamed': renamed if renamed else None
         })
         
     except Exception as e:
