@@ -131,12 +131,23 @@ class Target:
             elif t in ("tool_use", "tool", "tool_call"):
                 nm = ev.get("name") or ev.get("tool") or "?"
                 out["tools"].append(nm)
-                out["tool_detail"].append({"name": nm,
+                out["tool_detail"].append({"name": nm, "id": ev.get("id"),
                                            "input": str(ev.get("input"))[:400]})
             elif t == "tool_result":
-                if out["tool_detail"]:
-                    out["tool_detail"][-1]["result"] = str(
-                        ev.get("content") or ev.get("result") or "")[:600]
+                # The Agent streams a tool's result text as `preview` (with an
+                # honest `ok`) -- brain.py's tool_result event -- keyed by the
+                # tool_use id. Reading `content`/`result` recorded an EMPTY
+                # result for every call in run 1 (2026-09-07), so the report
+                # could not cite tool evidence. Match by id, not "last tool".
+                rid = ev.get("id")
+                det = next((d for d in reversed(out["tool_detail"])
+                            if rid and d.get("id") == rid), None)
+                if det is None and out["tool_detail"]:
+                    det = out["tool_detail"][-1]
+                if det is not None:
+                    det["result"] = str(ev.get("preview") or ev.get("content")
+                                        or ev.get("result") or "")[:600]
+                    det["ok"] = ev.get("ok")
             else:
                 # keep anything unexpected so the transcript is honest
                 if t not in ("status", "done", "result"):
@@ -164,8 +175,12 @@ def run(target, ids):
                     f"## prompt\n\n{prompt}\n\n## tools\n\n")
             if res["tool_detail"]:
                 for t in res["tool_detail"]:
+                    # one line per result (the previews are multi-line); a
+                    # failed call is marked so a refusal never reads as success
+                    shown = " | ".join(str(t.get("result") or "").splitlines())[:500]
+                    flag = " (FAILED)" if t.get("ok") is False else ""
                     f.write(f"- **{t['name']}**\n  - input: `{t.get('input')}`\n"
-                            f"  - result: `{str(t.get('result'))[:500]}`\n")
+                            f"  - result{flag}: `{shown}`\n")
             else:
                 f.write(f"_(none captured; names seen: {res['tools']})_\n")
             if res["errors"]:
