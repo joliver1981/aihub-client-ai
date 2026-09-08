@@ -43,6 +43,13 @@ sys.path.insert(0, os.path.join(APP_ROOT, "agent_service"))
 import workitem_store as W  # noqa: E402
 
 try:
+    import claude_agent_sdk as _sdk             # noqa: E402
+    # Sibling test files install a bare stub under this name so readthrough
+    # imports in the main env (test_agent_readthrough_http.py,
+    # test_readthrough_pending_role_floor.py). A stub has no __file__; only
+    # the real SDK can run the tool/route tests below.
+    if not getattr(_sdk, "__file__", None):
+        raise ImportError("claude_agent_sdk is a test stub, not the real SDK")
     import work_tools as WK                     # noqa: E402
     from platform_tools import CURRENT_USER     # noqa: E402
     HAVE_SDK = True
@@ -216,8 +223,8 @@ class CallersPassTheRealRole(_StoreCase):
 
         with mock.patch.object(main, "_verify_request", _verify), \
              mock.patch.object(readthrough, "user_group_ids", lambda uid: []), \
-             mock.patch.object(readthrough, "workflow_pending", lambda uid: []), \
-             mock.patch.object(readthrough, "automation_pending", lambda uid, g: []), \
+             mock.patch.object(readthrough, "workflow_pending", lambda uid, *, role: []), \
+             mock.patch.object(readthrough, "automation_pending", lambda uid, g, *, role: []), \
              mock.patch.object(readthrough, "email_pending", _no_email):
             client = TestClient(main.app)
             seat.update({"user_id": CASEY, "role": 1, "username": "ru_casey",
@@ -264,8 +271,8 @@ class EmailReadthroughRunsAsTheViewer(_StoreCase):
         seat = {}
         with mock.patch.object(main, "_verify_request", lambda _r: dict(seat)), \
              mock.patch.object(readthrough, "user_group_ids", lambda uid: []), \
-             mock.patch.object(readthrough, "workflow_pending", lambda uid: []), \
-             mock.patch.object(readthrough, "automation_pending", lambda uid, g: []), \
+             mock.patch.object(readthrough, "workflow_pending", lambda uid, *, role: []), \
+             mock.patch.object(readthrough, "automation_pending", lambda uid, g, *, role: []), \
              mock.patch.object(readthrough, "email_pending", _email):
             client = TestClient(main.app)
             seat.update({"user_id": CASEY, "role": 1, "username": "ru_casey",
@@ -305,6 +312,48 @@ class EmailReadthroughRunsAsTheViewer(_StoreCase):
             n = c.execute("SELECT COUNT(*) FROM work_items WHERE from_kind='readthrough' "
                           "AND blocks_kind='email' AND blocks_ref='5001'").fetchone()[0]
         self.assertEqual(n, 0)
+
+
+@unittest.skipUnless(HAVE_SDK, "needs the aihub-agent env (claude_agent_sdk)")
+class PoolSourcesGetTheVerifiedRole(_StoreCase):
+    """F-12 (2026-09-08): the workflow and automation read-throughs carry the
+    same "unassigned means everyone" pool as the store, and the floor lives
+    INSIDE readthrough.workflow_pending / automation_pending (`role` required).
+    The route must hand both the verified role — pinned here; the functions'
+    own matrix is in test_readthrough_pending_role_floor.py (pytest)."""
+
+    def test_work_list_threads_the_role_into_both_pool_sources(self):
+        import main
+        import readthrough
+        from fastapi.testclient import TestClient
+        seen = {"workflow": [], "automation": []}
+
+        def _wf(uid, *, role):
+            seen["workflow"].append((uid, role))
+            return []
+
+        def _auto(uid, gids, *, role):
+            seen["automation"].append((uid, list(gids), role))
+            return []
+
+        async def _email(user):
+            return []
+
+        seat = {}
+        with mock.patch.object(main, "_verify_request", lambda _r: dict(seat)), \
+             mock.patch.object(readthrough, "user_group_ids", lambda uid: [59]), \
+             mock.patch.object(readthrough, "workflow_pending", _wf), \
+             mock.patch.object(readthrough, "automation_pending", _auto), \
+             mock.patch.object(readthrough, "email_pending", _email):
+            client = TestClient(main.app)
+            for uid, role in ((CASEY, 1), (ERIN, 2), (ADMIN, 3)):
+                seat.clear()
+                seat.update({"user_id": uid, "role": role, "username": f"u{uid}",
+                             "name": f"U{uid}", "tenant_id": 1})
+                self.assertEqual(client.get("/api/work/list").status_code, 200)
+        self.assertEqual(seen["workflow"], [(CASEY, 1), (ERIN, 2), (ADMIN, 3)])
+        self.assertEqual(seen["automation"],
+                         [(CASEY, [59], 1), (ERIN, [59], 2), (ADMIN, [59], 3)])
 
 
 if __name__ == "__main__":

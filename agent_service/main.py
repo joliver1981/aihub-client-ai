@@ -513,11 +513,14 @@ def _parse_approval_data(raw):
 async def work_list(request: Request):
     user = _verify_request(request)
     uid = int(user["user_id"] or 0)
-    items = [_agent_item_view(i) for i in workitem_store.list_items(
-        uid, role=int(user.get("role") or 0))]
+    role = int(user.get("role") or 0)
+    items = [_agent_item_view(i) for i in workitem_store.list_items(uid, role=role)]
 
+    # The verified role rides into every source: the shared "unassigned" pool
+    # is Developer+ only on all three (F-7 df05578 for agent items, F-12 for
+    # the workflow + automation read-throughs, 2026-09-08).
     group_ids = readthrough.user_group_ids(uid)
-    for row in readthrough.workflow_pending(uid):
+    for row in readthrough.workflow_pending(uid, role=role):
         ad = _parse_approval_data(row.get("approval_data"))
         items.append({
             "source": "workflow", "id": row.get("request_id"),
@@ -528,7 +531,7 @@ async def work_list(request: Request):
             "due_at": str(row.get("due_date") or "") or None,
             "from": ad.get("workflow_name") or "workflow",
             "payload": ad})
-    for row in readthrough.automation_pending(uid, group_ids):
+    for row in readthrough.automation_pending(uid, group_ids, role=role):
         ad = _parse_approval_data(row.get("approval_data"))
         is_review = ad.get("kind") == "review" or not ad.get("checkpoint_id")
         items.append({

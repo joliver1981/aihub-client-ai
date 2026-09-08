@@ -6691,8 +6691,20 @@ def _rt_user_group_ids(params):
 
 
 def _rt_workflow_pending(params):
+    """Pending ApprovalRequests for one user: direct, group-member, and — for
+    Developer+ (params.role >= 2) ONLY — the unassigned/NULL pool. The pool
+    was unconditional until 2026-09-08 (RU retest F-12: a no-group role-1
+    seat read every pool item); the caller (agent_service/readthrough
+    .workflow_pending) sends the verified role and re-filters the rows it
+    gets back, so the floor holds on both sides. A missing role fails CLOSED."""
     uid = int(params.get("user_id"))
-    rows = query_app_database("""
+    try:
+        role = int(params.get("role") or 0)
+    except (TypeError, ValueError):
+        role = 0
+    pool_sql = ("   OR assigned_to_type = 'unassigned'\n"
+                "   OR assigned_to_type IS NULL" if role >= 2 else "")
+    rows = query_app_database(f"""
         SELECT request_id, title, description, status, requested_at,
                due_date, priority, approval_data, assigned_to_type,
                assigned_to_id
@@ -6701,8 +6713,7 @@ def _rt_workflow_pending(params):
               (assigned_to_type = 'user'  AND assigned_to_id = ?)
            OR (assigned_to_type = 'group' AND assigned_to_id IN
                 (SELECT group_id FROM UserGroups WHERE user_id = ?))
-           OR assigned_to_type = 'unassigned'
-           OR assigned_to_type IS NULL)
+        {pool_sql})
         ORDER BY priority DESC, requested_at DESC""", (uid, uid)) or []
     # datetimes as str(value) - exactly what the service's own str() produced
     return [{k: (_rt_date(v) if hasattr(v, "strftime") else v) for k, v in r.items()}

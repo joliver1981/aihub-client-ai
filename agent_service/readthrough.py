@@ -162,15 +162,55 @@ def user_group_ids(user_id: int) -> list:
         return []
 
 
-def workflow_pending(user_id: int) -> list:
-    """Pending ApprovalRequests visible to this user — the same visibility rule
-    as /api/workflow/user-approvals: direct, group-member, or unassigned."""
+# ---------------------------------------------------------------------------
+# The Developer+ floor on the shared "unassigned" pool (F-12, 2026-09-08)
+# ---------------------------------------------------------------------------
+# Both pending sources below carry the same "unassigned means everyone" rule
+# as workitem_store.list_items: an approval addressed to nobody is a pool item
+# anyone can pick up. That audience was implicitly Developer+ only because The
+# Agent's front door used to be; AGENT_ALLOW_ALL_USERS removed the guarantee,
+# and a no-group role-1 seat read HR names out of Dayforce review items (RU
+# retest F-12). F-7 (df05578) restored the floor in list_items; this is the
+# same floor on the other two sources, kept INSIDE the functions so every
+# caller inherits it. `role` is REQUIRED (keyword-only): a caller that forgets
+# it gets a TypeError, not the pool. Missing / zero role fails CLOSED.
+#   role >= 2 : direct + group-member + unassigned/NULL (unchanged)
+#   role <  2 : direct + group-member ONLY
+
+def _may_see_pool(role) -> bool:
+    try:
+        return int(role or 0) >= 2
+    except (TypeError, ValueError):
+        return False
+
+
+def _is_pool_row(row: dict) -> bool:
+    """An approval addressed to nobody: assigned_to_type NULL or 'unassigned'."""
+    at = row.get("assigned_to_type")
+    return at is None or str(at).strip().lower() in ("", "unassigned")
+
+
+def workflow_pending(user_id: int, *, role) -> list:
+    """Pending ApprovalRequests visible to this user — direct, group-member,
+    and (Developer+ only) the unassigned pool. The floor is applied on BOTH
+    paths: the main app's readthrough op takes `role` and drops the pool
+    branches from its SQL (app._rt_workflow_pending), and the rows that come
+    back are filtered again here so an older main app that ignores `role`
+    still cannot widen a regular user's queue."""
+    pool = _may_see_pool(role)
+    try:
+        role_param = int(role or 0)
+    except (TypeError, ValueError):
+        role_param = 0
+
     def _sql():
         conn = _db()
         try:
             cur = conn.cursor()
+            pool_sql = ("   OR assigned_to_type = 'unassigned'\n"
+                        "   OR assigned_to_type IS NULL" if pool else "")
             cur.execute(
-                """
+                f"""
                 SELECT request_id, title, description, status, requested_at,
                        due_date, priority, approval_data, assigned_to_type,
                        assigned_to_id
@@ -179,8 +219,7 @@ def workflow_pending(user_id: int) -> list:
                       (assigned_to_type = 'user'  AND assigned_to_id = ?)
                    OR (assigned_to_type = 'group' AND assigned_to_id IN
                         (SELECT group_id FROM UserGroups WHERE user_id = ?))
-                   OR assigned_to_type = 'unassigned'
-                   OR assigned_to_type IS NULL)
+                {pool_sql})
                 ORDER BY priority DESC, requested_at DESC
                 """, int(user_id), int(user_id))
             cols = [d[0] for d in cur.description]
@@ -188,17 +227,24 @@ def workflow_pending(user_id: int) -> list:
         finally:
             conn.close()
     try:
-        return list(fetch_or_sql("workflow_pending", _sql, user_id=int(user_id)) or [])
+        rows = list(fetch_or_sql("workflow_pending", _sql, user_id=int(user_id),
+                                 role=role_param) or [])
     except Exception as e:
         logger.warning(f"workflow_pending unavailable: {e}")
         return []
+    if not pool:
+        rows = [r for r in rows if not _is_pool_row(r)]
+    return rows
 
 
 # ---------------------------------------------------------------------------
 # Automation sidecar rows (files)
 # ---------------------------------------------------------------------------
 
-def automation_pending(user_id: int, group_ids: list) -> list:
+def automation_pending(user_id: int, group_ids: list, *, role) -> list:
+    """Pending automation checkpoint / review rows visible to this user —
+    direct, group-member, and (Developer+ only) rows assigned to nobody."""
+    pool = _may_see_pool(role)
     rows = []
     # Automations live at APP_ROOT/automations/tenant_<id>/ (CommonUtils
     # get_app_path), NOT under data/ — the sidecar sits beside each tenant dir.
@@ -213,7 +259,7 @@ def automation_pending(user_id: int, group_ids: list) -> list:
         if row.get("status") != "Pending":
             continue
         at, aid = row.get("assigned_to_type"), row.get("assigned_to_id")
-        visible = (at is None
+        visible = ((pool and _is_pool_row(row))
                    or (at == "user" and aid == int(user_id))
                    or (at == "group" and aid in (group_ids or [])))
         if visible:
