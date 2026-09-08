@@ -74,13 +74,20 @@ logger = logging.getLogger(__name__)
 RESERVED_SECRET_NAMES = frozenset({
     'API_KEY',              # platform/tenant key: registry > .env (secure_config)
     'AI_HUB_API_KEY',       # The Agent's copy of the same key (agent_config)
-    'CC_JWT_SECRET',        # Command Center / service JWT signing secret (shared_auth)
-    'ANTHROPIC_API_KEY',    # vendor keys: *_ENCRYPTED in .env / build config (encrypt);
-    'OPENAI_API_KEY',       #   the relay stuffs the tenant licence into ANTHROPIC_API_KEY.
-    'AZURE_OPENAI_API_KEY', #   BYOK lives under USER_<VENDOR>_API_KEY, never the bare name.
+    'CC_JWT_SECRET',        # Command Center / service JWT signing secret (shared_auth):
+                            #   CC_JWT_SECRET env, else HMAC(API_KEY) — never the store
 })
+# NOT in tier 1: the bare vendor keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...). The
+# store IS a legitimate home for them — automations/runner.py resolves a manifest's
+# `secrets: [...]` from the store BY NAME and injects them as env vars, and the
+# vendor SDKs inside the automation read exactly those names (the live store carries
+# a machine-seeded ANTHROPIC_API_KEY "for automation runs"). The platform's OWN LLM
+# key never comes from the store (encrypt *_ENCRYPTED / build config / BYOK USER_*),
+# so a bare entry cannot shadow platform identity. They are tier 2: The Agent may
+# not overwrite them from chat, a human may still manage them on the page.
 
 PLATFORM_MANAGED_SECRET_NAMES = frozenset({
+    'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'AZURE_OPENAI_API_KEY',  # automation-run vendor keys
     'USER_OPENAI_API_KEY', 'USER_ANTHROPIC_API_KEY',     # BYOK (api_keys_config)
     'EMAIL_SMTP_PASSWORD', 'EMAIL_AZURE_CONN_STR',       # Email Settings (email_settings)
     'WINTASK_USER', 'WINTASK_PWD', 'LOCAL_DOMAIN',       # secure_config._SECRET_KEYS

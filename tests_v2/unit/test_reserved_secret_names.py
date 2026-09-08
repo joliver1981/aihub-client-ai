@@ -42,8 +42,7 @@ from app_route_harness import load_app_symbols  # noqa: E402
 # ---------------------------------------------------------------------------
 # helper tier
 # ---------------------------------------------------------------------------
-IDENTITY = ["API_KEY", "AI_HUB_API_KEY", "CC_JWT_SECRET",
-            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY"]
+IDENTITY = ["API_KEY", "AI_HUB_API_KEY", "CC_JWT_SECRET"]
 
 
 @pytest.mark.parametrize("name", IDENTITY)
@@ -68,13 +67,24 @@ def test_free_names_pass_through_unchanged(name):
 
 @pytest.mark.parametrize("name", ["PORTAL_U13_ACME_PASSWORD", "INT_42_API_KEY", "CONN_PWD_154",
                                   "OAUTH_SHAREPOINT_ONLINE_CLIENT_SECRET", "SOL_X_CONN_PWD",
-                                  "USER_ANTHROPIC_API_KEY", "EMAIL_SMTP_PASSWORD", "WINRM_PWD"])
+                                  "USER_ANTHROPIC_API_KEY", "EMAIL_SMTP_PASSWORD", "WINRM_PWD",
+                                  "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY"])
 def test_platform_namespaces_reserved_only_on_the_service_path(name):
     # UI path (Local Secrets page): a human may edit these — untouched.
     assert LS.resolve_reserved_secret_name(name) == (name, None)
     # Service path (The Agent): renamed, with a reason.
     final, reason = LS.resolve_reserved_secret_name(name, platform_namespaces=True)
     assert final == "CUSTOM_" + name and reason
+
+
+def test_vendor_keys_are_not_quarantined_the_store_is_their_legit_home(tmp_path):
+    """automations/runner.py resolves manifest `secrets` from the store BY NAME and injects
+    them as env vars — a bare ANTHROPIC_API_KEY entry is how an automation gets its key. The
+    startup quarantine must leave it alone (2026-09-08 it renamed a live one; reverted)."""
+    m = LS.LocalSecretsManager(str(tmp_path))
+    m.set("ANTHROPIC_API_KEY", "tenant-automation-key")   # direct platform/admin write is fine
+    assert LS.quarantine_reserved_secrets(m, dry_run=True) == []
+    assert m.get("ANTHROPIC_API_KEY") == "tenant-automation-key"
 
 
 def test_rename_is_a_single_hop_and_never_reserved():
