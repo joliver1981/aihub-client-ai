@@ -510,7 +510,10 @@ async def work_list(request: Request):
                         "correctable": (ad.get("correctable")
                                         if isinstance(ad.get("correctable"), dict) else None),
                         "attachments": ad.get("attachments") or []}})
-    for row in await readthrough.email_pending():
+    # Runs AS the viewer (X-AIHub-User assertion): the platform scopes by the
+    # user's agent access and denies role < 2, so no body reaches a seat that
+    # could not open it on the Approvals page (F-7 part 2, 2026-09-08).
+    for row in await readthrough.email_pending(user):
         items.append({
             "source": "email", "id": row.get("approval_id"),
             "verb": "edit_and_return",
@@ -732,8 +735,11 @@ async def work_decide(request: Request):
     elif source == "email":
         if decision not in ("approve", "reject"):
             raise HTTPException(400, "decision must be approve|reject")
+        # AS the deciding user: the platform checks agent access and records
+        # the real approver (not the API-key admin fallback).
         data, status = await readthrough.decide_email(
-            int(body.get("id")), decision, body.get("final_body"), comments)
+            int(body.get("id")), decision, body.get("final_body"), comments,
+            user=user)
     else:
         raise HTTPException(400, f"unknown source '{source}'")
 

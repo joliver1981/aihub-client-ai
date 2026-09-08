@@ -19,7 +19,9 @@ all of them without changing any of them:
    settles the sidecar row AND resumes/aborts the paused run.
 
 3. Agent email approvals — AgentEmailApprovals via the existing
-   /api/agent-email/approvals endpoints (X-API-Key accepted). The editing
+   /api/agent-email/approvals endpoints (X-API-Key + an X-AIHub-User
+   assertion for the viewing/deciding user, so the platform scopes and
+   attributes exactly as it does for the Approvals page). The editing
    contract is preserved exactly: BODY-ONLY, the edited text posts as
    final_body; to/subject are not editable (parity with today's page).
 """
@@ -222,16 +224,60 @@ def automation_pending(user_id: int, group_ids: list) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Email approvals (REST, X-API-Key)
+# Email approvals (REST, X-API-Key + X-AIHub-User assertion)
 # ---------------------------------------------------------------------------
+# WHY the user rides along (2026-09-08, RU pack finding F-7 part 2): with the
+# tenant key alone the main app collapsed the caller to the admin fallback and
+# returned EVERY pending approval on the install — bodies included — which My
+# Work then showed to every viewer regardless of role or agent access, and a
+# regular user could settle someone else's approval with the row recording
+# admin as the approver. Every call here now runs AS the viewing user: a
+# short-lived X-AIHub-User assertion (the document_tools._headers() pattern)
+# lets /api/agent-email/approvals scope by that user's agent access, deny
+# role < 2, and record the real approver. `user` is REQUIRED — a caller that
+# forgets it gets a TypeError, not the unscoped list — and no identity / no
+# signing secret fails CLOSED (nothing listed, nothing settled) rather than
+# degrading to the service-key posture.
 
-async def email_pending() -> list:
+class NoUserIdentity(Exception):
+    """The caller could not be identified as a real user, so a per-user
+    approval call must not be made at all."""
+
+
+def _user_headers(user: Optional[dict]) -> dict:
+    """Service key + X-AIHub-User assertion minted from the verified principal.
+    Raises NoUserIdentity when there is no real user (None, the service
+    principal user_id=0, or an unsigned assertion)."""
+    uid = (user or {}).get("user_id")
+    if uid in (None, "", 0, "0"):
+        raise NoUserIdentity("no user identity on this request")
+    try:
+        import shared_auth
+        assertion = shared_auth.sign_user_assertion(
+            uid, (user or {}).get("tenant_id"), (user or {}).get("role"))
+    except Exception as e:
+        raise NoUserIdentity(f"cannot mint user assertion: {e}")
+    h = dict(_HEADERS)
+    h["X-AIHub-User"] = assertion
+    return h
+
+
+async def email_pending(user: dict) -> list:
+    """Pending agent-email approvals visible to THIS user — the platform's own
+    scoping (accessible_agent_ids; role < 2 sees none), never the whole store."""
+    try:
+        headers = _user_headers(user)
+    except NoUserIdentity as e:
+        logger.warning(f"email_pending: {e}; listing nothing")
+        return []
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.get(f"{get_base_url()}/api/agent-email/approvals",
-                                 params={"status": "pending"}, headers=_HEADERS)
+                                 params={"status": "pending"}, headers=headers)
             if r.status_code >= 400:
-                logger.warning(f"email_pending HTTP {r.status_code}")
+                # 403 is the normal answer for a regular user (role < 2)
+                logger.info(f"email_pending HTTP {r.status_code} for user "
+                            f"{(user or {}).get('user_id')}")
                 return []
             return (r.json() or {}).get("approvals") or []
     except Exception as e:
@@ -240,9 +286,16 @@ async def email_pending() -> list:
 
 
 async def decide_email(approval_id: int, action: str,
-                       final_body: Optional[str], comments: str) -> tuple:
-    """Approve (with the possibly-edited body-only draft) or reject. Exactly
-    the current page's contract: final_body falls back to the stored draft."""
+                       final_body: Optional[str], comments: str, *,
+                       user: dict) -> tuple:
+    """Approve (with the possibly-edited body-only draft) or reject, AS the
+    given user (the platform enforces agent access and records the approver).
+    Exactly the current page's contract otherwise: final_body falls back to
+    the stored draft."""
+    try:
+        headers = _user_headers(user)
+    except NoUserIdentity as e:
+        return {"error": f"cannot act on an email approval without a user identity ({e})"}, 403
     body = {"action": action, "comments": comments or ""}
     if final_body is not None:
         body["final_body"] = final_body
@@ -250,7 +303,7 @@ async def decide_email(approval_id: int, action: str,
         async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(
                 f"{get_base_url()}/api/agent-email/approvals/{int(approval_id)}",
-                json=body, headers=_HEADERS)
+                json=body, headers=headers)
             try:
                 return r.json(), r.status_code
             except Exception:

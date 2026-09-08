@@ -206,7 +206,7 @@ class CallersPassTheRealRole(_StoreCase):
         import readthrough
         from fastapi.testclient import TestClient
 
-        async def _no_email():
+        async def _no_email(user):        # email_pending runs AS the viewer (F-7 part 2)
             return []
 
         seat = {}
@@ -233,6 +233,78 @@ class CallersPassTheRealRole(_StoreCase):
             d = client.get("/api/work/list").json()
             self.assertEqual([i["title"] for i in d["items"]], ["Send: Lease check"])
             self.assertEqual(d["total"], 1)
+
+
+@unittest.skipUnless(HAVE_SDK, "needs the aihub-agent env (claude_agent_sdk)")
+class EmailReadthroughRunsAsTheViewer(_StoreCase):
+    """F-7 part 2 (2026-09-08, customer-data leak): the agent-email source of
+    My Work used to be read with the service key and NO user, so every viewer
+    got every pending approval on the install, bodies included. Both My Work
+    routes now hand readthrough the VERIFIED principal (user_id + role), which
+    mints the X-AIHub-User assertion the platform scopes and attributes by.
+    The platform side and the assertion itself are pinned in
+    test_agent_email_approvals_identity.py (pytest, main-app env)."""
+
+    PROBE = {"approval_id": 5001, "agent_id": 1037, "status": "pending",
+             "subject": "PROBE lease renewal terms", "to_addresses": ["probe@example.com"],
+             "draft_body": "PROBE-BODY confidential rent figure 12345", "final_body": None}
+
+    def test_work_list_hands_email_pending_the_verified_principal(self):
+        import main
+        import readthrough
+        from fastapi.testclient import TestClient
+        seen = []
+
+        async def _email(user):
+            seen.append(dict(user))
+            if int(user.get("role") or 0) >= 3:
+                return [dict(self.PROBE)]
+            return []                     # the platform's 403 / scoped answer
+
+        seat = {}
+        with mock.patch.object(main, "_verify_request", lambda _r: dict(seat)), \
+             mock.patch.object(readthrough, "user_group_ids", lambda uid: []), \
+             mock.patch.object(readthrough, "workflow_pending", lambda uid: []), \
+             mock.patch.object(readthrough, "automation_pending", lambda uid, g: []), \
+             mock.patch.object(readthrough, "email_pending", _email):
+            client = TestClient(main.app)
+            seat.update({"user_id": CASEY, "role": 1, "username": "ru_casey",
+                         "name": "Casey", "tenant_id": 1})
+            r = client.get("/api/work/list")
+            self.assertEqual([i for i in r.json()["items"] if i["source"] == "email"], [])
+            self.assertNotIn("12345", r.text)
+            seat.update({"user_id": ADMIN, "role": 3, "username": "admin"})
+            emails = [i for i in client.get("/api/work/list").json()["items"]
+                      if i["source"] == "email"]
+            self.assertEqual(len(emails), 1)
+            self.assertIn("12345", emails[0]["payload"]["body"])
+        self.assertEqual([(s["user_id"], s["role"]) for s in seen],
+                         [(CASEY, 1), (ADMIN, 3)])
+
+    def test_work_decide_hands_decide_email_the_user_and_relays_a_403(self):
+        import main
+        import readthrough
+        from fastapi.testclient import TestClient
+        seen = []
+
+        async def _decide(approval_id, action, final_body, comments, *, user):
+            seen.append((approval_id, action, dict(user)))
+            return {"status": "error", "message": "Not authorized for this agent"}, 403
+
+        seat = {"user_id": CASEY, "role": 1, "username": "ru_casey", "name": "Casey",
+                "tenant_id": 1}
+        with mock.patch.object(main, "_verify_request", lambda _r: dict(seat)), \
+             mock.patch.object(readthrough, "decide_email", _decide):
+            client = TestClient(main.app)
+            r = client.post("/api/work/decide", json={"source": "email", "id": 5001,
+                                                      "decision": "reject", "title": "PROBE"})
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(seen, [(5001, "reject", seat)])
+        # a refused decision is not mirrored into the lifecycle log (no shadow row)
+        with W._LOCK, W._connect() as c:
+            n = c.execute("SELECT COUNT(*) FROM work_items WHERE from_kind='readthrough' "
+                          "AND blocks_kind='email' AND blocks_ref='5001'").fetchone()[0]
+        self.assertEqual(n, 0)
 
 
 if __name__ == "__main__":

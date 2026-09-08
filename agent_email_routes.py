@@ -37,6 +37,10 @@ def _get_current_user_role():
 
     API-key auth (AnonymousUserMixin) is a trusted internal caller, so it gets
     admin-level (3) agent access — mirroring _get_current_user_id()'s admin id.
+
+    NOTE: the approval routes do NOT read identity from these two helpers
+    directly — they go through _approval_actor(), which honours an
+    X-AIHub-User assertion first and only then falls back to them.
     """
     role = getattr(current_user, 'role', None)
     if role is not None:
@@ -659,12 +663,82 @@ def delete_agent_email_config(agent_id):
 # Per-user scoping via DataUtils.accessible_agent_ids (None=admin all-access,
 # []=deny-all fail-closed). Approve ACTIVELY sends (send_approved_email) since —
 # unlike workflow approvals — there is no executor thread polling for the result.
+#
+# WHO the routes act as (2026-09-08, RU pack finding F-7 part 2 — customer-data
+# leak): a service caller holding the tenant key used to collapse to the admin
+# fallback (user 1 / role 3), so The Agent's My Work read-through listed EVERY
+# pending approval on the install, bodies included, to every viewer, and a
+# regular user could settle someone else's approval with the audit row saying
+# admin did it. The approval routes now resolve their acting user from the
+# OPTIONAL X-AIHub-User assertion (AUD_INTERNAL) first — the same contract as
+# app._caller_identity() for the doc-acl G1-G3 routes:
+#   * assertion ABSENT           -> unchanged: session user, else the API-key
+#                                   admin fallback (scheduler/dispatcher posture)
+#   * assertion PRESENT + valid  -> that user: accessible_agent_ids scopes the
+#                                   list, role < 2 is denied outright, and the
+#                                   settled row records the REAL approver
+#   * assertion PRESENT + invalid-> 403, never "treat as missing"
 
-def _approval_agent_scope():
-    """(accessible_ids, is_admin) for the current user. accessible_ids is None
+class _InvalidUserAssertion(Exception):
+    """An X-AIHub-User assertion was PRESENT but did not verify (forged,
+    expired, wrong audience, no signing secret). Routes answer a hard 403."""
+
+
+def _asserted_identity():
+    """(user_id, role) from the OPTIONAL X-AIHub-User assertion, or (None, None)
+    when the header is absent. Raises _InvalidUserAssertion when it is present
+    but does not verify — a forged assertion that degrades to the admin fallback
+    would be worse than no scoping at all."""
+    assertion = request.headers.get('X-AIHub-User')
+    if not assertion:
+        return None, None
+    try:
+        import shared_auth
+        # verify_token returns (claims, error) — NOT a bare dict.
+        claims, err = shared_auth.verify_token(assertion, shared_auth.AUD_INTERNAL)
+    except Exception as e:
+        raise _InvalidUserAssertion(f"verify failed: {e}")
+    if err or not claims:
+        raise _InvalidUserAssertion(err or "no claims")
+    uid = shared_auth.claim_user_id(claims)
+    if uid is None:
+        raise _InvalidUserAssertion("assertion carries no subject")
+    try:
+        role = int(claims.get('role') or 0)
+    except (TypeError, ValueError):
+        role = 0
+    return uid, role
+
+
+def _approval_actor():
+    """(user_id, role, error_response) the approval routes act as.
+
+    Assertion first (The Agent's My Work acting for its signed-in user), else
+    the flask-login session user, else the API-key admin fallback — exactly
+    today's behaviour for identity-less service callers. error_response is a
+    ready (json, 403) pair when the caller may not act at all: a bad assertion,
+    or an asserted user below Developer (role 2) — the same bar the decorator
+    holds session users to, which the API-key path used to skip entirely."""
+    try:
+        uid, role = _asserted_identity()
+    except _InvalidUserAssertion as e:
+        logger.warning(f"[agent-email approvals] invalid X-AIHub-User assertion: {e}")
+        return None, None, (jsonify({'status': 'error',
+                                     'message': 'Invalid user assertion'}), 403)
+    if uid is None:
+        return _get_current_user_id(), _get_current_user_role(), None
+    if role < 2:
+        return None, None, (jsonify({'status': 'error',
+                                     'message': 'Developer access required',
+                                     'required_role': 2}), 403)
+    return uid, role, None
+
+
+def _approval_agent_scope(user_id, user_role):
+    """(accessible_ids, is_admin) for the acting user. accessible_ids is None
     for admins (no filter) or a list of agent ids (possibly empty = deny-all)."""
     from DataUtils import accessible_agent_ids
-    ids = accessible_agent_ids(_get_current_user_id(), _get_current_user_role())
+    ids = accessible_agent_ids(user_id, user_role)
     return ids, (ids is None)
 
 
@@ -706,11 +780,14 @@ def _attach_agent_names(approvals):
 @agent_email_bp.route('/api/agent-email/approvals', methods=['GET'])
 @api_key_or_session_required(min_role=2)
 def list_agent_email_approvals():
-    """List Agent Email Approvals visible to the current user (default: pending)."""
+    """List Agent Email Approvals visible to the acting user (default: pending)."""
     try:
         import agent_email_send
+        uid, role, denied = _approval_actor()
+        if denied:
+            return denied
         status = request.args.get('status', 'pending')
-        accessible_ids, _ = _approval_agent_scope()
+        accessible_ids, _ = _approval_agent_scope(uid, role)
         approvals = agent_email_send.list_approvals(status=status, agent_ids=accessible_ids)
         _attach_agent_names(approvals)
         # lightweight stats over the full (visible) queue, mirroring the workflow page
@@ -733,10 +810,13 @@ def get_agent_email_approval(approval_id):
     """Get a single Agent Email Approval (agent-access enforced)."""
     try:
         import agent_email_send
+        uid, role, denied = _approval_actor()
+        if denied:
+            return denied
         approval = agent_email_send.get_approval(approval_id)
         if not approval:
             return jsonify({'status': 'error', 'message': 'Approval not found'}), 404
-        accessible_ids, _ = _approval_agent_scope()
+        accessible_ids, _ = _approval_agent_scope(uid, role)
         if not _may_act_on_agent(approval.get('agent_id'), accessible_ids):
             return jsonify({'status': 'error', 'message': 'Not authorized for this agent'}), 403
         _attach_agent_names([approval])
@@ -761,17 +841,22 @@ def act_on_agent_email_approval(approval_id):
             return jsonify({'status': 'error',
                             'message': "action must be 'approve' or 'reject'"}), 400
 
+        uid, role, denied = _approval_actor()
+        if denied:
+            return denied
         approval = agent_email_send.get_approval(approval_id)
         if not approval:
             return jsonify({'status': 'error', 'message': 'Approval not found'}), 404
-        accessible_ids, _ = _approval_agent_scope()
+        accessible_ids, _ = _approval_agent_scope(uid, role)
         if not _may_act_on_agent(approval.get('agent_id'), accessible_ids):
             return jsonify({'status': 'error', 'message': 'Not authorized for this agent'}), 403
         if (approval.get('status') or '').lower() != 'pending':
             return jsonify({'status': 'error',
                             'message': f"Approval already {approval.get('status')}"}), 409
 
-        approver = _get_current_user_id()
+        # the settled row records the REAL approver (the asserted user when
+        # The Agent acts for someone), never the API-key admin fallback
+        approver = uid
         comments = data.get('comments')
         if action == 'reject':
             result = agent_email_send.reject_approval(approval_id, approver, comments)
