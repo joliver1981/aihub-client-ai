@@ -24,6 +24,12 @@ visible to that user only; an item with no user address is a group/anyone item
 visible to all Developer+ users until claimed (claiming hides it from others
 until released). True Groups-membership scoping arrives with the envelope
 enrichment in A3.
+
+The Developer+ half of that rule is enforced HERE, in list_items (role is a
+required argument), not at the front door. It used to hold implicitly because
+The Agent itself was Developer+ only; AGENT_ALLOW_ALL_USERS=true removed that
+guarantee and regular users saw the shared pool (RU pack finding F-7,
+2026-09-07). A role < 2 caller sees only items addressed to them.
 """
 
 import json
@@ -152,11 +158,21 @@ def get_item(item_id: str) -> Optional[dict]:
         return _row_to_dict(r) if r else None
 
 
-def list_items(user_id: int, *, include_closed: bool = False) -> list:
-    """Items this user can see (A2 visibility rules — see module docstring)."""
-    q = ("SELECT * FROM work_items WHERE "
-         "(addressed_user IS NULL OR addressed_user = ?) "
-         "AND from_kind != 'readthrough' ")  # shadow rows exist only for threads
+def list_items(user_id: int, *, role: int, include_closed: bool = False) -> list:
+    """Items this user can see (A2 visibility rules — see module docstring).
+
+    `role` is the caller's platform role (1 user, 2 developer, 3 admin) and is
+    REQUIRED, not defaulted: the unaddressed "anyone" pool is a Developer+
+    audience, and every caller (GET /api/work/list, the list_my_work tool)
+    converges here, so this is the one place the rule cannot drift from.
+    role < 2 -> only items addressed to this user; no shared-pool items at all.
+    """
+    if int(role or 0) >= 2:
+        q = ("SELECT * FROM work_items WHERE "
+             "(addressed_user IS NULL OR addressed_user = ?) ")
+    else:
+        q = "SELECT * FROM work_items WHERE addressed_user = ? "
+    q += "AND from_kind != 'readthrough' "  # shadow rows exist only for threads
     if not include_closed:
         q += "AND status IN ('open', 'claimed') "
     q += "ORDER BY priority DESC, created_at DESC LIMIT 200"

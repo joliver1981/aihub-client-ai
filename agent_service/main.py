@@ -472,7 +472,8 @@ def _parse_approval_data(raw):
 async def work_list(request: Request):
     user = _verify_request(request)
     uid = int(user["user_id"] or 0)
-    items = [_agent_item_view(i) for i in workitem_store.list_items(uid)]
+    items = [_agent_item_view(i) for i in workitem_store.list_items(
+        uid, role=int(user.get("role") or 0))]
 
     group_ids = readthrough.user_group_ids(uid)
     for row in readthrough.workflow_pending(uid):

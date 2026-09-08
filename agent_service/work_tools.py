@@ -92,12 +92,13 @@ async def raise_work_item(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "list_my_work",
     "List the open items in the current user's My Work queue (their personal "
-    "items plus unclaimed shared items).",
+    "items plus, for Developer+ users, the unclaimed shared items).",
     {},
 )
 async def list_my_work(args: dict[str, Any]) -> dict[str, Any]:
     user = CURRENT_USER.get()
-    items = workitem_store.list_items(int(user.get("user_id") or 0))
+    items = workitem_store.list_items(int(user.get("user_id") or 0),
+                                      role=int(user.get("role") or 0))
     if not items:
         return _text("The My Work queue is empty — nothing is waiting on you.")
     lines = []
