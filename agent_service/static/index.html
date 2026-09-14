@@ -173,6 +173,11 @@
           color:var(--text3);margin-bottom:7px}
   .kv{font-size:12.5px;color:var(--text2)}
   .kv b{color:var(--text)}
+  .attachments{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:9px}
+  .attachments .dlabel{width:100%;margin-bottom:0}
+  a.attlink{display:inline-block;background:var(--accent-tint);border:1px solid var(--accent-line);
+            border-radius:9px;padding:4px 11px;font-size:12px;color:var(--text);text-decoration:none}
+  a.attlink:hover{background:var(--hover)}
   .mailrow{display:flex;gap:10px;padding:2px 0;font-size:12.5px}
   .mailrow .k{font-family:var(--mono);font-size:10px;color:var(--text3);width:56px;flex:none;padding-top:2px}
   .actions{display:flex;gap:9px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line-soft);
@@ -3132,15 +3137,49 @@
       if (item.source === "automation") {
         kv.innerHTML = `automation <b>${p.automation_id || "?"}</b>` +
           (p.run_id ? ` · run <b>${p.run_id}</b>` : "") +
-          (p.dry_run ? " · dry-run" : "") +
-          ((p.attachments || []).length
-            ? `<br>attachments: ${(p.attachments || []).map(a => a.name).join(", ")}` : "");
+          (p.dry_run ? " · dry-run" : "");
       } else {
         kv.innerHTML = Object.entries(p).slice(0, 8)
           .map(([k, v]) => `${k}: <b>${String(v).slice(0, 120)}</b>`).join("<br>") ||
           "(no extra data)";
       }
-      sec.appendChild(kv); detailEl.appendChild(sec);
+      sec.appendChild(kv);
+      // Attachments — parity with classic My Approvals (templates/approvals.html
+      // populateModal), james 2026-09-13: they rendered here as plain names with
+      // no way to get the file. A checkpoint GATE serves its files through the
+      // run/checkpoint route, a review item through the approval-row route
+      // (item.id IS that row's request_id — the same id /api/work/decide
+      // settles). Both routes live on the MAIN app behind its login session +
+      // Developer/Admin role (automations_gate) and serve only names the row
+      // declared, so the links point at the main-app origin via platUrl and
+      // ride the browser's AI Hub session cookie like every Platform link here.
+      // The main app answers Content-Disposition: attachment, so the new tab
+      // just downloads; a 403/410 error shows there instead of replacing this
+      // page.
+      if (item.source === "automation") {
+        const atts = (Array.isArray(p.attachments) ? p.attachments : [])
+          .filter(a => a && a.name);
+        if (atts.length) {
+          const wrap = el("div", "attachments");
+          wrap.appendChild(el("div", "dlabel", "Attachments"));
+          // main.py: verb "review" <=> kind == "review" or no checkpoint_id —
+          // the classic page's `!isReview && run_id && checkpoint_id` predicate
+          const isGate = item.verb !== "review" && p.run_id && p.checkpoint_id;
+          atts.forEach(a => {
+            const name = encodeURIComponent(String(a.name));
+            const path = isGate
+              ? `/automations/api/runs/${encodeURIComponent(p.run_id)}/checkpoints/${encodeURIComponent(p.checkpoint_id)}/attachments/${name}`
+              : `/automations/api/approvals/${encodeURIComponent(item.id)}/attachments/${name}`;
+            const kb = a.size != null ? ` (${Math.max(1, Math.round(a.size / 1024))} KB)` : "";
+            const link = el("a", "attlink", `${a.name}${kb} ↓`);
+            link.href = platUrl(path); link.target = "_blank"; link.rel = "noopener";
+            link.title = "Download from AI Hub (uses your AI Hub sign-in)";
+            wrap.appendChild(link);
+          });
+          sec.appendChild(wrap);
+        }
+      }
+      detailEl.appendChild(sec);
 
       // Review items (non-blocking automation exceptions) vs checkpoint
       // GATES (a paused run): same decide endpoint, different meaning —
