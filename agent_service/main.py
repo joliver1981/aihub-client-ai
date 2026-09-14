@@ -332,7 +332,8 @@ async def headless_run(request: Request):
             user_ctx.pop("chat_session_id", None)
             texts, tools_run, final = await _drive(None, ctx_line + "\n\n" + prompt)
         else:
-            chat_history.touch(user_ctx["user_id"], resume_sid, "")  # float to the top of history
+            # float to the top of history + mark it unread there until the owner opens it
+            chat_history.touch(user_ctx["user_id"], resume_sid, "", result=True)
             bump_session_version(resume_sid)      # live UI: the conversation changed
     else:
         texts, tools_run, final = await _drive(None, ctx_line + "\n\n" + prompt)
@@ -476,8 +477,9 @@ async def chat(request: Request):
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
         # Chat-history ledger (CC-parity): title = the conversation's FIRST
         # message (only the INSERT sets it; later turns just bump counters).
+        # opened=True: the user's own turn means they are looking at it.
         import chat_history
-        chat_history.touch(int(user["user_id"] or 0), final_sid or "", message)
+        chat_history.touch(int(user["user_id"] or 0), final_sid or "", message, opened=True)
         yield "data: {\"type\": \"done\"}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream",
@@ -1381,17 +1383,27 @@ async def serve_offered_file(file_id: str, request: Request):
 
 @app.get("/api/chat/history")
 async def chat_history_list(request: Request):
+    """Past conversations, newest first. Each carries `unread` (a deferred
+    result landed since the owner last opened it); `unread` at the top level
+    is the count across ALL the user's conversations — the History badge."""
     user = _verify_request(request)
     import chat_history
-    return {"sessions": chat_history.list_sessions(int(user["user_id"] or 0))}
+    uid = int(user["user_id"] or 0)
+    return {"sessions": chat_history.list_sessions(uid),
+            "unread": chat_history.unread_count(uid)}
 
 
 @app.get("/api/chat/history/{hist_session_id}")
 async def chat_history_replay(hist_session_id: str, request: Request):
     user = _verify_request(request)
     import chat_history
-    if not chat_history.owns_session(int(user["user_id"] or 0), hist_session_id):
+    uid = int(user["user_id"] or 0)
+    if not chat_history.owns_session(uid, hist_session_id):
         raise HTTPException(404, "conversation not found")
+    # Replaying IS reading it: clears the unread marker on History. The live
+    # poll re-renders an OPEN conversation through this same route, so a
+    # result that lands while the user sits on it never shows as unread.
+    chat_history.mark_opened(uid, hist_session_id)
     return {"session_id": hist_session_id,
             "turns": chat_history.replay(hist_session_id)}
 

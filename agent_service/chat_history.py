@@ -127,6 +127,20 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _now_precise() -> str:
+    # result_at / opened_at are compared to each other as strings (same format,
+    # same writer) — microseconds keep "opened right as a result landed" honest
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+# Unread = a deferred result landed (result_at) that the owner has not looked at
+# since (opened_at). Both columns are written by this module only, in the same
+# format, so a plain string comparison is a time comparison. NULL result_at
+# (every conversation from before this ledger column, and every conversation
+# no service turn ever touched) is never unread.
+_UNREAD_SQL = "(result_at IS NOT NULL AND (opened_at IS NULL OR result_at > opened_at))"
+
+
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
@@ -148,35 +162,90 @@ def init() -> None:
         CREATE INDEX IF NOT EXISTS chat_sessions_user
             ON chat_sessions (user_id, updated_at DESC);
         """)
+        # Unread markers on History (james 2026-09-13, replaces the deferred-
+        # result toast): additive columns, NULL for every existing row — old
+        # conversations never surface as unread (this is "since your last
+        # visit" going forward, not a backfill of every unacknowledged FYI).
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(chat_sessions)")}
+        for col in ("result_at", "opened_at"):
+            if col not in cols:
+                c.execute(f"ALTER TABLE chat_sessions ADD COLUMN {col} TEXT")
     logger.info("chat history ledger ready")
 
 
-def touch(user_id: int, session_id: str, first_message: str) -> None:
-    """Record/refresh a session after a completed turn. Never raises."""
+def touch(user_id: int, session_id: str, first_message: str, *,
+          opened: bool = False, result: bool = False) -> None:
+    """Record/refresh a session after a completed turn. Never raises.
+
+    `opened=True` = the user was present for this turn (their own /api/chat
+    message) — it counts as having read the conversation. `result=True` = the
+    SERVICE appended a deferred result (scheduled run, portal-run update) —
+    the conversation shows as unread on History until the owner opens it.
+    """
     if not session_id:
         return
     try:
         now = _now()
+        stamp = _now_precise()
+        opened_at = stamp if opened else None
+        result_at = stamp if result else None
         title = " ".join(str(first_message or "").split())[:120]
         with _LOCK, _connect() as c:
             c.execute(
                 "INSERT INTO chat_sessions (session_id, user_id, title, turns,"
-                " created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
+                " created_at, updated_at, opened_at, result_at)"
+                " VALUES (?, ?, ?, 1, ?, ?, ?, ?)"
                 " ON CONFLICT(session_id) DO UPDATE SET"
-                " turns = turns + 1, updated_at = ?",
-                (session_id, int(user_id), title, now, now, now))
+                " turns = turns + 1, updated_at = ?,"
+                " opened_at = COALESCE(?, opened_at),"
+                " result_at = COALESCE(?, result_at)",
+                (session_id, int(user_id), title, now, now, opened_at, result_at,
+                 now, opened_at, result_at))
     except Exception as e:
         logger.warning(f"chat history touch failed (non-fatal): {e}")
 
 
+def mark_opened(user_id: int, session_id: str) -> None:
+    """The owner looked at this conversation (history replay) — clears its
+    unread marker. Owner-scoped: someone else's replay attempt (already a 404
+    upstream) can never mark a conversation read. Never raises."""
+    if not session_id:
+        return
+    try:
+        with _LOCK, _connect() as c:
+            c.execute("UPDATE chat_sessions SET opened_at = ? "
+                      "WHERE session_id = ? AND user_id = ?",
+                      (_now_precise(), session_id, int(user_id)))
+    except Exception as e:
+        logger.warning(f"chat history mark_opened failed (non-fatal): {e}")
+
+
 def list_sessions(user_id: int, limit: int = 30) -> list:
+    """Newest-updated first. `unread` = a deferred result landed since the owner
+    last opened it (see _UNREAD_SQL); a deferred turn also bumps updated_at, so
+    an unread conversation is always near the top of the list."""
     with _connect() as c:
         rows = c.execute(
-            "SELECT session_id, title, turns, created_at, updated_at "
+            "SELECT session_id, title, turns, created_at, updated_at, "
+            "result_at, opened_at, " + _UNREAD_SQL + " AS unread "
             "FROM chat_sessions WHERE user_id = ? "
             "ORDER BY updated_at DESC LIMIT ?",
             (int(user_id), int(limit))).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["unread"] = bool(d.get("unread"))
+        out.append(d)
+    return out
+
+
+def unread_count(user_id: int) -> int:
+    """How many of this user's conversations hold a deferred result they have
+    not opened since — the badge on the History button."""
+    with _connect() as c:
+        r = c.execute("SELECT COUNT(*) FROM chat_sessions WHERE user_id = ? AND "
+                      + _UNREAD_SQL, (int(user_id),)).fetchone()
+    return int(r[0] if r else 0)
 
 
 def owns_session(user_id: int, session_id: str) -> bool:

@@ -392,7 +392,7 @@ async def _resume_conversation(watch: dict, res: dict) -> dict:
         brain.clear_inflight(sid)
     if final.get("type") == "error" and not texts and not tools_run:
         return {"resumed": False, "why": f"resume failed: {final.get('error')}"}
-    chat_history.touch(uid, sid, "")          # float the conversation to the top
+    chat_history.touch(uid, sid, "", result=True)   # float to the top + unread on History
     brain.bump_session_version(sid)           # live UI: "this conversation changed"
     summary = "\n\n".join(texts).strip()
     _raise_fyi(watch, ok, what, summary or f"The portal run {what}.", sid)

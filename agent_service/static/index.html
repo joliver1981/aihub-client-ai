@@ -291,6 +291,14 @@
   .histitem:hover{background:var(--hover);border-color:var(--line)}
   .histitem .ht{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .histitem .hm{font-family:var(--mono);font-size:10.5px;color:var(--text3)}
+  /* unread markers on History (2026-09-13): badge = conversations with a new deferred result */
+  #histbtn{position:relative}
+  .hbadge{position:absolute;top:-7px;right:-7px;min-width:17px;height:17px;padding:0 5px;border-radius:999px;
+          background:var(--accent);color:var(--accent-ink);font-family:var(--mono);font-size:10px;font-weight:600;
+          display:flex;align-items:center;justify-content:center;line-height:1}
+  .histitem.unread .ht{font-weight:600}
+  .hdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:1px}
+  .hnew{color:var(--accent)}
 
   /* platform directory (rail row + flyout over the content area) */
   .plat{border-top:1px solid var(--line-soft);margin-top:8px;padding-top:6px;flex:none}
@@ -401,7 +409,7 @@
       <input type="file" id="filein" multiple style="display:none">
       <button class="send" id="send">Send</button>
       <button class="newchat" id="newchat" title="Start fresh">New</button>
-      <button class="newchat" id="histbtn" title="Past conversations">⌛</button>
+      <button class="newchat" id="histbtn" title="Past conversations">⌛<span id="hist-unread" class="hbadge" style="display:none"></span></button>
     </div>
     <div id="hist-pop" style="display:none;position:absolute;bottom:100%;right:0;margin-bottom:8px;width:420px;max-height:340px;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:10px;box-shadow:0 8px 30px rgba(0,0,0,.35);z-index:50"></div>
   </div>
@@ -2829,17 +2837,26 @@
     try {
       const r = await fetch("/api/chat/history", { headers: H() });
       const d = await r.json();
+      setHistUnread(d.unread);
       histPop.innerHTML = "";
       if (!(d.sessions || []).length) {
         histPop.appendChild(el("div", "qfrom", "No past conversations yet."));
         return;
       }
       d.sessions.forEach(s => {
-        const b = el("button", "histitem");
-        b.appendChild(el("div", "ht", s.title || "(untitled conversation)"));
-        b.appendChild(el("div", "hm",
+        const b = el("button", "histitem" + (s.unread ? " unread" : ""));
+        const t = el("div", "ht");
+        if (s.unread) t.appendChild(el("span", "hdot"));
+        t.appendChild(document.createTextNode(s.title || "(untitled conversation)"));
+        b.appendChild(t);
+        const m = el("div", "hm",
           `${fmtLocal(s.updated_at)} · ${s.turns} turn${s.turns === 1 ? "" : "s"}`
-          + (s.session_id === sessionId ? " · current" : "")));
+          + (s.session_id === sessionId ? " · current" : ""));
+        if (s.unread) {
+          m.appendChild(document.createTextNode(" · "));
+          m.appendChild(el("span", "hnew", "new result"));
+        }
+        b.appendChild(m);
         b.onclick = () => { histPop.style.display = "none"; openHistory(s); };
         histPop.appendChild(b);
       });
@@ -2849,6 +2866,33 @@
     if (histPop.style.display !== "none" && !histPop.contains(e.target)
         && e.target.id !== "histbtn") histPop.style.display = "none";
   });
+  // ---- unread markers on History (james 2026-09-13; replaced the "N results
+  // were added to your conversations" toast): the server flags a conversation
+  // when a deferred result (scheduled run / portal-run update) landed in it
+  // after the owner last opened it. The ⌛ badge = how many; each such row in
+  // the list shows a dot + "new result"; opening one (history replay) clears
+  // it — and so does the live poll re-rendering a conversation that is open
+  // on screen when its result lands.
+  const histBadge = document.getElementById("hist-unread");
+  function setHistUnread(n) {
+    n = Number(n) || 0;
+    histBadge.textContent = n > 99 ? "99+" : String(n);
+    histBadge.style.display = n ? "" : "none";
+    document.getElementById("histbtn").title = n
+      ? `Past conversations — ${n} with a new result` : "Past conversations";
+  }
+  async function refreshHistoryUnread() {
+    try {
+      const r = await fetch("/api/chat/history", { headers: H() });
+      if (!r.ok) return;
+      setHistUnread((await r.json()).unread);
+    } catch {}
+  }
+  // results land while the page sits idle: keep the badge current (visible tabs only)
+  setInterval(() => { if (document.visibilityState === "visible") refreshHistoryUnread(); }, 60000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshHistoryUnread(); });
+
   function renderTurns(turns) {
     document.getElementById("hello")?.remove();
     thread.innerHTML = "";
@@ -2885,6 +2929,7 @@
         + "Use New to start fresh.");
       note.style.borderColor = "var(--accent-line)";
       thread.appendChild(note); scroll();
+      refreshHistoryUnread();       // the replay marked it opened — drop it from the badge
     } catch {}
   }
 
@@ -2951,46 +2996,7 @@
       const d = await r.json();
       const c = document.getElementById("work-count");
       c.textContent = d.total; c.style.display = d.total ? "" : "none";
-      announceDeferred(d.items || []);
-    } catch {}
-  }
-  // ---- deferred-result nudge (Level 1, no live push): when a scheduled task
-  // has landed its result in a conversation, say so ONCE — on open and after
-  // turns (refreshWorkCount runs at both) — with a one-click way to read it.
-  // Also for portal-run updates (2026-08-23): a run the user took over /
-  // handed back finished and its result landed in the conversation. Not shown
-  // when THAT conversation is already open here — the live poll renders it in
-  // place (the toast would only repeat it).
-  function announceDeferred(items) {
-    try {
-      const seen = new Set(JSON.parse(sessionStorage.getItem("agent_deferred_seen") || "[]"));
-      const KINDS = { headless_run: "scheduled", portal_run_update: "portal" };
-      const fresh = items.filter(i => i.source === "agent" && i.status === "open"
-        && KINDS[(i.payload || {}).kind] && i.payload.chat_session_id
-        && !seen.has(i.id));
-      if (!fresh.length) return;
-      fresh.forEach(i => seen.add(i.id));
-      sessionStorage.setItem("agent_deferred_seen", JSON.stringify([...seen].slice(-200)));
-      const first = fresh[0];
-      if (fresh.length === 1 && first.payload.chat_session_id === sessionId
-          && views.chat.classList.contains("on")) return;
-      document.getElementById("deferred-toast")?.remove();
-      const t = el("div", "guard-note"); t.id = "deferred-toast";
-      t.style.cssText = "position:fixed;right:18px;bottom:96px;z-index:60;max-width:380px;"
-        + "border-color:var(--accent-line);display:flex;gap:8px;align-items:center;flex-wrap:wrap";
-      const title = String(first.title || "").replace(/^[✓⚠] /, "");
-      const portal = KINDS[first.payload.kind] === "portal";
-      t.appendChild(el("span", "", (portal ? "🌐 " : "⏰ ") + (fresh.length === 1
-        ? `"${title}" — the result was added to your conversation.`
-        : `${fresh.length} results were added to your conversations.`)));
-      const open = el("button", "btn primary", "Open");
-      open.onclick = () => { t.remove(); show("chat");
-                             openHistory({ session_id: first.payload.chat_session_id }); };
-      const later = el("button", "btn", "Later");
-      later.onclick = () => t.remove();
-      t.append(open, later);
-      document.body.appendChild(t);
-      setTimeout(() => { if (t.isConnected) t.remove(); }, 45000);
+      refreshHistoryUnread();   // same cadence as the badge: boot, after turns, live updates
     } catch {}
   }
 

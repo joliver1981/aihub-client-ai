@@ -202,7 +202,7 @@ class Harness:
                      _service_key_ok=lambda r: True), \
              patched(main.workitem_store, create_item=self.fake_create_item), \
              patched(chat_history, owns_session=lambda uid, sid: self.owns,
-                     touch=lambda uid, sid, msg: self.touched.append((uid, sid))):
+                     touch=lambda uid, sid, msg, **kw: self.touched.append((uid, sid, kw))):
             client = TestClient(main.app)          # no lifespan (no pollers started)
             r = client.post("/api/run", json=body)
         return r
@@ -248,7 +248,7 @@ def test_run_with_session_id_resumes_that_conversation():
     item = h.items[0]
     assert item["payload"]["chat_session_id"] == "conv-1"     # deep-link
     assert item["payload"]["kind"] == "headless_run" and item["verb"] == "acknowledge"
-    assert h.touched == [(TEST_UID, "conv-1")]                # floats to the top of history
+    assert h.touched == [(TEST_UID, "conv-1", {"result": True})]   # floats to the top + unread on History
     assert not brain.is_inflight("conv-1")
 
 
