@@ -374,6 +374,108 @@
           "updated_at": "2026-09-05T23:45:07+00:00",
           "success_count": 0,
           "last_run_status": null
+        },
+        "latest_invoice_download_2": {
+          "name": "Latest Invoice Download",
+          "portal_slug": null,
+          "start_url": "http://localhost:3000/login",
+          "goal": "Download the latest invoice",
+          "agent_oversight": true,
+          "takeover_timeout": null,
+          "steps": [
+            {
+              "type": "goto",
+              "url": "http://localhost:3000/login"
+            },
+            {
+              "type": "login",
+              "username_anchor": {
+                "text": "Username",
+                "css": "#username",
+                "xpath": "html/body/main/form/input[1]"
+              },
+              "password_anchor": {
+                "text": "Password",
+                "css": "#password",
+                "xpath": "html/body/main/form/input[2]"
+              },
+              "submit_anchor": {
+                "role": "button",
+                "text": "Sign in",
+                "css": "#signin",
+                "xpath": "html/body/main/form/button"
+              }
+            },
+            {
+              "type": "verify_code",
+              "reason": "Enter the verification / 2-step (2FA) code",
+              "timeout": 900
+            },
+            {
+              "type": "click",
+              "anchor": {
+                "role": "link",
+                "text": "Download",
+                "css": "#dl-latest",
+                "xpath": "html/body/main/div/table/tbody/tr[2]/td[4]/a"
+              }
+            }
+          ],
+          "created_at": "2026-09-08T20:55:09+00:00",
+          "updated_at": "2026-09-08T20:55:09+00:00",
+          "success_count": 0,
+          "last_run_status": null
+        },
+        "download_latest_invoice": {
+          "name": "Download Latest Invoice",
+          "portal_slug": null,
+          "start_url": "http://localhost:3000/login",
+          "goal": "download the latest invoice",
+          "agent_oversight": true,
+          "takeover_timeout": null,
+          "steps": [
+            {
+              "type": "goto",
+              "url": "http://localhost:3000/login"
+            },
+            {
+              "type": "login",
+              "username_anchor": {
+                "text": "Username",
+                "css": "#username",
+                "xpath": "html/body/main/form/input[1]"
+              },
+              "password_anchor": {
+                "text": "Password",
+                "css": "#password",
+                "xpath": "html/body/main/form/input[2]"
+              },
+              "submit_anchor": {
+                "role": "button",
+                "text": "Sign in",
+                "css": "#signin",
+                "xpath": "html/body/main/form/button"
+              }
+            },
+            {
+              "type": "verify_code",
+              "reason": "Enter the verification / 2-step (2FA) code",
+              "timeout": 900
+            },
+            {
+              "type": "click",
+              "anchor": {
+                "role": "link",
+                "text": "Download",
+                "css": "#dl-latest",
+                "xpath": "html/body/main/div/table/tbody/tr[2]/td[4]/a"
+              }
+            }
+          ],
+          "created_at": "2026-09-09T00:28:55+00:00",
+          "updated_at": "2026-09-09T00:28:55+00:00",
+          "success_count": 0,
+          "last_run_status": null
         }
       }
     },
