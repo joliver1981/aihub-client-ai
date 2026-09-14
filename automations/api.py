@@ -2333,9 +2333,17 @@ def internal_manage():
         if action == "reap":
             # Manual sweep of orphaned runs (the same function the startup
             # hook runs) — ops convenience for "why is Live Now haunted?".
+            # unseen='reap' also finalizes runs whose working directory is
+            # not visible from this host (default 'skip' leaves them for the
+            # host that owns them — their approval rows can't be settled
+            # from here; see AutomationRunner.reap_orphan_runs).
+            unseen = payload.get("unseen", "skip")
+            if unseen not in ("skip", "reap"):
+                return jsonify({"error": "unseen must be 'skip' or 'reap'"}), 400
             reaped = runner.reap_orphan_runs(
                 grace_s=int(payload.get("grace_s", 300)),
-                stale_s=int(payload.get("stale_s", 180)))
+                stale_s=int(payload.get("stale_s", 180)),
+                unseen=unseen)
             return jsonify({"reaped": reaped, "count": len(reaped)})
 
         if action == "sweep_ephemeral":

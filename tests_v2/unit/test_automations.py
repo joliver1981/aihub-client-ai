@@ -1685,6 +1685,40 @@ class TestCheckpointApprovalBridge:
         # the decided checkpoint's row is untouched (still whatever it was)
         assert approval_store.get_row(mgr.base_path, done_row["request_id"])["status"] == "Pending"
 
+    def test_finish_cancels_gate_rows_decided_without_the_queue_mirror(self, mgr, tmp_path,
+                                                                       monkeypatch):
+        """Mirror of the test above for the REAPER's order of operations
+        (2026-09-14): the gate file is already decided 'abort' (no queue
+        mirror) when the finalize chokepoint runs, so the undecided-checkpoint
+        pass finds nothing — the row is keyed by its own approval_data.run_id
+        and cancelled anyway. A row the mirror DID settle keeps its decision;
+        another run's row is untouched."""
+        from automations import checkpoints as cp
+        from automations import approval_store
+        workdir = tmp_path / "wd"
+        workdir.mkdir()
+        (workdir / "run.log").write_text("")
+        gate = cp.create_checkpoint(str(workdir), "gate")
+        row = approval_store.add_row(mgr.base_path, "gate", "d", 13, json.dumps(
+            {"source": "automation", "run_id": "run-z", "checkpoint_id": gate["checkpoint_id"]}))
+        cp.set_approval_request_id(str(workdir), gate["checkpoint_id"], row["request_id"])
+        cp.decide_checkpoint(str(workdir), gate["checkpoint_id"], "abort", "system:reaper")
+        mirrored = approval_store.add_row(mgr.base_path, "mirrored", "d", 13, json.dumps(
+            {"source": "automation", "run_id": "run-z", "checkpoint_id": "other"}))
+        approval_store.settle_row(mgr.base_path, mirrored["request_id"], "Approved", 13)
+        other_run = approval_store.add_row(mgr.base_path, "other run", "d", 13, json.dumps(
+            {"source": "automation", "run_id": "run-q", "checkpoint_id": "x"}))
+
+        runner = StubRunner(mgr)
+        monkeypatch.setattr(runner, "_db_get_run",
+                            lambda rid: {"run_id": rid, "log_path": str(workdir / "run.log")})
+        runner._cancel_open_checkpoint_approvals("run-z")
+        settled = approval_store.get_row(mgr.base_path, row["request_id"])
+        assert settled["status"] == "Cancelled" and settled["responded_by"] == "system:run-finished"
+        assert "before this gate was decided" in settled["comments"]
+        assert approval_store.get_row(mgr.base_path, mirrored["request_id"])["status"] == "Approved"
+        assert approval_store.get_row(mgr.base_path, other_run["request_id"])["status"] == "Pending"
+
     # -- SDK sends files/assignee -------------------------------------------
     def test_sdk_checkpoint_posts_files_and_assignee(self, monkeypatch, tmp_path):
         import importlib
@@ -2162,6 +2196,88 @@ class TestOrphanReaper:
         decided = cp.get_checkpoint(os.path.dirname(stale["log_path"]), gate["checkpoint_id"])
         assert decided["decision"] == "abort" and decided["decided_by"] == "system:reaper"
 
+    # -- the 2026-09-14 gap: a reaped run's rows stayed Pending ------------
+    def test_reap_cancels_the_runs_gate_and_review_rows(self, mgr, tmp_path, monkeypatch):
+        """The reap path end to end. StubRunner's _db_finish_run does NOT run
+        the chokepoint cancel, so this pins the reaper's OWN cancel: a stale
+        run with an undecided bridged gate and a pending review item -> both
+        rows Cancelled (gate in the reaper's name, review as an expired
+        window), the gate file aborted, the run finalized; a row that belongs
+        to another run is untouched."""
+        from automations import checkpoints as cp
+        from automations import approval_store
+        stale = self._mk_run(tmp_path, "stale", hb_age=600)
+        wd = os.path.dirname(stale["log_path"])
+        gate = cp.create_checkpoint(wd, "pending gate")
+        gate_row = approval_store.add_row(mgr.base_path, "gate", "d", 13, json.dumps(
+            {"source": "automation", "run_id": "run-stale", "checkpoint_id": gate["checkpoint_id"]}))
+        cp.set_approval_request_id(wd, gate["checkpoint_id"], gate_row["request_id"])
+        review_row = approval_store.add_row(mgr.base_path, "review", "d", 13, json.dumps(
+            {"source": "automation", "kind": "review", "run_id": "run-stale"}))
+        bystander = approval_store.add_row(mgr.base_path, "bystander", "d", 13, json.dumps(
+            {"source": "automation", "run_id": "run-live", "checkpoint_id": "c9"}))
+
+        runner = StubRunner(mgr)
+        runner.runs["run-stale"] = dict(stale)
+        monkeypatch.setattr(runner, "_db_list_nonterminal_runs", lambda: [stale])
+        report = runner.reap_orphan_runs()
+        assert [r["run_id"] for r in report] == ["run-stale"]
+        assert runner.runs["run-stale"]["status"] == "aborted"
+        g = approval_store.get_row(mgr.base_path, gate_row["request_id"])
+        assert g["status"] == "Cancelled" and g["responded_by"] == "system:reaper"
+        assert "orphan reaper" in g["comments"] and "heartbeat 600s stale" in g["comments"]
+        rv = approval_store.get_row(mgr.base_path, review_row["request_id"])
+        assert rv["status"] == "Cancelled" and rv["responded_by"] == "system:review-window-closed"
+        assert approval_store.get_row(mgr.base_path, bystander["request_id"])["status"] == "Pending"
+        assert cp.get_checkpoint(wd, gate["checkpoint_id"])["decision"] == "abort"
+
+    def test_reap_cancels_rows_even_when_the_gate_file_is_decided_first(self, mgr, tmp_path,
+                                                                        monkeypatch):
+        """Order of operations no longer matters: a gate file already decided
+        (an earlier reaper pass, or Mission Control without the mirror) still
+        gets its Pending row cancelled when the run is reaped."""
+        from automations import checkpoints as cp
+        from automations import approval_store
+        stale = self._mk_run(tmp_path, "stale", hb_age=600)
+        wd = os.path.dirname(stale["log_path"])
+        gate = cp.create_checkpoint(wd, "gate")
+        row = approval_store.add_row(mgr.base_path, "gate", "d", 13, json.dumps(
+            {"source": "automation", "run_id": "run-stale", "checkpoint_id": gate["checkpoint_id"]}))
+        cp.set_approval_request_id(wd, gate["checkpoint_id"], row["request_id"])
+        cp.decide_checkpoint(wd, gate["checkpoint_id"], "abort", "system:reaper")
+        runner = StubRunner(mgr)
+        runner.runs["run-stale"] = dict(stale)
+        monkeypatch.setattr(runner, "_db_list_nonterminal_runs", lambda: [stale])
+        runner.reap_orphan_runs()
+        assert approval_store.get_row(mgr.base_path, row["request_id"])["status"] == "Cancelled"
+
+    def test_reap_leaves_runs_it_cannot_observe_unless_forced(self, mgr, tmp_path, monkeypatch):
+        """2026-09-14: a sweep that could not see this tree's files finalized a
+        live dry-run as 'heartbeat absent' and left its approval rows Pending.
+        A run whose workdir is not visible from this process cannot be judged
+        dead: the automatic sweep leaves it for its owner; ops can force it
+        (unseen='reap'), and an unknown mode is a loud error."""
+        import datetime
+        long_ago = datetime.datetime.utcnow() - datetime.timedelta(hours=2)
+        ghost = {"run_id": "run-ghost", "automation_id": "auto-r", "status": "waiting",
+                 "log_path": str(tmp_path / "elsewhere" / "run.log"), "started_at": long_ago}
+        nopath = {"run_id": "run-nopath", "automation_id": "auto-r", "status": "running",
+                  "log_path": None, "started_at": long_ago}
+        stale = self._mk_run(tmp_path, "stale", hb_age=600)
+        runner = StubRunner(mgr)
+        monkeypatch.setattr(runner, "_db_list_nonterminal_runs", lambda: [ghost, nopath, stale])
+        finished = []
+        monkeypatch.setattr(runner, "_db_finish_run",
+                            lambda run_id, status, *a: finished.append((run_id, a[-1])))
+        assert {r["run_id"] for r in runner.reap_orphan_runs()} == {"run-stale"}
+        assert [f[0] for f in finished] == ["run-stale"]
+        finished.clear()
+        forced = runner.reap_orphan_runs(unseen="reap")
+        assert {r["run_id"] for r in forced} == {"run-ghost", "run-nopath", "run-stale"}
+        assert all("absent" in note for rid, note in finished if rid != "run-stale")
+        with pytest.raises(ValueError):
+            runner.reap_orphan_runs(unseen="maybe")
+
     def test_supervision_loop_writes_heartbeat(self):
         src = Path(__file__).resolve().parents[2].joinpath(
             "automations", "runner.py").read_text(encoding="utf-8", errors="replace")
@@ -2172,19 +2288,31 @@ class TestOrphanReaper:
         import automations.api as api_mod
         monkeypatch.setenv("API_KEY", "svc-key-reap")
         runner = StubRunner(mgr)
-        monkeypatch.setattr(runner, "reap_orphan_runs",
-                            lambda grace_s=300, stale_s=180: [{"run_id": "r1"}])
+        seen = []
+
+        def fake_reap(grace_s=300, stale_s=180, unseen="skip"):
+            seen.append(unseen)
+            return [{"run_id": "r1"}]
+        monkeypatch.setattr(runner, "reap_orphan_runs", fake_reap)
         monkeypatch.setattr(api_mod, "_manager", mgr)
         monkeypatch.setattr(api_mod, "_runner", runner)
         monkeypatch.setattr(api_mod, "_tables_ensured", True)
         app = Flask(__name__)
         app.register_blueprint(api_mod.automations_bp)
-        r = app.test_client().post("/automations/api/internal/manage",
-                                   headers={"X-API-Key": "svc-key-reap"},
-                                   json={"action": "reap",
-                                         "user_context": {"user_id": 7, "role": 2, "username": "dev"},
-                                         "payload": {}})
+        client = app.test_client()
+        headers = {"X-API-Key": "svc-key-reap"}
+        uc = {"user_id": 7, "role": 2, "username": "dev"}
+        r = client.post("/automations/api/internal/manage", headers=headers,
+                        json={"action": "reap", "user_context": uc, "payload": {}})
         assert r.status_code == 200 and r.get_json()["count"] == 1
+        # unseen forwards (default skip); an unknown mode is refused before the sweep
+        r = client.post("/automations/api/internal/manage", headers=headers,
+                        json={"action": "reap", "user_context": uc, "payload": {"unseen": "reap"}})
+        assert r.status_code == 200
+        assert seen == ["skip", "reap"]
+        r = client.post("/automations/api/internal/manage", headers=headers,
+                        json={"action": "reap", "user_context": uc, "payload": {"unseen": "maybe"}})
+        assert r.status_code == 400 and seen == ["skip", "reap"]
 
     def test_sdk_zombie_poll_aborts_on_dead_run(self, monkeypatch):
         import importlib
