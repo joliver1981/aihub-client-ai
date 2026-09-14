@@ -11,6 +11,9 @@
     fresh retry (the task still runs).
   * /api/chat waits (bounded) while a deferred run is appending to the same session.
   * chat_history.replay tags the deferred-run user line kind="scheduled_run".
+  * chat_history.replay strips the WHOLE envelope — Context line, identity line
+    and the standing-preferences block — so the user sees their own words and a
+    deferred marker is still recognized (2026-09-13 fix).
   * (The JSS executor's session_id forwarding is pinned in
     test_jss_agent_session_forward.py — it needs job_scheduler's env.)
 
@@ -36,6 +39,7 @@ try:
     import brain                       # noqa: E402
     import chat_history                # noqa: E402
     import main                        # noqa: E402
+    import preferences                 # noqa: E402
     from platform_tools import CURRENT_USER  # noqa: E402
     from claude_agent_sdk import SystemMessage, ResultMessage  # noqa: E402
     from fastapi.testclient import TestClient  # noqa: E402
@@ -413,6 +417,114 @@ def test_replay_tags_scheduled_run_turns():
     assert d["text"] == "Check ERPDB and summarize."
     assert turns[3]["tools"] == ["probe_connection_query"]
     assert "ERPDB looks fine." in turns[4]["text"]
+
+
+# ------------------------------------ replay: the FULL envelope (2026-09-13)
+# Every live turn rides behind main._turn_envelope: the Context line, the
+# identity line and — for a user who saved preferences — the standing-
+# preferences block (preferences.envelope_block). strip_context_line used to
+# drop only the first two, so every replayed user bubble opened with
+# "[Standing preferences this user saved …" and a deferred turn's marker was
+# no longer at the start of the text: scheduled runs and portal updates
+# replayed as plain "You" bubbles.
+
+ALEX = {"user_id": TEST_UID, "role": 1, "username": "ru_alex", "name": "Alex Rivera",
+        "tenant_id": 1}
+
+
+def _full_envelope(user, prefs, body=None):
+    """main._turn_envelope exactly as a live turn builds it, with the preference
+    STORE pinned to `prefs` (never a real user's file)."""
+    with patched(preferences, get=lambda uid: list(prefs)):
+        return main._turn_envelope(dict(user), dict(body or {"timezone": "America/New_York"}))
+
+
+def _write_transcript(sid, records):
+    tmp = tempfile.mkdtemp(prefix="agent-replay-")
+    proj = os.path.join(tmp, "projects", "C--x-ws")
+    os.makedirs(proj)
+    with open(os.path.join(proj, f"{sid}.jsonl"), "w", encoding="utf-8") as f:
+        for rec in records:
+            f.write(json.dumps(rec) + "\n")
+    return tmp
+
+
+def _user_rec(text):
+    return {"type": "user", "message": {"role": "user", "content": text}}
+
+
+def _agent_rec(text):
+    return {"type": "assistant", "message": {"role": "assistant",
+                                             "content": [{"type": "text", "text": text}]}}
+
+
+def test_strip_context_line_drops_exactly_the_preferences_block():
+    prefs = ["always use Eastern time", "call me Alex"]
+    # with the identity line, and without it (a role the Users page has no word
+    # for gets none — the block then follows the Context line directly)
+    for user in (ALEX, dict(ALEX, role=0)):
+        env = _full_envelope(user, prefs)
+        assert env.startswith(chat_history.CONTEXT_MARKER)
+        assert ("[Signed-in user:" in env) is (user["role"] == 1)
+        assert ("\n" + preferences.ENVELOPE_OPEN
+                + "\n- always use Eastern time\n- call me Alex\n]") in env
+        assert env.endswith("\n]")
+        assert chat_history.strip_context_line(env + "\n\nhello") == "hello"
+        assert chat_history.strip_context_line(env) == ""            # envelope only
+        multi = "first line\n\nsecond paragraph\n]\nthe user's own lone bracket"
+        assert chat_history.strip_context_line(env + "\n\n" + multi) == multi
+    # a capped list (the "… more preferences not shown" line) is still one block
+    env = _full_envelope(ALEX, [f"preference {i}: " + "x" * 120 for i in range(40)])
+    assert "the list is capped" in env
+    assert chat_history.strip_context_line(env + "\n\nhello") == "hello"
+    # no preferences -> exactly the two-line envelope and the old behaviour
+    env = _full_envelope(ALEX, [])
+    assert "[Standing preferences" not in env and len(env.split("\n")) == 2
+    assert chat_history.strip_context_line(env + "\n\nhello") == "hello"
+    # the user's OWN words are never stripped: text that merely opens with the
+    # header line (no lone "]" closer) or mentions the block
+    own = preferences.ENVELOPE_OPEN + "\nis what I pasted"
+    assert chat_history.strip_context_line(env + "\n\n" + own) == own
+    own = "what does [Standing preferences this user saved mean?"
+    assert chat_history.strip_context_line(env + "\n\n" + own) == own
+    assert chat_history.strip_context_line(own) == own              # no envelope at all
+
+
+def test_replay_with_the_full_envelope_keeps_the_users_words_and_deferred_kinds():
+    """A conversation as the service really writes it for a preferences user
+    replays as the user's own words, a "⏰ Scheduled run" turn and a "🌐 Portal
+    run update" turn (index.html addScheduledRun keys on kind)."""
+    env = _full_envelope(ALEX, ["always use Eastern time"])
+    assert "[Standing preferences this user saved" in env               # the defect's input
+    deferred = chat_history.build_deferred_prompt("Agent: nightly", "2026-09-13 20:00 EDT",
+                                                  "Check ERPDB and summarize.")
+    portal = chat_history.build_portal_update_prompt("Vantage", "2026-09-13 13:40 EDT", "run-9",
+                                                     True, "1 file(s) downloaded", True)
+    sid = "22222222-3333-4444-5555-666666666666"
+    tmp = _write_transcript(sid, [
+        _user_rec(env + "\n\nschedule a nightly check"),
+        _agent_rec("Scheduled."),
+        _user_rec(env + "\n\n" + deferred),
+        _agent_rec("ERPDB looks fine."),
+        _user_rec(env + "\n\n" + portal),
+        _agent_rec("Done — here's the file."),
+        _user_rec(env),                                              # envelope only: no turn
+        _user_rec(env + "\n\nthanks"),
+    ])
+    with patched(chat_history, CLAUDE_CONFIG_DIR=tmp):
+        turns = chat_history.replay(sid)
+    assert [(t["role"], t.get("kind")) for t in turns] == [
+        ("user", None), ("agent", None), ("user", "scheduled_run"), ("agent", None),
+        ("user", "portal_update"), ("agent", None), ("user", None)]
+    assert turns[0]["text"] == "schedule a nightly check"
+    assert turns[2]["header"] == "'Agent: nightly' fired 2026-09-13 20:00 EDT"
+    assert turns[2]["text"] == "Check ERPDB and summarize."
+    assert turns[4]["header"] == "'Vantage' finished 2026-09-13 13:40 EDT (1 file(s) downloaded)"
+    assert turns[6]["text"] == "thanks"
+    leaked = [t for t in turns
+              if any(m in (t.get("text") or "") + (t.get("header") or "")
+                     for m in ("Standing preferences", "[Context:", "[Signed-in user:"))]
+    assert leaked == []
 
 
 # -------------------------------------------------------------------- runner

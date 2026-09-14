@@ -28,6 +28,15 @@ MAX_ITEMS = 40
 MAX_ITEM_CHARS = 300
 MAX_BLOCK_CHARS = 2500
 
+# The block's first and last lines. chat_history.strip_context_line removes
+# EXACTLY this block from replay text (2026-09-13: it used to survive, so every
+# replayed user bubble opened with it and a deferred turn's [SCHEDULED RUN]
+# marker went unrecognized) — keep the two in step; test_agent_defer_to_chat.py
+# and test_agent_turn_envelope.py pin the contract.
+ENVELOPE_OPEN = ("[Standing preferences this user saved — honor them without being "
+                 "asked (remember_preference / forget_preference change them):")
+ENVELOPE_CLOSE = "]"
+
 _DESCRIPTION = ("This user's standing preferences and personal defaults — injected "
                 "into every conversation turn automatically (remember_preference / "
                 "forget_preference maintain it).")
@@ -126,8 +135,7 @@ def envelope_block(uid: Optional[int]) -> str:
     items = get(int(uid))
     if not items:
         return ""
-    lines = ["[Standing preferences this user saved — honor them without being "
-             "asked (remember_preference / forget_preference change them):"]
+    lines = [ENVELOPE_OPEN]
     total = len(lines[0])
     for it in items:
         line = f"- {it}"
@@ -136,5 +144,5 @@ def envelope_block(uid: Optional[int]) -> str:
             break
         lines.append(line)
         total += len(line)
-    lines.append("]")
+    lines.append(ENVELOPE_CLOSE)
     return "\n" + "\n".join(lines)

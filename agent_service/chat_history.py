@@ -23,6 +23,7 @@ from typing import Optional
 
 from workitem_store import DB_PATH  # share the mywork.db file
 from agent_config import CLAUDE_CONFIG_DIR, logger
+from preferences import ENVELOPE_OPEN as PREFERENCES_OPEN, ENVELOPE_CLOSE as PREFERENCES_CLOSE
 
 _LOCK = threading.Lock()
 
@@ -42,11 +43,17 @@ PORTAL_UPDATE_MARKER = "[PORTAL RUN UPDATE]"
 DEFERRED_MARKERS = {SCHEDULED_RUN_MARKER: "scheduled_run",
                     PORTAL_UPDATE_MARKER: "portal_update"}
 
-# Every turn is prefixed by main.py with one "[Context: now … (zone) …]" line
-# (current time in the user's zone), followed since 2026-09-08 by one
-# "[Signed-in user: … — End User]" line (main._identity_line; absent for the
-# service principal). Both are for the model; replay strips them so the user
-# sees only their own words.
+# Every turn is prefixed by main.py (_turn_envelope) with one "[Context: now …
+# (zone) …]" line (current time in the user's zone), followed since 2026-09-08
+# by one "[Signed-in user: … — End User]" line (main._identity_line; absent for
+# the service principal), followed since 2026-09-02 by the user's standing-
+# preferences block (preferences.envelope_block; absent when they saved none):
+# its header line, one "- …" line per item, then a lone "]" line. All of it is
+# for the model; replay strips it so the user sees only their own words — and
+# so a deferred turn's marker ([SCHEDULED RUN] / [PORTAL RUN UPDATE]) is back
+# at the start of the text, where deferred_kind looks for it (2026-09-13: the
+# block used to survive, so every replayed bubble opened with it and deferred
+# turns replayed as plain "You" bubbles).
 CONTEXT_MARKER = "[Context:"
 IDENTITY_MARKER = "[Signed-in user:"
 
@@ -58,14 +65,31 @@ def _drop_first_line(t: str) -> str:
     return t[nl + 1:].lstrip("\n")
 
 
+def _drop_preferences_block(t: str) -> str:
+    """Drop the standing-preferences block when `t` opens with EXACTLY its
+    header line: everything through the first lone "]" line goes. Items are
+    single "- …" lines (preferences._norm), so no item can be that closer; no
+    closer means this is not the block and nothing is touched — never the
+    user's own words."""
+    lines = t.split("\n")
+    if lines[0] != PREFERENCES_OPEN:
+        return t
+    for i in range(1, len(lines)):
+        if lines[i] == PREFERENCES_CLOSE:
+            return "\n".join(lines[i + 1:]).lstrip("\n")
+    return t
+
+
 def strip_context_line(text: str) -> str:
+    """The user's own words: the envelope (Context line, then the optional
+    identity line and preferences block) removed."""
     t = str(text or "")
     if not t.startswith(CONTEXT_MARKER):
         return t
     t = _drop_first_line(t)
     if t.startswith(IDENTITY_MARKER):
         t = _drop_first_line(t)
-    return t
+    return _drop_preferences_block(t)
 
 
 def build_deferred_prompt(job_name: str, fired_at: str, task_prompt: str) -> str:

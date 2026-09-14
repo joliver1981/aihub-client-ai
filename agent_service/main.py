@@ -152,8 +152,8 @@ def _turn_envelope(user: dict, body: dict) -> str:
     model needs for any time arithmetic, followed by the caller's identity
     line (see _identity_line) and their standing preferences. Invalid/missing
     zone -> the server-side default order (AGENT_DEFAULT_TZ, then the
-    server's zone). chat_history.strip_context_line removes the first two
-    lines on replay."""
+    server's zone). chat_history.strip_context_line removes all of it on
+    replay (the user sees only their own words)."""
     import work_tools
     tz = str((body or {}).get("timezone") or "").strip()[:64]
     if tz:

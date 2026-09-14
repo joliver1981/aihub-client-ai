@@ -183,12 +183,20 @@ def test_replay_strips_context_and_identity_lines():
     assert chat_history.strip_context_line("plain words") == "plain words"
 
 
-def test_replay_keeps_the_preferences_block_behavior_unchanged():
-    prefs = "\n[Standing preferences this user saved — honor them:\n- x\n]"
+def test_replay_strips_the_preferences_block_too():
+    """2026-09-13: the block used to survive into replay — every bubble opened
+    with "[Standing preferences …" and deferred markers went unrecognized."""
+    with mock.patch.object(preferences, "get", return_value=["weekly by store", "call me Alex"]):
+        prefs = preferences.envelope_block(ALEX["user_id"])
+    assert prefs.startswith("\n" + preferences.ENVELOPE_OPEN + "\n- weekly by store\n")
+    assert prefs.endswith("\n- call me Alex\n" + preferences.ENVELOPE_CLOSE)
     env = _envelope(ALEX, prefs=prefs)
-    out = chat_history.strip_context_line(env + "\n\nhello")
-    # exactly what the pre-identity code produced for a preferences user
-    assert out == prefs.lstrip("\n") + "\n\nhello"
+    assert chat_history.strip_context_line(env + "\n\nhello") == "hello"
+    assert chat_history.strip_context_line(env) == ""
+    # without the identity line the block follows the Context line directly
+    env = _envelope(dict(ALEX, role=0), prefs=prefs)
+    assert "[Signed-in user:" not in env
+    assert chat_history.strip_context_line(env + "\n\nhello") == "hello"
 
 
 # ---------------------------------------------------------------------------
