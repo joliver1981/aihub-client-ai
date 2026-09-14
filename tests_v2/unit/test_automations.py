@@ -1885,6 +1885,83 @@ class TestReviewItems:
         assert "Automation exception review" in page
 
 
+# ---------------------------------------------------------------------------
+# schema-faithful fake DB connection (2026-09-14)
+# ---------------------------------------------------------------------------
+# The earlier stubs accepted ANY SQL, so `SELECT id FROM [User] WHERE
+# username = ?` passed here and failed live: pyodbc 42S22 "Invalid column
+# name 'username'" (the column is user_name — app.py's User model binds its
+# `username` attribute to it), after which _resolve_assignee's except-fallback
+# quietly routed EVERY username to the run's requester. This fake rejects
+# column names the real tables don't have, exactly as SQL Server does, so the
+# column spellings in automations/api.py stay pinned to the schema.
+import re  # noqa: E402
+
+_APP_PY = Path(__file__).resolve().parents[2] / "app.py"
+
+
+def _user_name_column() -> str:
+    """The [User] column app.py's User model maps its `username` attribute to
+    (`username = db.Column('user_name', ...)`) — read from the model source so
+    the pin follows the schema of record rather than a copy of it."""
+    src = _APP_PY.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"^\s*username\s*=\s*db\.Column\(\s*['\"](\w+)['\"]", src, re.M)
+    assert m, "app.py User model: `username = db.Column('<column>', ...)` not found"
+    return m.group(1)
+
+
+# [User]: app.py's User model (plus the user_name column derived above).
+# [Groups]: app.py's group admin queries + migrations/016.
+_USER_COLUMNS = {"id", "name", "email", "phone", "role", "TenantId"}
+_GROUPS_COLUMNS = {"id", "group_name"}
+
+
+def _schema_conn(columns_by_table: Dict[str, set], answer, errors: Optional[list] = None):
+    """pyodbc-shaped fake connection. Every executed statement must be a
+    `SELECT <cols> FROM [<table>] WHERE <col> = ?` against a known table, and
+    every column it names must exist there — otherwise execute() raises the
+    42S22 error SQL Server would (also appended to `errors`, so a test can
+    show WHY a resolver fell back instead of a bare wrong-tuple diff).
+    `answer(sql, params)` supplies fetchone()'s row for accepted statements."""
+    shape = re.compile(
+        r"SELECT\s+(?:TOP\s+\d+\s+)?(.+?)\s+FROM\s+(?:\[dbo\]\.)?\[?(\w+)\]?"
+        r"\s+WHERE\s+\[?(\w+)\]?\s*=\s*\?\s*$", re.I | re.S)
+
+    def _fail(msg):
+        if errors is not None:
+            errors.append(msg)
+        raise Exception(msg)
+
+    class _Cursor:
+        sql = None
+        params = ()
+
+        def execute(self, sql, *params):
+            self.sql, self.params = sql, params
+            m = shape.match(sql.strip())
+            if not m:
+                _fail(f"unexpected SQL shape: {sql!r}")
+            select_cols, table, where_col = m.groups()
+            if table not in columns_by_table:
+                _fail(f"unexpected table: {table!r}")
+            for col in [c.strip().strip("[]") for c in select_cols.split(",")] + [where_col]:
+                if col not in columns_by_table[table]:
+                    _fail("('42S22', \"[42S22] [Microsoft][ODBC Driver 17 for SQL Server]"
+                          f"[SQL Server]Invalid column name '{col}'. (207) (SQLExecDirectW)\")")
+
+        def fetchone(self):
+            return answer(self.sql, self.params)
+
+    class _Conn:
+        def cursor(self):
+            return _Cursor()
+
+        def close(self):
+            pass
+
+    return _Conn()
+
+
 class TestGroupRoutingAndSettingsPanel:
     """james 2026-07-21 round 3: approvals routable to GROUPS, Mission
     Control settings panel (additive to chat), designer Automation node
@@ -1906,23 +1983,34 @@ class TestGroupRoutingAndSettingsPanel:
         assert ids(non_member) == {u["request_id"], anyone["request_id"]}
 
     # -- api: group resolution + row shape ---------------------------------
+    def test_schema_fake_rejects_unknown_columns(self):
+        """Self-check: the fake must fail the way the dev DB did on 2026-09-14,
+        or the column pins in the resolver tests prove nothing."""
+        conn = _schema_conn({"User": _USER_COLUMNS | {"user_name"}}, lambda s, p: (1,))
+        with pytest.raises(Exception, match="Invalid column name 'username'"):
+            conn.cursor().execute("SELECT id FROM [User] WHERE username = ?", "x")
+        c = conn.cursor()
+        c.execute("SELECT id FROM [User] WHERE user_name = ?", "x")
+        assert c.fetchone() == (1,)
+
     def test_resolve_assignee_group_by_name_and_id(self, monkeypatch, mgr):
+        """Pinned to the real [Groups] columns: the name path filters on
+        group_name, the id path on id (live-verified 2026-09-14)."""
         import automations.api as api_mod
         monkeypatch.setattr(api_mod, "_manager", mgr)
+        monkeypatch.setattr(api_mod, "_tables_ensured", True)  # keep ensure_tables' DDL off the fake
+        seen, errors = [], []
 
-        class GConn:
-            def cursor(self):
-                class C:
-                    def execute(self, sql, *p):
-                        self._p = p
-                    def fetchone(self):
-                        return (7, "Payroll Administrators") if self._p else None
-                return C()
-            def close(self): pass
-        monkeypatch.setattr(mgr, "_db_conn", lambda: GConn())
-        assert api_mod._resolve_assignee_group("Payroll Administrators") == (7, "Payroll Administrators")
-        assert api_mod._resolve_assignee_group(7) == (7, "Payroll Administrators")
+        def answer(sql, params):
+            seen.append(sql)
+            return (7, "Payroll Administrators") if params else None
+        monkeypatch.setattr(mgr, "_db_conn", lambda: _schema_conn(
+            {"Groups": _GROUPS_COLUMNS}, answer, errors))
+        assert api_mod._resolve_assignee_group("Payroll Administrators") == (7, "Payroll Administrators"), errors
+        assert api_mod._resolve_assignee_group(7) == (7, "Payroll Administrators"), errors
         assert api_mod._resolve_assignee_group(None) == (None, None)
+        assert errors == []
+        assert [re.search(r"WHERE (\w+) = \?", s).group(1) for s in seen] == ["group_name", "id"]
 
     def test_checkpoint_row_group_routing(self, monkeypatch, mgr):
         import automations.api as api_mod
@@ -2121,25 +2209,30 @@ class TestPlatformAiSeam:
 
     # -- assignee username resolution --------------------------------------
     def test_assignee_accepts_username(self, monkeypatch, mgr):
+        """Pinned to the real [User] column (user_name, read from app.py's
+        User model). Until 2026-09-14 the SQL said `WHERE username = ?`:
+        pyodbc raised 42S22, the except-fallback routed every username to
+        the requester with only a ROUTING WARNING, and the old any-SQL stub
+        could not tell the difference."""
         import automations.api as api_mod
         monkeypatch.setattr(api_mod, "_manager", mgr)
+        monkeypatch.setattr(api_mod, "_tables_ensured", True)  # keep ensure_tables' DDL off the fake
+        col = _user_name_column()
+        seen, errors = [], []
 
-        class UConn:
-            def cursor(self):
-                class C:
-                    def execute(self, sql, *p):
-                        self._u = p[0] if p else None
-                    def fetchone(self):
-                        return (42,) if self._u == "donnah" else None
-                return C()
-            def close(self): pass
-        monkeypatch.setattr(mgr, "_db_conn", lambda: UConn())
+        def answer(sql, params):
+            seen.append(sql)
+            return (42,) if params and params[0] == "donnah" else None
+        monkeypatch.setattr(mgr, "_db_conn", lambda: _schema_conn(
+            {"User": _USER_COLUMNS | {col}}, answer, errors))
         run = {"requested_by": 13}
-        assert api_mod._resolve_assignee(run, "donnah") == (42, None)
+        assert api_mod._resolve_assignee(run, "donnah") == (42, None), errors
         assert api_mod._resolve_assignee(run, 7) == (7, None)
         assert api_mod._resolve_assignee(run, None) == (13, None)
         uid, note = api_mod._resolve_assignee(run, "no-such-user")
         assert uid == 13 and "could not be resolved" in note
+        assert errors == [] and len(seen) == 2
+        assert all(re.search(r"WHERE (\w+) = \?", s).group(1) == col for s in seen)
 
     # -- description hints rendered ----------------------------------------
     def test_input_descriptions_rendered(self):

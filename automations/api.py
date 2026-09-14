@@ -1895,7 +1895,11 @@ def _resolve_assignee(run: Dict, assignee) -> tuple:
         conn = _get_manager()._db_conn()
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM [User] WHERE username = ?", s)
+            # The [User] column is user_name — app.py's User model binds its
+            # `username` attribute to it (username = db.Column('user_name', ...)).
+            # `WHERE username = ?` raised 42S22 on every lookup and the except
+            # below quietly re-routed each username to the requester (2026-09-14).
+            cursor.execute("SELECT id FROM [User] WHERE user_name = ?", s)
             row = cursor.fetchone()
         finally:
             conn.close()
@@ -1916,7 +1920,8 @@ def _resolve_assignee_group(assignee_group) -> tuple:
     """(group_id, group_name) for an approval routed to a GROUP — accepts the
     platform group's name (friendlier in scripts/inputs) or numeric id.
     Returns (None, None) when unset or not found (caller falls back to user
-    routing and logs)."""
+    routing and logs). [Groups] columns are id / group_name (app.py's group
+    admin queries, migrations/016; live-verified on the dev DB 2026-09-14)."""
     if assignee_group in (None, ""):
         return None, None
     conn = _get_manager()._db_conn()
