@@ -429,7 +429,22 @@ class AutomationRunner:
         except Exception as e:
             logger.warning(f"open-approval cancel on finish failed for {run_id}: {e}")
 
-    def _cancel_open_checkpoint_approvals(self, run_id: str):
+    def _cancel_open_checkpoint_approvals(self, run_id: str,
+                                          responded_by: str = "system:run-finished",
+                                          comments: Optional[str] = None):
+        """Settle every still-Pending My Approvals sidecar row this run owns.
+
+        Two keys, both idempotent (settle_row changes Pending rows only):
+          * the run's checkpoint FILES — an undecided gate's bridged row is
+            cancelled (the original 2026-07-21 rule);
+          * the rows' own approval_data.run_id — gate rows whose checkpoint
+            was decided WITHOUT the queue mirror (the reaper's abort, a failed
+            mirror) and non-blocking review items, keyed off the row itself.
+        Why both (2026-09-14): the reaper decided a dead run's gate file as
+        'abort' BEFORE finalizing, so the checkpoint-file pass found nothing
+        undecided and the gate row stayed Pending in My Approvals / My Work.
+        The run_id pass closes that gap whatever the order of operations —
+        My Approvals must never hold a gate nobody can answer."""
         from . import approval_store
         run = self._db_get_run(run_id)
         log_path = (run or {}).get("log_path")
@@ -440,27 +455,36 @@ class AutomationRunner:
                         if not c.get("decision") and c.get("approval_request_id")]
             for rid in open_ids:
                 approval_store.settle_row(self.manager.base_path, rid,
-                                          "Cancelled", "system:run-finished")
-        # Non-blocking REVIEW items this run created and never saw decided:
-        # once the run is over a decision can't affect anything, and the
-        # document re-surfaces as a FRESH item in its next batch — so expire
-        # them instead of leaving stale duplicates in My Approvals
-        # (james 2026-09-01).
+                                          "Cancelled", responded_by, comments=comments)
+        # Rows keyed by the run itself. Non-blocking REVIEW items this run
+        # created and never saw decided: once the run is over a decision can't
+        # affect anything, and the document re-surfaces as a FRESH item in its
+        # next batch — so expire them instead of leaving stale duplicates in
+        # My Approvals (james 2026-09-01). Any other Pending row of the run is
+        # a gate whose decision was never mirrored (or never made): same law.
         try:
             for row in approval_store.list_rows(self.manager.base_path, status="Pending"):
                 try:
                     meta = json.loads(row.get("approval_data") or "{}")
                 except (ValueError, TypeError):
                     continue
-                if meta.get("run_id") == run_id and meta.get("kind") == "review":
+                if meta.get("run_id") != run_id:
+                    continue
+                if meta.get("kind") == "review":
                     approval_store.settle_row(
                         self.manager.base_path, row["request_id"], "Cancelled",
                         "system:review-window-closed",
                         comments="Expired: the batch closed before a decision. The document "
                                  "was excluded from this batch and will return as a new "
                                  "review item in the next batch.")
+                else:
+                    approval_store.settle_row(
+                        self.manager.base_path, row["request_id"], "Cancelled",
+                        responded_by,
+                        comments=comments or "The run ended before this gate was decided; "
+                                             "nothing is waiting on this approval any more.")
         except Exception as e:
-            logger.warning(f"stale review-item expiry failed for {run_id}: {e}")
+            logger.warning(f"stale approval-row expiry failed for {run_id}: {e}")
 
     def _db_get_run(self, run_id: str) -> Optional[Dict]:
         conn = self._db_conn()
@@ -1123,7 +1147,8 @@ class AutomationRunner:
                  "log_path": r.log_path, "started_at": r.started_at} for r in rows]
 
     def reap_orphan_runs(self, grace_s: int = _REAP_GRACE_SECONDS,
-                         stale_s: int = _REAP_STALE_SECONDS) -> List[Dict]:
+                         stale_s: int = _REAP_STALE_SECONDS,
+                         unseen: str = "skip") -> List[Dict]:
         """Finalize non-terminal runs whose supervisor is dead (james
         2026-07-21: 4 orphan incidents in one day — restarts leave runs stuck
         in waiting/running/aborting forever, haunting Live Now and the
@@ -1133,12 +1158,26 @@ class AutomationRunner:
         maintains — so a run legitimately supervised by ANOTHER process
         (scheduler engine, executor service) has a fresh heartbeat and is
         never touched. A run younger than grace_s is skipped (its workdir/
-        heartbeat may not exist yet). Finalizing goes through _db_finish_run,
-        the chokepoint that also cancels the run's undecided My Approvals
-        rows; undecided checkpoint files additionally get an abort decision
-        so a half-alive script polling its gate terminates itself.
-        Returns a report of the reaped runs."""
+        heartbeat may not exist yet). A reaped run's still-Pending My
+        Approvals rows are cancelled in the reaper's name FIRST, then its
+        undecided checkpoint files get an abort decision so a half-alive
+        script polling its gate terminates itself, then _db_finish_run — the
+        finalize chokepoint — records the outcome (and repeats the row cancel
+        as the safety net). Returns a report of the reaped runs.
+
+        unseen: a non-terminal run whose working directory is NOT visible
+        from this process (no log_path, or the path does not exist here)
+        cannot be observed at all — liveness is a file — and may well be
+        alive under a supervisor on another host that shares this database.
+        'skip' (default; the automatic startup sweep and the Mission Control
+        button) leaves it for its owner, with a warning. 'reap' (ops, via
+        the manage action) finalizes it anyway, knowing its gate files and
+        sidecar rows cannot be settled from here. Observed 2026-09-14: a
+        sweep that could not see this tree finalized a dry-run as "heartbeat
+        absent" and left both of its approval rows Pending."""
         import datetime as _dt
+        if unseen not in ("skip", "reap"):
+            raise ValueError("unseen must be 'skip' or 'reap'")
         reaped = []
         for run in self._db_list_nonterminal_runs():
             started = run.get("started_at")
@@ -1147,8 +1186,14 @@ class AutomationRunner:
                 if age < grace_s:
                     continue
             workdir = os.path.dirname(run.get("log_path") or "") or None
+            visible = bool(workdir and os.path.isdir(workdir))
+            if not visible and unseen == "skip":
+                logger.warning(f"[reaper] run {run['run_id']} ({run['status']}): working "
+                               f"directory not visible from this host — left for its owner "
+                               f"(reap with unseen='reap' to finalize it anyway)")
+                continue
             hb_age = None
-            if workdir and os.path.isdir(workdir):
+            if visible:
                 hb = os.path.join(workdir, _HEARTBEAT_NAME)
                 if os.path.isfile(hb):
                     hb_age = time.time() - os.path.getmtime(hb)
@@ -1157,8 +1202,17 @@ class AutomationRunner:
             note = (f"orphaned run reaped: no living supervisor "
                     f"(heartbeat {'%.0fs stale' % hb_age if hb_age is not None else 'absent'}; "
                     f"typically a service restart mid-run)")
+            # Rows first, in the reaper's name: nobody can answer a gate whose
+            # run is dead, and the abort decision written next would hide the
+            # gate from the undecided-checkpoint pass (the 2026-09-14 gap).
+            try:
+                self._cancel_open_checkpoint_approvals(
+                    run["run_id"], responded_by="system:reaper",
+                    comments=f"Cancelled by the orphan reaper — {note}")
+            except Exception as e:
+                logger.warning(f"reaper approval-row cancel failed for {run['run_id']}: {e}")
             # decide any open gates as aborted so zombie scripts self-terminate
-            if workdir and os.path.isdir(workdir):
+            if visible:
                 try:
                     from .checkpoints import list_checkpoints, decide_checkpoint
                     for c in list_checkpoints(workdir):
