@@ -51,6 +51,18 @@ correct a mis-categorised type without having to move it somewhere else.
 Platform-critical secret names are now protected against accidental rename or replacement, and the
 health check reports clearly when a required credential is missing or misconfigured.
 
+## Microsoft 365 (OAuth2) notification email
+
+Outbound **system notifications** — workflow alerts, approval and review reminders, the
+notification routes — can now be sent through **Microsoft 365 via the Graph API** using an Entra
+app registration (OAuth2 client credentials, application permission `Mail.Send`). No SMTP AUTH and
+no mailbox password are involved, so it is unaffected by Microsoft's retirement of Basic
+authentication for SMTP client submission. Choose **Microsoft 365 (OAuth2)** on the Email Settings
+page (or `EMAIL_PROVIDER=graph` in `.env`); the SMTP relay settings become the fallback and are used
+automatically when a Microsoft 365 send fails (on by default, switchable). The "send test" button
+reports the exact Microsoft error when something is misconfigured, and says so when the fallback
+carried the message. Agent-mailbox email is unaffected.
+
 ---
 
 ## Upgrade notes

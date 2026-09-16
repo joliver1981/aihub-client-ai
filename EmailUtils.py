@@ -185,16 +185,17 @@ def send_email(
     html_content: bool = False
 ) -> bool:
     """
-    Send an email using the configured email provider (Azure or SMTP).
-    This is the main entry point for sending emails in the application.
-    
+    Send an email using the configured email provider (Microsoft 365 via the
+    Graph API, SMTP, or Azure). This is the main entry point for sending
+    emails in the application.
+
     Args:
         recipients: Single recipient email or list of recipient emails
         subject: Email subject
         body: Email body content
         attachment_path: Optional path to attachment file
         html_content: Boolean indicating if body contains HTML (default False)
-    
+
     Returns:
         bool: True if email was sent successfully, False otherwise
     """
@@ -202,7 +203,25 @@ def send_email(
         # Provider from the admin Email Settings page when configured there,
         # else the .env EMAIL_PROVIDER — resolved per call, no restart needed.
         from email_settings import get_email_config
-        if get_email_config()['provider'] == 'smtp':
+        conf = get_email_config()
+        provider = conf['provider']
+        if provider == 'graph':
+            # Microsoft 365 (Graph API, OAuth2) first; the SMTP block is the
+            # relay fallback when that option is on (default) and configured.
+            from email_graph import send_email_graph
+            if send_email_graph(recipients=recipients, subject=subject, body=body,
+                                attachment_path=attachment_path, html_content=html_content,
+                                conf=conf):
+                return True
+            if not conf.get('graph_fallback_smtp', True):
+                logging.error("Microsoft 365 email failed and the SMTP fallback is off")
+                return False
+            if not conf.get('smtp_host'):
+                logging.error("Microsoft 365 email failed and no SMTP fallback relay is configured")
+                return False
+            logging.warning("Microsoft 365 email failed — falling back to the SMTP relay")
+            provider = 'smtp'
+        if provider == 'smtp':
             return send_email_smtp(
                 recipients=recipients,
                 subject=subject,

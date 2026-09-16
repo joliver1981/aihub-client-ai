@@ -2371,7 +2371,28 @@ def send_email_notification(
 ) -> bool:
     """
     Send an email using Cloud API or Azure Communication Services.
+
+    System notifications honor the client's own transport first: when the admin
+    configured Microsoft 365 (Graph) or SMTP — on the Email Settings page or in
+    .env — the message goes through send_email(), which owns the whole chain
+    (client transport → SMTP relay fallback → cloud → Azure, per the fallback
+    settings). cc/bcc are not carried by that path, so a call that uses them
+    keeps the cloud-first behaviour below.
     """
+    try:
+        from email_settings import get_email_config
+        _client_provider = get_email_config()['provider']
+    except Exception as e:
+        logging.warning(f"Email settings unavailable ({e}); notification uses the cloud path")
+        _client_provider = ''
+    if _client_provider in ('graph', 'smtp') and not cc and not bcc:
+        return send_email(
+            recipients=recipients,
+            subject=subject,
+            body=html_content or body,
+            html_content=bool(html_content)
+        )
+
     # Route through Cloud API if available
     if _CLOUD_NOTIFICATIONS_AVAILABLE:
         try:
@@ -2800,8 +2821,11 @@ def send_email(
     """
     Send an email respecting client provider configuration.
 
-    Delivery order:
-      1. Client SMTP, if EMAIL_PROVIDER='smtp' — explicit client config wins.
+    Delivery order (provider = admin Email Settings page, else .env EMAIL_PROVIDER):
+      0. Microsoft 365 via the Graph API (OAuth2), if the provider is 'graph'.
+         Its first fallback is the client's own SMTP relay — the Email Settings
+         "fall back to SMTP" toggle, on by default — before the paths below.
+      1. Client SMTP, if the provider is 'smtp' — explicit client config wins.
       2. Cloud notification API, if available (AI_HUB_API_URL set).
       3. Azure Communication Services direct.
 
@@ -2811,8 +2835,46 @@ def send_email(
     """
     fallback_enabled = cfg.EMAIL_FALLBACK_ENABLED
 
-    # 1. Client SMTP — only when explicitly configured
-    if cfg.EMAIL_PROVIDER == 'smtp':
+    # Effective provider: the admin Email Settings page when configured there,
+    # else the .env EMAIL_PROVIDER (the same resolution send_email_smtp uses).
+    try:
+        from email_settings import get_email_config
+        _conf = get_email_config()
+        provider = _conf['provider']
+    except Exception as e:
+        logging.warning(f"Email settings unavailable ({e}); using .env EMAIL_PROVIDER")
+        _conf = {}
+        provider = cfg.EMAIL_PROVIDER
+
+    # 0. Microsoft 365 (Graph API, OAuth2 client credentials) — system notifications
+    use_smtp = provider == 'smtp'
+    if provider == 'graph':
+        try:
+            from email_graph import send_email_graph
+            if send_email_graph(
+                recipients=recipients,
+                subject=subject,
+                body=body,
+                attachment_path=attachment_path,
+                html_content=html_content,
+                conf=_conf
+            ):
+                return True
+            logging.warning("Microsoft 365 (Graph) email returned failure")
+        except Exception as e:
+            logging.warning(f"Microsoft 365 (Graph) email error: {e}")
+        # The client's own relay is the first fallback (Email Settings toggle,
+        # default on); the cloud / Azure paths below stay governed by
+        # EMAIL_FALLBACK_ENABLED exactly as they are for an SMTP primary.
+        if _conf.get('graph_fallback_smtp', True) and _conf.get('smtp_host'):
+            logging.warning("Falling back to the SMTP relay")
+            use_smtp = True
+        elif not fallback_enabled:
+            logging.error("Microsoft 365 delivery failed and EMAIL_FALLBACK_ENABLED is False")
+            return False
+
+    # 1. Client SMTP — only when explicitly configured (or as the Microsoft 365 fallback)
+    if use_smtp:
         try:
             if send_email_smtp(
                 recipients=recipients,

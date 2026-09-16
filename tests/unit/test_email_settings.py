@@ -42,6 +42,14 @@ ENV_VALUES = {
     'SMTP_FROM': 'svc@example.test',
     'API_AZURE_EMAIL_CONN_STR': 'endpoint=https://env.example.test/;accesskey=env-key',
     'API_AZURE_EMAIL_SENDER': 'noreply@env.example.test',
+    # Microsoft 365 (Graph) keys — present in a real config module, so the
+    # stand-in must carry them too (a sibling test's MagicMock config would
+    # otherwise hand back MagicMocks that jsonify cannot serialise).
+    'GRAPH_MAIL_TENANT_ID': '',
+    'GRAPH_MAIL_CLIENT_ID': '',
+    'GRAPH_MAIL_CLIENT_SECRET': '',
+    'GRAPH_MAIL_SENDER': '',
+    'EMAIL_GRAPH_FALLBACK_SMTP': True,
 }
 
 

@@ -288,13 +288,26 @@ SMTP_USE_TLS = os.getenv('SMTP_USE_TLS', 'true').lower() in ['true', '1', 't', '
 SMTP_FROM = os.getenv('SMTP_FROM', '')
 
 # Email Provider Configuration
-EMAIL_PROVIDER = os.getenv('EMAIL_PROVIDER', 'azure').lower()  # 'azure' or 'smtp'
+EMAIL_PROVIDER = os.getenv('EMAIL_PROVIDER', 'azure').lower()  # 'azure', 'smtp' or 'graph'
 
 # When True (default), if the configured primary email path fails, send_email falls
 # back to other available paths (cloud API, Azure direct). Set to False to enforce
 # strict use of the configured provider — e.g. when a client requires that mail
 # never leave their SMTP server even if it's down.
 EMAIL_FALLBACK_ENABLED = os.getenv('EMAIL_FALLBACK_ENABLED', 'true').lower() in ['true', '1', 't', 'y', 'yes']
+
+# Microsoft 365 via the Graph API (OAuth2 client credentials) — EMAIL_PROVIDER=graph.
+# System notifications go out as GRAPH_MAIL_SENDER through POST /users/{sender}/sendMail
+# with the application permission Mail.Send; no SMTP AUTH is involved (email_graph.py).
+# The admin Email Settings page can set the same values (UI wins; the secret then lives
+# in the encrypted local store, not here).
+GRAPH_MAIL_TENANT_ID = os.getenv('GRAPH_MAIL_TENANT_ID', '')
+GRAPH_MAIL_CLIENT_ID = os.getenv('GRAPH_MAIL_CLIENT_ID', '')
+GRAPH_MAIL_CLIENT_SECRET = os.getenv('GRAPH_MAIL_CLIENT_SECRET', '')
+GRAPH_MAIL_SENDER = os.getenv('GRAPH_MAIL_SENDER', '')
+# When a Microsoft 365 send fails, retry through the SMTP_* relay first (default on),
+# before the EMAIL_FALLBACK_ENABLED paths (cloud API / Azure direct).
+EMAIL_GRAPH_FALLBACK_SMTP = os.getenv('EMAIL_GRAPH_FALLBACK_SMTP', 'true').lower() in ['true', '1', 't', 'y', 'yes']
 
 # Misc Application Parameters
 DEBUG_MODE = False

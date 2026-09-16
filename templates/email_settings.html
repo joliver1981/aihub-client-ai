@@ -17,7 +17,7 @@
                 <i class="fas fa-envelope text-primary mr-2"></i>
                 Email Settings
             </h2>
-            <p class="text-muted mb-0">Outbound notification email (SMTP relay / Azure Communication Services)</p>
+            <p class="text-muted mb-0">Outbound notification email (Microsoft 365 via OAuth2, SMTP relay, or Azure Communication Services)</p>
         </div>
         <div>
             <span class="badge badge-pill px-3 py-2" id="sourceBadge" style="font-size:0.9rem;">
@@ -34,9 +34,12 @@
                 <p class="mb-0 mt-1">
                     These settings control the email the platform <em>sends</em> — batch notifications,
                     review reminders, workflow alerts. Saving here overrides the server's .env values and
-                    takes effect on the next email, no restart. Passwords and connection strings are stored
-                    in the machine's encrypted secrets store and are never shown back.
-                    (Inbound email processing is configured elsewhere and is not affected.)
+                    takes effect on the next email, no restart. Passwords, client secrets and connection
+                    strings are stored in the machine's encrypted secrets store and are never shown back.
+                    <strong>Microsoft 365 (OAuth2)</strong> sends through the Graph API with an Entra app
+                    registration — no SMTP AUTH, no mailbox password — and can fall back to the SMTP relay
+                    automatically. (Inbound email processing and agent mailboxes are configured elsewhere
+                    and are not affected.)
                 </p>
             </div>
         </div>
@@ -53,15 +56,62 @@
                         <label class="custom-control-label" for="provSmtp">SMTP (relay / connector)</label>
                     </div>
                     <div class="custom-control custom-radio custom-control-inline">
+                        <input type="radio" name="provider" id="provGraph" value="graph" class="custom-control-input">
+                        <label class="custom-control-label" for="provGraph">Microsoft 365 (OAuth2)</label>
+                    </div>
+                    <div class="custom-control custom-radio custom-control-inline">
                         <input type="radio" name="provider" id="provAzure" value="azure" class="custom-control-input">
                         <label class="custom-control-label" for="provAzure">Azure Communication Services</label>
                     </div>
                 </div>
             </div>
 
+            <div class="card shadow-sm mb-4" id="graphCard">
+                <div class="card-body">
+                    <h5 class="mb-1"><i class="fab fa-microsoft mr-2 text-muted"></i>Microsoft 365 (Graph API, OAuth2)</h5>
+                    <p class="text-muted small mb-3">
+                        Sends through the Graph API with an Entra app registration: application permission
+                        <code>Mail.Send</code> with admin consent, client credentials, no SMTP AUTH. Ask your
+                        Microsoft 365 admin to scope the app to the sender mailbox with an application access policy.
+                    </p>
+                    <div class="form-row">
+                        <div class="form-group col-md-6">
+                            <label for="graphTenant">Tenant ID</label>
+                            <input type="text" class="form-control" id="graphTenant" autocomplete="off"
+                                   placeholder="00000000-0000-0000-0000-000000000000">
+                        </div>
+                        <div class="form-group col-md-6">
+                            <label for="graphClientId">Client (application) ID</label>
+                            <input type="text" class="form-control" id="graphClientId" autocomplete="off"
+                                   placeholder="00000000-0000-0000-0000-000000000000">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-md-6">
+                            <label for="graphSecret">Client secret <span class="text-muted small" id="graphSecretHint"></span></label>
+                            <input type="password" class="form-control" id="graphSecret" autocomplete="new-password"
+                                   placeholder="leave blank to keep the stored value">
+                        </div>
+                        <div class="form-group col-md-6">
+                            <label for="graphSender">Sender mailbox</label>
+                            <input type="text" class="form-control" id="graphSender" autocomplete="off"
+                                   placeholder="aihub-notifications@company.com">
+                        </div>
+                    </div>
+                    <div class="custom-control custom-checkbox">
+                        <input type="checkbox" class="custom-control-input" id="graphFallback" checked>
+                        <label class="custom-control-label" for="graphFallback">
+                            Fall back to the SMTP relay below if the Microsoft 365 send fails
+                        </label>
+                    </div>
+                </div>
+            </div>
+
             <div class="card shadow-sm mb-4" id="smtpCard">
                 <div class="card-body">
-                    <h5 class="mb-3"><i class="fas fa-server mr-2 text-muted"></i>SMTP</h5>
+                    <h5 class="mb-3"><i class="fas fa-server mr-2 text-muted"></i>SMTP
+                        <span class="badge badge-secondary ml-2" id="smtpFallbackBadge" style="display:none;">fallback relay</span>
+                    </h5>
                     <div class="form-row">
                         <div class="form-group col-md-8">
                             <label for="smtpHost">Host</label>
@@ -164,8 +214,12 @@
 
     function showCards() {
         const p = document.querySelector('input[name="provider"]:checked');
-        $id('smtpCard').style.display = (p && p.value === 'smtp') ? '' : 'none';
-        $id('azureCard').style.display = (p && p.value === 'azure') ? '' : 'none';
+        const v = p ? p.value : '';
+        $id('graphCard').style.display = (v === 'graph') ? '' : 'none';
+        // in Microsoft 365 mode the SMTP card stays visible: it is the fallback relay
+        $id('smtpCard').style.display = (v === 'smtp' || v === 'graph') ? '' : 'none';
+        $id('smtpFallbackBadge').style.display = (v === 'graph') ? '' : 'none';
+        $id('azureCard').style.display = (v === 'azure') ? '' : 'none';
     }
     document.querySelectorAll('input[name="provider"]').forEach(r => r.addEventListener('change', showCards));
 
@@ -188,8 +242,14 @@
                 setBadge(d.source, d.provider);
                 const ui = d.ui || {};
                 const prov = ui.provider || d.env_defaults.provider || 'smtp';
-                const radio = $id(prov === 'azure' ? 'provAzure' : 'provSmtp');
+                const radio = $id(prov === 'azure' ? 'provAzure' : (prov === 'graph' ? 'provGraph' : 'provSmtp'));
                 if (radio) radio.checked = true;
+                const g = ui.graph || {};
+                $id('graphTenant').value = g.tenant_id || '';
+                $id('graphClientId').value = g.client_id || '';
+                $id('graphSender').value = g.sender || '';
+                $id('graphFallback').checked = (g.fallback_smtp !== false);
+                $id('graphSecretHint').textContent = ui.graph_client_secret_set ? '(a value is stored)' : '(none stored)';
                 $id('smtpHost').value = ui.smtp.host || '';
                 $id('smtpPort').value = ui.smtp.port || '';
                 $id('smtpUser').value = ui.smtp.user || '';
@@ -207,7 +267,11 @@
                     (e.smtp_password_set ? ' <span class="text-muted">(password set)</span>' : '') + '</div>' +
                     '<div><strong>From:</strong> ' + esc(e.smtp_from || '—') + '</div>' +
                     '<div><strong>Azure sender:</strong> ' + esc(e.azure_sender || '—') +
-                    (e.azure_conn_str_set ? ' <span class="text-muted">(conn. string set)</span>' : '') + '</div>';
+                    (e.azure_conn_str_set ? ' <span class="text-muted">(conn. string set)</span>' : '') + '</div>' +
+                    '<div><strong>Microsoft 365:</strong> ' + esc(e.graph_sender || '—') +
+                    (e.graph_client_id ? ' <span class="text-muted">(app ' + esc(e.graph_client_id) + ')</span>' : '') +
+                    (e.graph_client_secret_set ? ' <span class="text-muted">(secret set)</span>' : '') +
+                    (e.graph_fallback_smtp === false ? ' <span class="text-muted">(no SMTP fallback)</span>' : '') + '</div>';
                 showCards();
             })
             .catch(err => { $id('sourceBadge').textContent = 'Load failed: ' + err.message; });
@@ -232,11 +296,16 @@
                 user: $id('smtpUser').value, from: $id('smtpFrom').value,
                 use_tls: $id('smtpTls').checked, password: $id('smtpPassword').value
             },
-            azure: { sender: $id('azureSender').value, connection_string: $id('azureConn').value }
+            azure: { sender: $id('azureSender').value, connection_string: $id('azureConn').value },
+            graph: {
+                tenant_id: $id('graphTenant').value, client_id: $id('graphClientId').value,
+                client_secret: $id('graphSecret').value, sender: $id('graphSender').value,
+                fallback_smtp: $id('graphFallback').checked
+            }
         }).then(d => {
             out.className = d.success ? 'small text-success' : 'small text-danger';
             out.textContent = d.success ? d.message : (d.error || 'save failed');
-            if (d.success) { $id('smtpPassword').value = ''; $id('azureConn').value = ''; load(); }
+            if (d.success) { $id('smtpPassword').value = ''; $id('azureConn').value = ''; $id('graphSecret').value = ''; load(); }
         }).catch(e => { out.className = 'small text-danger'; out.textContent = e.message; });
     });
 
@@ -255,7 +324,8 @@
         out.className = 'small';
         out.textContent = 'Sending...';
         post('/api/email-settings/test', { to: $id('testTo').value }).then(d => {
-            out.className = d.success ? 'small text-success' : 'small text-danger';
+            // a delivery that needed the SMTP fallback is a success that deserves a second look
+            out.className = d.success ? (d.fallback_used ? 'small text-warning' : 'small text-success') : 'small text-danger';
             out.textContent = d.success ? d.message : (d.error || 'test failed');
         }).catch(e => { out.className = 'small text-danger'; out.textContent = e.message; });
     });
