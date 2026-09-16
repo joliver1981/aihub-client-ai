@@ -30,7 +30,11 @@ from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, render_template, request
 
-import app_config as cfg
+# The .env fallback reads EMAIL_PROVIDER / SMTP_* / API_AZURE_EMAIL_* from
+# config.py (which loads .env). NOT app_config.py — that is a 12-line constants
+# module (APP_VERSION etc.) with none of these keys; importing it here made every
+# getattr below silently return '' (see tests/unit/test_email_settings.py).
+import config as cfg
 from local_secrets import get_local_secret, set_local_secret, has_local_secret
 
 logger = logging.getLogger(__name__)
