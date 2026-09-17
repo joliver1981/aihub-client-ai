@@ -3399,16 +3399,41 @@
     ask.onclick = async () => {
       const question = q.value.trim();
       if (!question) return;
+      // Submit feedback (James 2026-09-17): the question leaves the box and
+      // shows up in the thread at once, followed by the agent's "thinking"
+      // dots (the main chat's indicator), so a slow answer never looks like a
+      // dead click. The server's canonical thread replaces both on success;
+      // on failure the question goes back into the box so nothing is lost.
+      q.value = "";
       ask.disabled = true; ask.textContent = "…";
+      ask.title = "The agent is working on your question…";
+      ts.querySelectorAll(".ok-note,.err-note").forEach(n => n.remove());
+      const mine = el("div", "tmsg human");
+      mine.appendChild(el("div", "au meta", "You"));
+      mine.appendChild(document.createTextNode(question));
+      const wait = el("div", "tmsg agent");
+      wait.appendChild(el("div", "au meta", "The Agent"));
+      const think = el("div", "thinking"); think.append(el("i"), el("i"), el("i"));
+      think.style.padding = "6px 2px";
+      wait.appendChild(think);
+      box.append(mine, wait);
+      try { wait.scrollIntoView({ block: "nearest" }); } catch (e) {}
       try {
         const r = await fetch("/api/work/thread", { method: "POST", headers: H(),
           body: JSON.stringify({ source: item.source, id: item.id,
                                  question, title: item.title,
                                  context: item.payload, timezone: browserTz() }) });
-        const d = await r.json();
-        renderThread(d.thread); q.value = "";
-      } catch (e) { note(ts, "err-note", e.message); }
-      ask.disabled = false; ask.textContent = "Ask";
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !Array.isArray(d.thread))
+          throw new Error(d.detail || d.error
+                          || ("The agent could not answer (HTTP " + r.status + ")"));
+        renderThread(d.thread);
+      } catch (e) {
+        mine.remove(); wait.remove();
+        if (!q.value) q.value = question;   // keep a newer draft if one was typed
+        note(ts, "err-note", e.message);
+      }
+      ask.disabled = false; ask.textContent = "Ask"; ask.title = "";
     };
   }
 
