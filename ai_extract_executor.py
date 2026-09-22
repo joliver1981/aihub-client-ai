@@ -77,17 +77,21 @@ class AIExtractExecutor:
         special_instructions = config.get('special_instructions', '')
         fail_on_missing = config.get('fail_on_missing_required', False)
         formatting_instructions = config.get('formatting_instructions', '')  # NEW
-        
+        # 2026-09-22: optional skill text (workflow_skills.resolve_node_skill).
+        # Absent/empty → the prompt is exactly what it was before skills existed.
+        skill_instructions = config.get('skill_instructions', '') or ''
+
         if not fields:
             return {
                 'success': False,
                 'error': 'No fields defined for extraction',
                 'data': None
             }
-        
+
         # Build the extraction prompt
         prompt = self._build_field_extraction_prompt(
-            fields, special_instructions, input_content, formatting_instructions)  # MODIFIED
+            fields, special_instructions, input_content, formatting_instructions,
+            skill_instructions)  # MODIFIED
         system_message = self._get_system_message(formatting_instructions)  # MODIFIED
         
         try:
@@ -167,8 +171,14 @@ class AIExtractExecutor:
         return base_message
     
     def _build_field_extraction_prompt(self, fields: List[Dict], special_instructions: str, 
-                                   input_content: str, formatting_instructions: str = None) -> str:
-        """Build the extraction prompt from field definitions."""
+                                   input_content: str, formatting_instructions: str = None,
+                                   skill_instructions: str = None) -> str:
+        """Build the extraction prompt from field definitions.
+
+        skill_instructions (optional, 2026-09-22): the text of a workflow skill
+        (a named tenant/product SKILL.md and/or inline text from the node). It
+        is rendered as a SKILL GUIDANCE block ahead of the special instructions;
+        None/'' leaves the prompt byte-identical to the pre-skill layout."""
         
         # Build field descriptions
         fields_description = self._build_fields_description(fields)
@@ -186,6 +196,12 @@ class AIExtractExecutor:
 
     """
         
+        if skill_instructions and str(skill_instructions).strip():
+            prompt += f"""SKILL GUIDANCE (domain know-how for this extraction - apply it throughout):
+    {str(skill_instructions).strip()}
+
+    """
+
         if special_instructions:
             prompt += f"""SPECIAL INSTRUCTIONS:
     {special_instructions}

@@ -193,6 +193,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load existing agents
     loadAgents();
 
+    // Load the tenant/product skills the AI nodes may apply (2026-09-22)
+    loadWorkflowSkills();
+
     // Prevent text selection during drag
     document.addEventListener('selectstart', function(e) {
         let targetElement = e.target;
@@ -358,6 +361,44 @@ function loadAgents() {
         .catch(error => {
             console.error('Error fetching agents:', error);
         });
+}
+
+// Workflow skills (2026-09-22): the tenant/product SKILL.md files an AI Action /
+// AI Extract node may apply. Loaded once at page init (like agents) so the
+// modal's generic value restore finds the options already in place.
+let workflowSkillsData = [];
+function loadWorkflowSkills() {
+    fetch('/api/workflow/skills')
+        .then(response => response.ok ? response.json() : { skills: [] })
+        .then(data => { workflowSkillsData = (data && data.skills) || []; })
+        .catch(error => { console.error('Error fetching workflow skills:', error); });
+}
+
+function populateWorkflowSkillSelect(selectId, selected) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    const want = selected ? String(selected) : '';
+    select.innerHTML = '';
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = 'None';
+    select.appendChild(none);
+    workflowSkillsData.forEach(s => {
+        const option = document.createElement('option');
+        option.value = s.name;
+        option.textContent = `${s.name} (${s.scope})`;
+        option.title = s.description || '';
+        select.appendChild(option);
+    });
+    if (want && !workflowSkillsData.some(s => s.name === want)) {
+        // keep a saved-but-missing name visible (and re-saveable) instead of
+        // silently dropping it; the engine reports it clearly at run time
+        const option = document.createElement('option');
+        option.value = want;
+        option.textContent = `${want} (not found)`;
+        select.appendChild(option);
+    }
+    select.value = want;
 }
 
 function populateExistingAgents(data) {
@@ -1264,6 +1305,16 @@ const nodeConfigTemplates = {
             <textarea class="form-control" name="prompt" rows="4" placeholder="Enter your prompt here. You can use $\{variableName\} for workflow variables and {prev_output} for previous step output."></textarea>
             <small class="form-text text-muted">Use $\{variableName\} to insert variables and {prev_output} to include previous step output</small>
         </div>
+        <!-- Skill (2026-09-22): a tenant/product SKILL.md and/or embedded text, prepended as domain guidance -->
+        <div class="mb-3">
+            <label class="form-label">Skill <span class="text-muted">(optional)</span></label>
+            <select class="form-select" name="skillName" id="ai-action-skill-name">
+                <option value="">None</option>
+            </select>
+            <small class="form-text text-muted">Domain know-how from a tenant or product skill, applied to this prompt. Skills are managed in The Agent › Skills.</small>
+            <textarea class="form-control mt-2" name="skillText" id="ai-action-skill-text" rows="3" placeholder="Optional: embed skill text right here in the node..."></textarea>
+            <small class="form-text text-muted">Embedded text is applied after the selected skill. Leave both empty for the classic behaviour.</small>
+        </div>
         <div class="mb-3">
             <label class="form-label">Output Variable</label>
             <div class="input-group">
@@ -1282,6 +1333,8 @@ const nodeConfigTemplates = {
     defaultConfig: {
         agent_id: '',
         prompt: '',
+        skillName: '',
+        skillText: '',
         outputVariable: 'aiResponse',
         continueOnError: false
     }
@@ -1586,7 +1639,25 @@ const nodeConfigTemplates = {
                         E.g., "Return numbers without currency symbols"
                     </small>
                 </div>
-                
+
+                <!-- Skill (2026-09-22): a tenant/product SKILL.md and/or embedded text, applied as domain guidance.
+                     Mirrors the block in ai_extract_node.js; AIExtractNode.loadSkills/getConfig/loadConfig drive it. -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Skill <span class="text-muted fw-normal">(optional)</span></label>
+                    <select class="form-select" name="skillName" id="ai-extract-skill-name"
+                            onchange="AIExtractNode.updateSkillDescription()">
+                        <option value="">None</option>
+                    </select>
+                    <small class="form-text text-muted" id="ai-extract-skill-desc">
+                        Domain know-how from a tenant or product skill, applied to every field. Skills are managed in The Agent › Skills.
+                    </small>
+                    <textarea class="form-control mt-2" name="skillText" id="ai-extract-skill-text" rows="4"
+                              placeholder="Optional: embed skill text right here in the node..." data-no-enhance="true"></textarea>
+                    <small class="form-text text-muted">
+                        Embedded text is applied after the selected skill. Leave both empty for the classic behaviour.
+                    </small>
+                </div>
+
                 <!-- Output Configuration -->
                 <div class="mb-3">
                     <label class="form-label fw-bold">Output Variable</label>
@@ -2692,6 +2763,7 @@ function configureNode() {
             } else if (nodeType == 'AI Action') {
                 console.log('Loading database agents...');
                 populateExistingAgents(agentData);
+                populateWorkflowSkillSelect('ai-action-skill-name', currentConfig && currentConfig.skillName);
             } else if (nodeType == 'Folder Selector') {
                 // Initialize the file selection options visibility
                 const selectionMode = currentConfig.selectionMode || 'first';

@@ -439,7 +439,8 @@
   <div id="work-head" style="padding:16px 22px 0;display:flex;align-items:center;gap:14px">
     <h1 style="font-size:17px;font-weight:650">Skills</h1>
     <span class="sub" style="color:var(--text3);font-size:12px">Procedural memory — what your sessions know how to do</span>
-    <button id="skills-refresh" style="margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">↻ Refresh</button>
+    <button id="skills-new" style="margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">+ New skill</button>
+    <button id="skills-refresh" style="border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">↻ Refresh</button>
   </div>
   <div id="skills-body" style="flex:1;display:grid;grid-template-columns:355px 1fr;gap:14px;padding:14px 22px 22px;overflow:hidden;min-height:0">
     <div id="skills-list" style="overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
@@ -2527,7 +2528,7 @@
       list.innerHTML = "";
       if (!(d.skills || []).length) {
         list.appendChild(el("div", "qfrom",
-          "No skills yet — the agent saves them as it learns, or ask it to."));
+          "No skills yet — the agent saves them as it learns, ask it to, or click + New skill."));
         return;
       }
       d.skills.forEach(s => {
@@ -2555,6 +2556,10 @@
           detail.appendChild(pre);
           if (s.scope !== "product") {
             const acts = el("div", "actions");
+            // Edit (2026-09-22): tenant and user skills are not locked down
+            const edit = el("button", "btn", "Edit skill");
+            edit.onclick = () => skillForm(Object.assign({}, s, splitSkillFront(dd.content || "")));
+            acts.appendChild(edit);
             const del = el("button", "btn danger", "Delete skill");
             del.onclick = async () => {
               if (!confirm(`Delete skill '${s.name}' (${s.scope})?`)) return;
@@ -2574,6 +2579,85 @@
     } catch (e) { list.textContent = "Could not load: " + e.message; }
   }
   document.getElementById("skills-refresh").onclick = loadSkills;
+
+  // ---------- skills: manual create / edit (2026-09-22) ----------
+  // The Skills page could only list, read and delete; the agent's save_skill
+  // tool was the sole write path. Tenant (admins) and user/group skills can now
+  // be written here too — same files, same rules (POST /api/skills/save).
+  function splitSkillFront(text) {
+    const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text || "");
+    if (!m) return { description: "", body: (text || "").trim() };
+    const d = /^description:\s*(.*)$/m.exec(m[1]);
+    return { description: d ? d[1].trim() : "",
+             body: text.slice(m[0].length).replace(/^\s+/, "") };
+  }
+  function skillForm(existing) {
+    const detail = document.getElementById("skills-detail");
+    detail.innerHTML = "";
+    detail.appendChild(el("div", "crumb", existing ? `edit ${existing.scope} skill` : "new skill"));
+    detail.appendChild(el("div", "dtitle", existing ? existing.name : "New skill"));
+    const box = el("div", "kv");
+    box.style.cssText = "display:flex;flex-direction:column;gap:6px;margin-top:10px";
+    const inp = "border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:transparent;" +
+                "color:inherit;font-size:12.5px;width:100%;box-sizing:border-box";
+    const lab = "font-size:11px;color:var(--text3);margin-top:6px";
+    box.innerHTML =
+      `<label style="${lab}">Name — kebab-case, e.g. horizon-team-routing</label>` +
+      `<input id="sk-name" style="${inp}"${existing ? " disabled" : ""}>` +
+      `<label style="${lab}">Scope</label>` +
+      `<select id="sk-scope" style="${inp}"${existing ? " disabled" : ""}>` +
+      `<option value="user">user — private to me</option>` +
+      `<option value="group">group — shared with one of my groups</option>` +
+      `<option value="tenant">tenant — everyone here (admins only; also selectable in workflow AI nodes)</option>` +
+      `</select>` +
+      `<input id="sk-group" style="${inp};display:none" placeholder="group id">` +
+      `<label style="${lab}">Description — the trigger line, e.g. "Use when filing requirements to Horizon teams"</label>` +
+      `<input id="sk-desc" style="${inp}">` +
+      `<label style="${lab}">Skill body (markdown) — procedure and gotchas; tell sessions to verify current facts with tools</label>` +
+      `<textarea id="sk-body" rows="16" style="${inp};font-family:var(--mono);font-size:11.5px"></textarea>`;
+    detail.appendChild(box);
+    const g = (id) => document.getElementById(id);
+    if (existing) {
+      g("sk-name").value = existing.name || "";
+      g("sk-scope").value = existing.scope || "user";
+      g("sk-group").value = existing.group_id || "";
+      g("sk-desc").value = existing.description || "";
+      g("sk-body").value = existing.body || "";
+    }
+    const syncGroup = () => { g("sk-group").style.display = g("sk-scope").value === "group" ? "" : "none"; };
+    g("sk-scope").onchange = syncGroup;
+    syncGroup();
+    const acts = el("div", "actions");
+    const save = el("button", "btn", existing ? "Save changes" : "Save skill");
+    save.onclick = async () => {
+      save.disabled = true;
+      const body = { scope: g("sk-scope").value, name: g("sk-name").value.trim(),
+                     description: g("sk-desc").value.trim(), content: g("sk-body").value,
+                     group_id: parseInt(g("sk-group").value || "0", 10) || 0 };
+      const r = await fetch("/api/skills/save", { method: "POST", headers: H(),
+                                                  body: JSON.stringify(body) });
+      const d = await r.json().catch(() => ({}));
+      save.disabled = false;
+      if (!r.ok) {
+        const old = box.querySelector(".err-note");
+        if (old) old.remove();
+        box.appendChild(el("div", "err-note", d.detail || "save failed"));
+        return;
+      }
+      await loadSkills();
+      detail.innerHTML = "";
+      detail.appendChild(el("div", "crumb", `saved ${d.scope} skill`));
+      detail.appendChild(el("div", "dtitle", d.name));
+      detail.appendChild(el("div", "qfrom",
+        "Mounted on your next turn. Tenant skills are also selectable in the workflow AI Extract / AI Action nodes."));
+    };
+    const cancel = el("button", "btn", "Cancel");
+    cancel.onclick = loadSkills;
+    acts.appendChild(save);
+    acts.appendChild(cancel);
+    detail.appendChild(acts);
+  }
+  document.getElementById("skills-new").onclick = () => skillForm(null);
 
   // =====================================================
   // ASSISTANT (chat) — unchanged mechanics from A0/A1

@@ -215,6 +215,7 @@ def help():  # noqa: A001 - deliberate, reads naturally in scripts
         "  aihub.checkpoint(message, files=None, assignee=None) -> pause for human approval",
         "  aihub.review_item(message, ...) / aihub.review_decisions(ids) -> My Approvals bridge",
         "  aihub.llm(prompt, system=None, images=None) -> str  |  aihub.ai_extract(prompt, schema=None, ...)",
+        "  aihub.skill(name)               -> body of a tenant/product SKILL.md (pass as system= to llm/ai_extract)",
         "",
         "Connections this run can resolve: " + (", ".join(sorted(conns)) if conns else "(none)"),
         "Secrets this run can resolve:     " + (", ".join(sorted(secs)) if secs else "(none)"),
@@ -429,6 +430,32 @@ def ai_extract(prompt, images=None, schema=None, system=None, model=None, max_to
     if model:
         body["model"] = str(model)
     return _ai_call(body).get("json")
+
+
+def skill(name):
+    """The body of a named platform SKILL (a tenant or product SKILL.md — the
+    same files The Agent loads) so a script applies the same domain guidance
+    instead of hard-coding it:
+
+        rules = aihub.skill("horizon-team-routing")
+        data = aihub.ai_extract(prompt, schema=SCHEMA, system=rules)
+
+    Read fresh from the platform on every call (edit the skill, next run uses
+    it). Raises AutomationRuntimeError when no tenant/product skill has that
+    name. Purely a read — no lane restrictions."""
+    token = _os.environ.get("AIHUB_RUN_TOKEN")
+    if not token:
+        raise AutomationRuntimeError("aihub.skill requires the run token (AIHUB_RUN_TOKEN missing)")
+    try:
+        res = _runtime_post("/automations/api/runtime/skill",
+                            {"token": token, "name": str(name or "").strip()})
+    except AutomationRuntimeError:
+        raise
+    except Exception as e:
+        raise AutomationRuntimeError(f"skill lookup failed: {_http_error_detail(e)}") from None
+    if res.get("error"):
+        raise AutomationRuntimeError(f"skill lookup failed: {res['error']}")
+    return res.get("content", "")
 
 
 def review_item(message, title=None, files=None, assignee=None, assignee_group=None,

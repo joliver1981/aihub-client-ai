@@ -65,7 +65,24 @@ const AIExtractNodeTemplate = {
                     E.g., "Return numbers without currency symbols"
                 </small>
             </div>
-            
+
+            <!-- Skill (2026-09-22): a tenant/product SKILL.md and/or inline text, applied as domain guidance -->
+            <div class="mb-3">
+                <label class="form-label fw-bold">Skill <span class="text-muted fw-normal">(optional)</span></label>
+                <select class="form-select" name="skillName" id="ai-extract-skill-name"
+                        onchange="AIExtractNode.updateSkillDescription()">
+                    <option value="">None</option>
+                </select>
+                <small class="form-text text-muted" id="ai-extract-skill-desc">
+                    Domain know-how from a tenant or product skill, applied to every field. Skills are managed in The Agent › Skills.
+                </small>
+                <textarea class="form-control mt-2" name="skillText" id="ai-extract-skill-text" rows="4"
+                          placeholder="Optional: embed skill text right here in the node..."></textarea>
+                <small class="form-text text-muted">
+                    Embedded text is applied after the selected skill. Leave both empty for the classic behaviour.
+                </small>
+            </div>
+
             <!-- Output Configuration -->
             <div class="mb-3">
                 <label class="form-label fw-bold">Output Variable</label>
@@ -140,6 +157,50 @@ const AIExtractNode = {
         this.populateVariablesList();
         this.updateFieldsDisplay();
         this.updateOutputPreview();
+        this.loadSkills('');
+    },
+
+    /**
+     * Fill the Skill dropdown with the tenant/product skills a node may apply
+     * (2026-09-22). `selected` is the saved skillName to re-select once the
+     * options exist. A saved name the platform no longer has stays visible as
+     * "(not found)" so the problem is obvious; the engine refuses it at run time.
+     */
+    loadSkills: function(selected) {
+        const select = document.getElementById('ai-extract-skill-name');
+        if (!select) return Promise.resolve();
+        const want = (selected !== undefined && selected !== null) ? String(selected) : (select.value || '');
+        return fetch('/api/workflow/skills')
+            .then(r => r.json())
+            .then(d => {
+                const skills = (d && d.skills) || [];
+                select.innerHTML = '<option value="">None</option>';
+                skills.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.name;
+                    opt.textContent = `${s.name} (${s.scope})`;
+                    opt.title = s.description || '';
+                    select.appendChild(opt);
+                });
+                if (want && !skills.some(s => s.name === want)) {
+                    const opt = document.createElement('option');
+                    opt.value = want;
+                    opt.textContent = `${want} (not found)`;
+                    select.appendChild(opt);
+                }
+                select.value = want || '';
+                AIExtractNode.updateSkillDescription();
+            })
+            .catch(() => { /* keep "None"; a missing skill is reported at run time */ });
+    },
+
+    updateSkillDescription: function() {
+        const select = document.getElementById('ai-extract-skill-name');
+        const help = document.getElementById('ai-extract-skill-desc');
+        if (!select || !help) return;
+        const opt = select.options[select.selectedIndex];
+        help.textContent = (opt && opt.value && opt.title) ? opt.title :
+            'Domain know-how from a tenant or product skill, applied to every field. Skills are managed in The Agent › Skills.';
     },
     
     /**
@@ -461,6 +522,8 @@ const AIExtractNode = {
             inputVariable: document.getElementById('ai-extract-input')?.value || '',
             outputVariable: document.getElementById('ai-extract-output')?.value || 'extractedData',
             specialInstructions: document.getElementById('ai-extract-instructions')?.value || '',
+            skillName: document.getElementById('ai-extract-skill-name')?.value || '',
+            skillText: document.getElementById('ai-extract-skill-text')?.value || '',
             failOnMissingRequired: document.getElementById('ai-extract-fail-required')?.checked || false,
             fields: cleanFields
         };
@@ -659,6 +722,9 @@ getConfig: function() {
         inputVariable: document.getElementById('ai-extract-input')?.value || '',
         outputVariable: document.getElementById('ai-extract-output')?.value || 'extractedData',
         specialInstructions: document.getElementById('ai-extract-instructions')?.value || '',
+        // Skill (2026-09-22): optional named tenant/product skill + optional embedded text
+        skillName: document.getElementById('ai-extract-skill-name')?.value || '',
+        skillText: document.getElementById('ai-extract-skill-text')?.value || '',
         failOnMissingRequired: document.getElementById('ai-extract-fail-required')?.checked || false,
         fields: cleanFields,
         // Include options - always saved at main level
@@ -733,10 +799,15 @@ loadConfig: function(config) {
     
     const instructions = document.getElementById('ai-extract-instructions');
     if (instructions) instructions.value = config.specialInstructions || '';
-    
+
+    // Skill (2026-09-22): absent on older workflows → "None" and empty text
+    const skillText = document.getElementById('ai-extract-skill-text');
+    if (skillText) skillText.value = config.skillText || '';
+    AIExtractNode.loadSkills(config.skillName || '');
+
     const failCheck = document.getElementById('ai-extract-fail-required');
     if (failCheck) failCheck.checked = config.failOnMissingRequired || false;
-    
+
     // Load include options (main level - always load)
     const includeConfidence = document.getElementById('ai-extract-include-confidence');
     if (includeConfidence) includeConfidence.checked = config.includeConfidence || false;
@@ -863,10 +934,14 @@ loadManualMappings: function(mappings) {
         
         const instructions = document.getElementById('ai-extract-instructions');
         if (instructions) instructions.value = config.specialInstructions || '';
-        
+
+        const skillText = document.getElementById('ai-extract-skill-text');
+        if (skillText) skillText.value = config.skillText || '';
+        AIExtractNode.loadSkills(config.skillName || '');
+
         const failCheck = document.getElementById('ai-extract-fail-required');
         if (failCheck) failCheck.checked = config.failOnMissingRequired || false;
-        
+
         // Load fields
         this.currentFields = this.addIdsToFields(config.fields || []);
         this.updateFieldsDisplay();
@@ -999,6 +1074,8 @@ loadManualMappings: function(mappings) {
                     extraction_type: config.extractionType,
                     fields: config.fields,
                     special_instructions: config.specialInstructions,
+                    skill_name: config.skillName || '',
+                    skill_text: config.skillText || '',
                     test_content: testContent,
                     fail_on_missing_required: config.failOnMissingRequired
                 })

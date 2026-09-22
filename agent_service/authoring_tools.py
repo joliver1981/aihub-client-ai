@@ -380,6 +380,7 @@ async def create_automation(args: dict[str, Any]) -> dict[str, Any]:
     "  aihub.input(name, default) | aihub.log(msg) | print() for output\n"
     "  aihub.checkpoint('message') -> BLOCKS until a human approves in My Approvals\n"
     "  aihub.send_email(to, subject, body) | aihub.llm(prompt) | aihub.ai_extract(...)\n"
+    "  aihub.skill(name) -> body of a tenant/product skill (pass as system= to llm/ai_extract)\n"
     "Every connection/secret used MUST be declared in the manifest, e.g. "
     "manifest_json='{\"connections\": [\"ERPDB\"]}'. Never hard-code credentials "
     "(the server rejects them). Saves are verified by read-back.",

@@ -17,6 +17,10 @@ from ai_extract_executor import (
 # Import the AI utility function
 from AppUtils import azureQuickPrompt
 
+# Workflow skills (2026-09-22): tenant/product SKILL.md files a node may apply
+from workflow_skills import list_skills as list_workflow_skill_files, resolve_node_skill
+from role_decorators import api_key_or_session_required
+
 logger = logging.getLogger("AIExtractRoutes")
 
 # Create blueprint
@@ -116,6 +120,15 @@ def test_extraction():
             'special_instructions': special_instructions,
             'fail_on_missing_required': fail_on_missing
         }
+        # 2026-09-22: optional skill, resolved exactly as the engine does, so
+        # "Test extraction" in the designer reflects what the node will apply.
+        try:
+            skill_text = resolve_node_skill({'skillName': data.get('skill_name', ''),
+                                             'skillText': data.get('skill_text', '')})
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        if skill_text:
+            config['skill_instructions'] = skill_text
         
         # Execute extraction
         executor = AIExtractExecutor(ai_call_wrapper)
@@ -135,6 +148,24 @@ def test_extraction():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@ai_extract_bp.route('/api/workflow/skills', methods=['GET'])
+@cross_origin()
+@api_key_or_session_required(min_role=2)
+def list_workflow_skills():
+    """Skills a workflow AI node may pick (2026-09-22): the tenant and product
+    SKILL.md files under data/agent/skills — the same files The Agent loads.
+    User/group skills are deliberately not offered (a workflow is a shared
+    asset; its behaviour must not depend on who runs it).
+
+    Response: {"success": true, "skills": [{scope, name, description, size}, ...]}
+    """
+    try:
+        return jsonify({'success': True, 'skills': list_workflow_skill_files()})
+    except Exception as e:
+        logger.error(f"list_workflow_skills error: {e}")
+        return jsonify({'success': False, 'error': str(e), 'skills': []}), 500
 
 
 @ai_extract_bp.route('/api/workflow/ai-extract/validate-field-name', methods=['POST'])

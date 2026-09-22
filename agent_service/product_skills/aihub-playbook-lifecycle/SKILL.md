@@ -25,6 +25,10 @@ Start every script with the explicit import (`aihub` is not pre-bound):
   My Work — a paused run is neither failed nor timed out.
 - `aihub.send_email(to, subject, body)`, `aihub.llm(prompt)`,
   `aihub.ai_extract(...)` are the governed AI/comms seams.
+- `aihub.skill("name")` returns the body of a tenant or product skill (the
+  same SKILL.md files you load). Pass it as `system=` to `llm`/`ai_extract` so
+  a script applies the platform's domain guidance instead of hard-coding rules;
+  it is read fresh every run, so editing the skill changes the next run.
 - Declare every connection/secret in the manifest; hard-coded credentials are
   rejected at save time.
 

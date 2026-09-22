@@ -1726,6 +1726,33 @@ def _automations_ai_model(requested: Optional[str]) -> str:
             or "claude-opus-4-8")
 
 
+@automations_bp.route("/api/runtime/skill", methods=["POST"])
+def runtime_skill():
+    """aihub.skill(name) for automation runs (James 2026-09-22, purely
+    additive): the body of a tenant/product SKILL.md — the same files The Agent
+    and the workflow AI nodes read (workflow_skills.py) — so a script can apply
+    the same domain guidance as `system=` for llm/ai_extract instead of
+    hard-coding it. Body: {token, name}. Returns {scope, name, description,
+    content}; 404 when no such skill. Read-only, run-token auth."""
+    if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
+        return jsonify({"error": "Automations feature is disabled"}), 403
+    data = request.get_json(silent=True) or {}
+    run, _claims, fail = _live_run_from_token(data.get("token"))
+    if fail:
+        return fail
+    name = str(data.get("name") or "").strip()
+    try:
+        from workflow_skills import read_skill, valid_name
+    except Exception as e:  # never crash a run over a missing helper
+        return jsonify({"error": f"skills are unavailable on this platform: {e}"}), 503
+    if not valid_name(name):
+        return jsonify({"error": "'name' must be a kebab-case skill name (a-z, 0-9, '-')"}), 400
+    found = read_skill(name)
+    if not found:
+        return jsonify({"error": f"no tenant or product skill named '{name}'"}), 404
+    return jsonify(found)
+
+
 @automations_bp.route("/api/runtime/ai", methods=["POST"])
 def runtime_ai():
     """Platform-brokered LLM call for automation runs. The APP owns model

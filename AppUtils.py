@@ -3578,6 +3578,7 @@ def populate_schema_with_claude_chunked(
     use_streaming: bool = True,
     auto_fallback_to_streaming: bool = True,
     formatting_instructions: str = None,  # Match original function
+    extra_instructions: Optional[str] = None,  # 2026-09-22 workflow skills; passed through unchanged
     max_pages_per_chunk: Optional[int] = None,
     chunk_overlap_pages: int = 5
 ) -> Dict[str, Any]:
@@ -3692,7 +3693,8 @@ def populate_schema_with_claude_chunked(
             request_id=request_id,
             use_streaming=use_streaming,
             auto_fallback_to_streaming=auto_fallback_to_streaming,
-            formatting_instructions=formatting_instructions
+            formatting_instructions=formatting_instructions,
+            extra_instructions=extra_instructions
         )
         
         # Add metadata
@@ -3764,7 +3766,8 @@ def populate_schema_with_claude_chunked(
                     request_id=f"{request_id}_chunk{chunk_idx + 1}" if request_id else None,
                     use_streaming=use_streaming,
                     auto_fallback_to_streaming=auto_fallback_to_streaming,
-                    formatting_instructions=formatting_instructions
+                    formatting_instructions=formatting_instructions,
+                    extra_instructions=extra_instructions
                 )
                 
                 # Adjust page numbers in sources to reflect original document
@@ -3934,7 +3937,8 @@ def populate_schema_with_claude(
     request_id: Optional[str] = str(uuid.uuid4()),
     use_streaming: bool = True,
     auto_fallback_to_streaming: bool = True,
-    formatting_instructions: str = None
+    formatting_instructions: str = None,
+    extra_instructions: str = None
 ) -> Dict[str, Any]:
     """
     Use AnthropicProxyClient to send a guidelines PDF + JSON schema to Claude
@@ -4018,6 +4022,15 @@ def populate_schema_with_claude(
         "Populate it according to the instructions.\n\n"
         + json.dumps(schema_fields, indent=2)
     )
+    # extra_instructions (2026-09-22, workflow skills): domain guidance that
+    # applies to EVERY field, given its own block instead of being folded into
+    # one field's description. None/'' (every pre-existing caller) leaves the
+    # message exactly as above.
+    if extra_instructions and str(extra_instructions).strip():
+        user_text += (
+            "\n\nSKILL GUIDANCE (domain know-how for this extraction - apply it to every field):\n"
+            + str(extra_instructions).strip()
+        )
 
     # Auto-detect: if file is large, prefer streaming
     file_size_mb = 0

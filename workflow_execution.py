@@ -983,13 +983,28 @@ class WorkflowExecutionEngine:
             if not fields:
                 raise ValueError("No fields defined for extraction")
             
+            # Skill (2026-09-22, James): an optional named tenant/product skill
+            # (`skillName`) and/or inline skill text (`skillText`) that the node
+            # applies as domain guidance. Both keys are absent on every workflow
+            # saved before this existed → skill_text is '' and the two extraction
+            # paths below build exactly the prompts they always did. A named
+            # skill that cannot be found fails the node with a clear message.
+            from workflow_skills import resolve_node_skill, describe_node_skill
+            skill_text = resolve_node_skill(node_config)
+            if skill_text:
+                self.log_execution(
+                    execution_id, node_id, "info",
+                    f"Applying {describe_node_skill(node_config)} ({len(skill_text):,} chars)")
+
             # Execute extraction based on mode
             if use_document_extraction:
                 extracted_data, extraction_result_full = self._execute_document_extraction(
-                    execution_id, node_id, document_path, fields, node_config)
+                    execution_id, node_id, document_path, fields, node_config,
+                    skill_text=skill_text)
             else:
                 extracted_data, extraction_result_full = self._execute_text_extraction(
-                    execution_id, node_id, input_value, fields, node_config)
+                    execution_id, node_id, input_value, fields, node_config,
+                    skill_text=skill_text)
             
             # Flatten metadata into extracted_data if include options are enabled
             include_confidence = node_config.get('includeConfidence', False)
@@ -2323,8 +2338,11 @@ Guidelines:
 
     def _execute_text_extraction(self, execution_id: str, node_id: str, 
                             input_content: str, fields: List[Dict], 
-                            node_config: Dict) -> Tuple[Dict, Dict]:
+                            node_config: Dict, skill_text: str = '') -> Tuple[Dict, Dict]:
         """Execute text-based extraction using AIExtractExecutor.
+
+        skill_text (optional, 2026-09-22): resolved workflow-skill text; ''
+        (the default, and every pre-skill caller) changes nothing.
         
         Args:
             execution_id: Workflow execution ID
@@ -2365,6 +2383,10 @@ Guidelines:
             'fail_on_missing_required': node_config.get('failOnMissingRequired', False),
             'formatting_instructions': formatting_instructions  # NEW: Pass formatting instructions
         }
+        if skill_text:
+            # 2026-09-22: the skill rides as its own key, added ONLY when present
+            # so pre-skill nodes hand the executor the identical config.
+            config['skill_instructions'] = skill_text
         
         result = executor.execute(config, input_content)
         
@@ -2399,8 +2421,14 @@ Guidelines:
 
     def _execute_document_extraction(self, execution_id: str, node_id: str,
                                     document_path: str, fields: List[Dict],
-                                    node_config: Dict) -> Tuple[Dict, Dict]:
+                                    node_config: Dict, skill_text: str = '') -> Tuple[Dict, Dict]:
         """Execute document-based extraction using populate_schema_with_claude.
+
+        skill_text (optional, 2026-09-22): resolved workflow-skill text. For PDFs
+        it travels as populate_schema_with_claude's `extra_instructions` (its own
+        block, applied to every field) — NOT through the first-field
+        "[Additional context: …]" workaround that specialInstructions still uses,
+        which is deliberately left untouched for existing workflows.
 
         For PDF files, uses the native document extraction pipeline.
         For all other file types (txt, csv, docx, xlsx, png, etc.), extracts
@@ -2456,7 +2484,8 @@ Guidelines:
                 f"Routing to text extraction.")
 
             return self._execute_text_extraction(
-                execution_id, node_id, extracted_text, fields, node_config)
+                execution_id, node_id, extracted_text, fields, node_config,
+                skill_text=skill_text)
 
         self.log_execution(
             execution_id, node_id, "info",
@@ -2495,7 +2524,8 @@ Guidelines:
             schema_fields=schema_fields,
             module_name=f"workflow_{execution_id}",
             request_id=f"{execution_id}_{node_id}",
-            formatting_instructions=formatting_instructions
+            formatting_instructions=formatting_instructions,
+            extra_instructions=skill_text or None
         )
 
         # Normalize a degenerate top-level shape. Some models return the
@@ -6174,6 +6204,17 @@ Guidelines:
             
             # Replace variable references in the prompt
             prompt = self._replace_variable_references(prompt, variables)
+            # Skill (2026-09-22): optional named tenant/product skill and/or inline
+            # skill text, prepended as domain guidance. Both keys are absent on
+            # pre-existing workflows, so their prompts are untouched.
+            from workflow_skills import resolve_node_skill, describe_node_skill
+            skill_text = resolve_node_skill(node_config)
+            if skill_text:
+                self.log_execution(
+                    execution_id, node_id, "info",
+                    f"Applying {describe_node_skill(node_config)} ({len(skill_text):,} chars)")
+                prompt = ("SKILL GUIDANCE (domain know-how for this task - apply it throughout):\n"
+                          f"{skill_text}\n\n---\n\n{prompt}")
             print('Prompt:', prompt)
             # Replace the special {prev_output} placeholder
             prev_output = variables.get('_previousStepOutput', {})

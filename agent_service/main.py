@@ -746,6 +746,75 @@ async def skills_read(request: Request):
     return {"content": content}
 
 
+def _split_skill_frontmatter(content: str):
+    """(description, body) when a pasted body carries its own '---' frontmatter
+    block (someone pasting a whole SKILL.md), else ('', content)."""
+    text = str(content or "")
+    if not text.lstrip().startswith("---"):
+        return "", text.strip()
+    lines = text.lstrip().splitlines()
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            desc = ""
+            for line in lines[1:i]:
+                if line.startswith("description:"):
+                    desc = line[len("description:"):].strip().strip('"').strip("'")
+            return desc, "\n".join(lines[i + 1:]).strip()
+    return "", text.strip()
+
+
+@app.post("/api/skills/save")
+async def skills_save(request: Request):
+    """Manual create/edit from the Skills page (James 2026-09-22 — tenant and
+    user skills must not be locked down). Rules mirror the save_skill tool:
+    user = the caller's own scope; group = a group the caller belongs to;
+    tenant = admins (role 3) write directly — they are the approvers of the
+    tool's tenant path anyway; product = read-only. Body: {scope, name,
+    description, content, group_id?}. The file is written with skills_mount.
+    write_skill, so it is mounted on the caller's next turn and visible to the
+    workflow AI nodes (tenant scope) immediately."""
+    user = _verify_request(request)
+    import skills_mount
+    body = await request.json()
+    scope = str(body.get("scope") or "user").strip().lower()
+    name = str(body.get("name") or "").strip()
+    description = str(body.get("description") or "").strip()
+    content = str(body.get("content") or "")
+    uid = int(user["user_id"] or 0)
+    role = int(user.get("role") or 0)
+    gid = int(body.get("group_id") or 0)
+    if scope == "product":
+        raise HTTPException(403, "Product skills ship with the platform and are read-only.")
+    if scope not in ("user", "group", "tenant"):
+        raise HTTPException(400, "scope must be user, group or tenant")
+    if scope == "tenant" and role < 3:
+        raise HTTPException(403, "Saving a tenant skill requires an admin. Ask the agent to "
+                                 "save it as a tenant skill instead — that files an approval.")
+    if scope == "group":
+        if not gid or gid not in set(int(g) for g in readthrough.user_group_ids(uid)):
+            raise HTTPException(403, "You can only save a group skill to a group you belong to.")
+        gid = int(gid)
+    else:
+        gid = 0
+    if not skills_mount.valid_name(name):
+        raise HTTPException(400, "name must be kebab-case (a-z, 0-9, '-'), 2-64 chars")
+    fm_desc, fm_body = _split_skill_frontmatter(content)
+    if fm_body != content.strip():          # a whole SKILL.md was pasted
+        content = fm_body
+        description = description or fm_desc
+    if not description:
+        raise HTTPException(400, "description is required — write it as the trigger line ('Use when …')")
+    if not content.strip():
+        raise HTTPException(400, "the skill body is required")
+    if len(content) > 60_000:
+        raise HTTPException(400, "the skill body is over 60,000 characters — split it up")
+    path = skills_mount.write_skill(scope, name, description, content,
+                                    user_id=uid, group_id=gid)
+    logger.info(f"skill saved from the Skills page: {scope}/{name} by user {uid}")
+    return {"saved": True, "scope": scope, "name": name, "group_id": gid or None,
+            "size": os.path.getsize(path)}
+
+
 @app.post("/api/skills/delete")
 async def skills_delete(request: Request):
     user = _verify_request(request)
