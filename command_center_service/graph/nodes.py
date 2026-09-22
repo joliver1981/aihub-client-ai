@@ -2513,6 +2513,22 @@ def _doc_identity_headers(user_ctx: dict) -> dict:
         uid, (user_ctx or {}).get("tenant_id"), (user_ctx or {}).get("role"))}
 
 
+def _conn_scope_note(state) -> str:
+    """For a REGULAR user the platform scopes the connection list to the Data
+    Assistants shared with their groups (connection ACL, 2026-09-22). Say so,
+    so an absent connection reads as an access restriction — never as "does
+    not exist on the platform"."""
+    try:
+        role = int(((state or {}).get("user_context") or {}).get("role") or 0)
+    except (TypeError, ValueError):
+        role = 0
+    if role >= 2:
+        return ""
+    return (" Note: this list is scoped to your access — connections not shared with your "
+            "account are not shown; an administrator shares a Data Assistant that uses a "
+            "connection with one of your groups (Groups page).")
+
+
 async def converse(state: CommandCenterState) -> dict:
     """General conversation — grounded in real platform data."""
     from cc_config import get_llm, COMMAND_CENTER_SYSTEM_PROMPT, STRUCTURED_RESPONSE_FORMAT, IMAGE_GENERATION_ENABLED, DOCUMENT_SEARCH_ENABLED
@@ -6446,17 +6462,22 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         if not _workflow_tools_allowed(state):
             return _WORKFLOW_DENIED
         from . import workflow_tools as _wt
-        res = _wt.list_connections()
+        res = _wt.list_connections(user_ctx=state.get("user_context"))
         if not res.get("ok"):
             return f"❌ Could not list connections: {res.get('error')}"
         conns = res.get("connections") or []
+        scope_note = _conn_scope_note(state)
         if not conns:
+            if scope_note:
+                return ("No data connections are shared with your account — this is an "
+                        "access restriction, not an empty platform." + scope_note)
             return "No data connections exist on this platform yet."
         lines = [f"- id {c['id']} — {c['name']}"
                  + (f" ({c['type']}" + (f", db {c['database']})" if c['database'] else ")")
                     if c['type'] else (f" (db {c['database']})" if c['database'] else ""))
                  for c in conns]
-        return "Data connections (use the numeric id in a Database node's config):\n" + "\n".join(lines)
+        return ("Data connections (use the numeric id in a Database node's config):\n"
+                + "\n".join(lines) + scope_note)
 
     @lc_tool
     async def get_connection_schema(connection: str, table: str = "",
@@ -6485,7 +6506,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         if ref.isdigit():
             conn_id = ref
         else:
-            res = _wt.list_connections()
+            res = _wt.list_connections(user_ctx=state.get("user_context"))
             if not res.get("ok"):
                 return f"❌ Could not resolve connection '{ref}': {res.get('error')}"
             matches = [c for c in (res.get("connections") or [])
@@ -6493,13 +6514,13 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             if not matches:
                 names = ", ".join(c["name"] for c in (res.get("connections") or [])[:15])
                 return (f"❌ No connection named '{ref}' (exact match). "
-                        f"Existing connections: {names or 'none'}")
+                        f"Existing connections: {names or 'none'}" + _conn_scope_note(state))
             conn_id = matches[0]["id"]
         if table.strip():
             url = f"/api/discover/schema/{conn_id}?table={_quote(table.strip())}"
             if column.strip():
                 url += f"&column={_quote(column.strip())}"
-            r = _wt._get(url)
+            r = _wt._get(url, user_ctx=state.get("user_context"))
             data = r.get("data") or {}
             if not r.get("ok") or not data.get("success"):
                 return (f"❌ Schema discovery failed for {table} on connection {conn_id}: "
@@ -6580,7 +6601,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                                     f"({data.get('live_error')}); names may be stale"),
             }.get(data.get("source") or "", "")
             return header + ("\n" + src_note if src_note else "") + "\n" + "\n".join(lines)
-        r = _wt._get(f"/api/discover/tables/{conn_id}")
+        r = _wt._get(f"/api/discover/tables/{conn_id}", user_ctx=state.get("user_context"))
         data = r.get("data") or {}
         if not r.get("ok") or not data.get("success"):
             return (f"❌ Table discovery failed on connection {conn_id}: "
@@ -6624,7 +6645,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         if ref.isdigit():
             conn_id = ref
         else:
-            res = _wt.list_connections()
+            res = _wt.list_connections(user_ctx=state.get("user_context"))
             if not res.get("ok"):
                 return f"❌ Could not resolve connection '{ref}': {res.get('error')}"
             matches = [c for c in (res.get("connections") or [])
@@ -6632,10 +6653,11 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             if not matches:
                 names = ", ".join(c["name"] for c in (res.get("connections") or [])[:15])
                 return (f"❌ No connection named '{ref}' (exact match). "
-                        f"Existing connections: {names or 'none'}")
+                        f"Existing connections: {names or 'none'}" + _conn_scope_note(state))
             conn_id = matches[0]["id"]
 
-        r = _wt._post(f"/api/discover/query/{conn_id}", {"sql": str(sql).strip()})
+        r = _wt._post(f"/api/discover/query/{conn_id}", {"sql": str(sql).strip()},
+                      user_ctx=state.get("user_context"))
         data = r.get("data") if isinstance(r.get("data"), dict) else r
         if data.get("rejected"):
             return (f"❌ QUERY REJECTED: {data.get('error')}. Only a single read-only SELECT "

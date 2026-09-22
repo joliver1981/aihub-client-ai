@@ -112,9 +112,55 @@ def name_error(name: str) -> str | None:
 
 # ─── HTTP plumbing ────────────────────────────────────────────────────────
 
-def _headers() -> Dict[str, str]:
+# Per-turn user identity (2026-09-22, connection ACL — docs/handoff-the-agent-
+# connection-acl.md §5 item 7). routes/chat.py sets this from the VERIFIED
+# user_context right before it launches the graph task; asyncio.create_task
+# copies the context, so every platform call a tool makes during that turn
+# carries the user. Without it the main app treats CC's service-key calls as
+# service-internal = unrestricted, and a regular user (CC_ALLOW_ALL_USERS)
+# could list and query every connection through CC. Headless runs (scheduler,
+# studio jobs) never set it and keep today's unrestricted posture on purpose.
+import contextvars as _contextvars
+
+CURRENT_USER: "_contextvars.ContextVar[dict]" = _contextvars.ContextVar(
+    "CC_CURRENT_USER", default={})
+
+
+def identity_headers(user_ctx: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    """{'X-AIHub-User': <assertion>} for a REGULAR user (role < 2), {} for
+    Developers / admins and for anonymous / system contexts.
+
+    Why only regular users: the connection ACL treats role >= 2 as
+    unrestricted anyway, while the platform's agent-listing routes filter ANY
+    asserted role below 3 — sending a Developer's identity on these calls
+    would shrink their landscape, and the 2026-09-22 decision is "regular
+    users only, Developers/admins unchanged". Documents keep their own
+    minting (nodes._doc_identity_headers) because that ACL does apply to
+    Developers. A signing failure RAISES rather than sending an identity-less
+    (unrestricted) call."""
+    ctx = user_ctx if user_ctx is not None else (CURRENT_USER.get() or {})
+    uid = (ctx or {}).get("user_id")
+    if uid in (None, "", 0, "0", "anonymous"):
+        return {}
+    try:
+        role = int((ctx or {}).get("role") or 0)
+    except (TypeError, ValueError):
+        role = 0
+    if role >= 2:
+        return {}
+    import shared_auth
+    return {"X-AIHub-User": shared_auth.sign_user_assertion(
+        uid, (ctx or {}).get("tenant_id"), role)}
+
+
+def _headers(user_ctx: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    """Service key + the user assertion. `user_ctx` (a graph node's
+    state["user_context"]) wins over the per-turn contextvar so a tool never
+    depends on context propagation through the tool-calling machinery."""
     from cc_config import AI_HUB_API_KEY
-    return {"X-API-Key": AI_HUB_API_KEY}
+    h = {"X-API-Key": AI_HUB_API_KEY}
+    h.update(identity_headers(user_ctx))
+    return h
 
 
 def _base() -> str:
@@ -122,10 +168,11 @@ def _base() -> str:
     return get_base_url()
 
 
-def _get(path: str, timeout: int = GET_TIMEOUT) -> Dict[str, Any]:
+def _get(path: str, timeout: int = GET_TIMEOUT,
+         user_ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     url = f"{_base()}{path}"
     try:
-        resp = requests.get(url, headers=_headers(), timeout=timeout)
+        resp = requests.get(url, headers=_headers(user_ctx), timeout=timeout)
         try:
             data = resp.json()
         except ValueError:
@@ -146,10 +193,11 @@ def _get(path: str, timeout: int = GET_TIMEOUT) -> Dict[str, Any]:
                 "error": f"could not reach the AI Hub app: {e}"}
 
 
-def _post(path: str, body: Dict[str, Any], timeout: int = SAVE_TIMEOUT) -> Dict[str, Any]:
+def _post(path: str, body: Dict[str, Any], timeout: int = SAVE_TIMEOUT,
+          user_ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     url = f"{_base()}{path}"
     try:
-        resp = requests.post(url, json=body, headers=_headers(), timeout=timeout)
+        resp = requests.post(url, json=body, headers=_headers(user_ctx), timeout=timeout)
         try:
             data = resp.json()
         except ValueError:
@@ -196,14 +244,15 @@ def list_rows() -> Dict[str, Any]:
     return {"ok": True, "rows": out}
 
 
-def list_connections() -> Dict[str, Any]:
+def list_connections(user_ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """AIHUB-0056 A: data connections as [{id, name, type, database}] so the
     agent resolves connection names to the numeric id a Database node needs —
     instead of interrogating the user for it. SECRET HYGIENE: the /get/
     connections route carries masked password/username columns; this wrapper
     WHITELISTS identity fields only, so credentials (even masked) never enter
-    the LLM context."""
-    res = _get("/get/connections")
+    the LLM context. With `user_ctx` (connection ACL, 2026-09-22) the platform
+    scopes the list to what that user may use."""
+    res = _get("/get/connections", user_ctx=user_ctx)
     if not res.get("ok"):
         return {"ok": False, "error": res.get("error") or f"HTTP {res.get('status_code')}"}
     rows = res.get("data") or []

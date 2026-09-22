@@ -32,6 +32,11 @@ as "not shared with your account … ask your administrator"; `ru_drew` relayed 
 `dev_erin` listed all six. Transcripts: session scratchpad `probe_turns.json`.
 **Not yet on 10.0.0.6** — needs the next build/reinstall.
 
+**Round 2 (same day — James: "Now do the same for Command Center and the classic agent
+routes"): BUILT + LIVE-VERIFIED.** Command Center → §5 item 7; the classic browser-session
+agent routes → §9. Unit sweep across both rounds: 124 passed (main env) + the agent-side
+packs unchanged.
+
 ---
 
 ## 1. The finding
@@ -270,7 +275,24 @@ Developers' legitimate `aihub.query` in `run_python`; automations unaffected).
    denial text (honest). Scheduled refresh / HTML email runs as the schedule
    creator — unchanged.
 
-7. **Command Center — same hole through a second door.** CC's
+7. **BUILT 2026-09-22 (round 2).** `graph/workflow_tools.py`: `CURRENT_USER` contextvar +
+   `identity_headers()` — minted for REGULAR users only (Developers/admins stay identity-less:
+   the platform treats role ≥ 2 as unrestricted for connections, and the agent-listing routes
+   filter any asserted role below 3, which would shrink a Developer's landscape);
+   `routes/chat.py` sets it per turn before the graph task; the converse tools pass
+   `state["user_context"]` explicitly (`list_connections(user_ctx=)`, `_get/_post(user_ctx=)`) so
+   nothing depends on context propagation; the landscape scanner and `ServiceClient` send it
+   too; `GET /api/connections` is scoped (it unwraps `get_connections`), and
+   `/api/connections/<id>/execute|test` refuse out-of-scope ids. **Found live and fixed:** the
+   scanner's 60-second landscape cache was one shared entry — it handed ru_alex's scoped
+   landscape to ru_drew (and to the Developer) — now keyed per identity (`landscape_cache_key`).
+   Scoped landscapes carry an ACCESS SCOPE note and `list_data_connections` / the two
+   "no connection named" messages say "not shared with your account". Live (`:5091`, GPT):
+   ru_alex → "ERPDB" (app log `[conn-acl] /get/connections scoped 6 -> 1`), ru_drew → "No data
+   connections are currently shared with your account …" (`scoped 6 -> 0`), dev_erin → all six.
+   Tests: `test_cc_connection_identity.py` (16), `test_cc_landscape_cache_key.py` (10).
+   Original analysis kept below.
+   **Command Center — same hole through a second door.** CC's
    `graph/workflow_tools._headers()` (`:115`) sends only the service key and CC
    calls `/get/connections` (`:206`) and the discover routes (`nodes.py:6499,
    6583, 6638`). This matters wherever `CC_ALLOW_ALL_USERS=true` — which it IS
@@ -359,9 +381,8 @@ degrades gracefully (index unfiltered again). `AGENT_RUN_PYTHON_SDK` and
    or the user's allowed set (leaves a write path on shared connections).
 5. **Interim posture on installs** until the build ships: leave as is, or flip
    `AGENT_ALLOW_ALL_USERS=false`.
-6. **Command Center:** bundle item 7 in the same build, or later.
-7. **Classic agent routes (§9):** bundle the session-side agent gating into
-   Phase 1 (same seam, same risk class) or track it separately.
+6. **Command Center:** DONE in round 2 (James, same day).
+7. **Classic agent routes (§9):** DONE in round 2 (James, same day).
 
 ---
 
@@ -398,8 +419,27 @@ not — the same "authz by UI" pattern as the connections finding:
 
 Pack 18's healthy row "user A cannot read user B's agent" (`b2`) proved only
 `GET /get/agent/<id>` between two *Developers*; none of the routes above.
-**Status: code-verified only** — the main app was down (`:5001` refused) during
-this session, so no live probe was run.
+**Status: BUILT + LIVE-VERIFIED 2026-09-22 (round 2).** `_agent_visibility_filter` now
+applies the same group filter to a flask-login SESSION whose role is below 2
+(`_session_agent_scope`, floor 2 — Developers/admins and API-key-only callers unchanged);
+one helper, `_agent_access_refusal`, guards `/chat/general`, `/chat/general_system`,
+`/chat/general/text` (now `@api_key_or_session_required` — it was open to anonymous
+callers), `/chat/data` (same — was anonymous), the agent-knowledge routes and page, and
+`/export/agent/<id>`; `/get/agents` and `/get/data_agents` are scoped; `/get/user_agents/<id>`
+and `/get_user_agents/<id>` force a regular user's own id; `/get/agent_info` is admin-only
+(it only feeds the Groups page); Data Explorer chat/refresh refuse unshared data agents
+(`routes/data_explorer.py _regular_user_agent_refusal`). Kill switch
+`AGENT_SESSION_ACL_ENFORCE=false`. Live (real browser sessions, dev tree): `ru_alex` →
+`/get/agents` 2, `/api/agents/list` 2, summary 3 (Alpha, Disabled, + the fixture's ERPDB
+assistant), knowledge/export on 386 → 403 `access: denied`, chat with Bravo 1036 → 403, with
+Alpha 1035 → 200 "OK", `/chat/general` 386 → 403; `dev_erin` → 33 / 38 / 39 and every route
+200; anonymous → 302 / 401; API-key-only → unchanged. Tests:
+`test_agent_session_acl_routes.py` (14), `test_data_explorer_session_acl.py` (6);
+`test_agent_chat_visibility.py` lifts the new helpers (no-session world unchanged).
+**Still open (pack-18 class, separate call):** `/add/agent`, `/delete/agent`,
+`/add/data_agent`, `/add/agent_knowledge`, `/delete/agent_knowledge/<id>` carry
+`api_key_or_session_required()` with no role floor — a regular session can create or
+delete agents. One `min_role=2` each; not touched here.
 
 **Task — live verification (no code):**
 1. Log in as `ru_alex` (role 1; group *Agent Test A* = id 59 → agents 1035

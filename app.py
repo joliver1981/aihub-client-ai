@@ -2579,6 +2579,12 @@ def get_agents():
     try:        
         # Call the function to select all agents and tools
         agents_and_tools = select_all_agents_and_tools()
+        # Regular users (role 1) see only agents shared with their groups (2026-09-22)
+        _scope = _session_agent_scope()
+        if _scope is not None and agents_and_tools:
+            _ok = {int(i) for i in _scope}
+            agents_and_tools = [a for a in agents_and_tools
+                                if int(a.get('agent_id') or 0) in _ok]
         
         if agents_and_tools is not None:
             return jsonify({'status': 'success', 'data': agents_and_tools})
@@ -2614,7 +2620,11 @@ def _agent_visibility_filter(strict=False, unrestricted_from_role=3):
     """
     assertion = request.headers.get('X-AIHub-User', '')
     if not assertion:
-        return None
+        # No assertion (2026-09-22): an API-key-only service caller stays
+        # unrestricted, but a signed-in REGULAR user (browser session) gets the
+        # same group filter the assertion path applies — the classic routes
+        # used to rely on the pages hiding what the routes would still serve.
+        return _session_agent_scope()
     try:
         import shared_auth
         claims, err = shared_auth.verify_token(assertion, shared_auth.AUD_INTERNAL)
@@ -2636,6 +2646,82 @@ def _agent_visibility_filter(strict=False, unrestricted_from_role=3):
     except Exception as e:
         logger.warning(f'[agents] visibility filter error: {e}')
         return [] if strict else None
+
+
+# ---------------------------------------------------------------------------
+# Agent access for signed-in REGULAR users (2026-09-22,
+# docs/handoff-the-agent-connection-acl.md §9). The pages a role-1 user sees
+# were already filtered (fetch_user_agents), but the routes behind them served
+# every agent to ANY session: /get/agents, /api/agents/list|summary,
+# /api/agents/<id>/chat, /chat/general*, /chat/data, agent knowledge, export.
+# The rule is the one the X-AIHub-User assertion path already applies: a
+# regular user may see and use exactly the agents shared with one of their
+# groups (DataUtils.accessible_agent_ids). Developers / admins (role >= 2) and
+# API-key-only service callers are unchanged.
+# Kill switch AGENT_SESSION_ACL_ENFORCE=false = old behaviour + a log line.
+# ---------------------------------------------------------------------------
+def _session_agent_acl_enforced() -> bool:
+    return (os.getenv('AGENT_SESSION_ACL_ENFORCE', 'true') or 'true').strip().lower() \
+        not in ('false', '0', 'no', 'off')
+
+
+def _session_agent_scope(unrestricted_from_role=2):
+    """[ids] the signed-in browser user may use when they are a REGULAR user
+    (role below the floor); None for everyone else (no session, or role >=
+    floor). [] = deny-all; a resolver error fails CLOSED ([])."""
+    try:
+        if not getattr(current_user, 'is_authenticated', False):
+            return None
+        role = int(getattr(current_user, 'role', 0) or 0)
+    except Exception:
+        return None
+    if role >= int(unrestricted_from_role):
+        return None
+    uid = getattr(current_user, 'id', None)
+    try:
+        from DataUtils import accessible_agent_ids
+        ids = accessible_agent_ids(uid, role)
+        ids = [] if ids is None else [int(i) for i in ids]
+    except Exception as e:
+        logger.warning(f'[agents] session scope error for user {uid}: {e} — deny-all')
+        ids = []
+    if not _session_agent_acl_enforced():
+        logger.info(f'[agents] DRY RUN (AGENT_SESSION_ACL_ENFORCE=false): user {uid} role {role} '
+                    f'would be limited to agents {ids}')
+        return None
+    return ids
+
+
+def _session_is_regular_user(unrestricted_from_role=2) -> bool:
+    """True for a signed-in browser user whose agent access is scoped."""
+    try:
+        return bool(getattr(current_user, 'is_authenticated', False)) and \
+            int(getattr(current_user, 'role', 0) or 0) < int(unrestricted_from_role) and \
+            _session_agent_acl_enforced()
+    except Exception:
+        return False
+
+
+def _agent_access_refusal(agent_id):
+    """None when the caller may use `agent_id`; else the (response, 403) to
+    return. Assertion callers (The Agent, CC) and browser sessions both go
+    through _agent_visibility_filter(strict=True, unrestricted_from_role=2)."""
+    try:
+        scope = _agent_visibility_filter(strict=True, unrestricted_from_role=2)
+    except _InvalidUserAssertion as e:
+        logger.warning(f'[agents] invalid X-AIHub-User assertion: {e}')
+        return jsonify({'status': 'error', 'response': 'invalid user assertion'}), 403
+    if scope is None:
+        return None
+    try:
+        aid = int(agent_id)
+    except (TypeError, ValueError):
+        aid = None
+    if aid is None or aid not in {int(i) for i in scope}:
+        logger.info(f'[agents] access denied to agent {agent_id} (caller may use: {sorted(scope)})')
+        return jsonify({'status': 'error', 'access': 'denied',
+                        'response': 'You do not have access to that agent.'}), 403
+    return None
 
 
 @app.route('/api/agents/summary', methods=['GET'])
@@ -2923,7 +3009,11 @@ def list_agents_for_selection():
 def get_data_agents():
     try:        
         # Call the function to select all agents and tools
-        agents_and_conns_df = select_all_agents_and_connections()
+        # Regular users (role 1) get the group-scoped list (2026-09-22)
+        if _session_is_regular_user():
+            agents_and_conns_df = select_user_agents_and_connections(current_user.id, current_user.role)
+        else:
+            agents_and_conns_df = select_all_agents_and_connections()
 
         if agents_and_conns_df is not None:
             agents_and_conns = dataframe_to_json(agents_and_conns_df)
@@ -2957,6 +3047,8 @@ def get_user_data_agents():
 def get_agents_by_user(user_id):
     try:        
         # Call the function to select all agents and tools
+        if _session_is_regular_user():
+            user_id = current_user.id   # a regular user may only ask about themselves (2026-09-22)
         agents_and_tools = select_user_agents_and_tools(user_id, current_user.role)
         
         if agents_and_tools is not None:
@@ -2991,7 +3083,7 @@ def save_group_permissions():
 
 
 @app.route('/get/agent_info', methods=['GET'])
-@api_key_or_session_required()
+@api_key_or_session_required(min_role=3)   # the Groups (permissions) page — admin only (2026-09-22)
 def get_agent_info_for_permissions():
     agent_info = get_agent_info()
     if agent_info is None:
@@ -4199,6 +4291,9 @@ def api_add_update_connection():
 @api_key_or_session_required(min_role=2)
 def api_execute_connection_query(connection_id):
     """Execute a SQL query against a connection. Used by the builder agent for validation."""
+    _refused = _connection_access_refusal(connection_id)   # conn-acl, 2026-09-22
+    if _refused is not None:
+        return _refused
     try:
         data = request.get_json() or {}
         query = data.get('query', '')
@@ -4220,6 +4315,9 @@ def api_execute_connection_query(connection_id):
 @cross_origin()
 @api_key_or_session_required()
 def api_test_connection(connection_id):
+    _refused = _connection_access_refusal(connection_id)   # conn-acl, 2026-09-22
+    if _refused is not None:
+        return _refused
     import inspect
 
     # Fetch connection details from database
@@ -5219,6 +5317,10 @@ def chat_general_system():
             environment_id = request.args.get('environment_id', None)
             use_environment = request.args.get('use_environment', False)
 
+        _denied = _agent_access_refusal(agent_id)   # regular users: shared agents only (2026-09-22)
+        if _denied is not None:
+            return _denied
+
         hist = str(hist)
 
         logger.info('========== INPUT ==========')
@@ -5379,6 +5481,10 @@ def chat_general():
             environment_id = request.args.get('environment_id', None)
             use_environment = request.args.get('use_environment', False)
             conversation_id = request.args.get('conversation_id', None)
+
+        _denied = _agent_access_refusal(agent_id)   # regular users: shared agents only (2026-09-22)
+        if _denied is not None:
+            return _denied
 
         hist = str(hist)
 
@@ -5827,6 +5933,7 @@ def create_conversation_endpoint():
 
 @app.route('/chat/general/text', methods=['POST'])
 @cross_origin()
+@api_key_or_session_required()   # was open to anonymous callers (2026-09-22)
 def chat_general_text():
     """
     Handle general agent chat with plain text response (backward compatibility)
@@ -5835,6 +5942,10 @@ def chat_general_text():
         data = request.get_json()
         agent_id = data.get('agent_id')
         prompt = data.get('prompt')
+
+        _denied = _agent_access_refusal(agent_id)   # regular users: shared agents only (2026-09-22)
+        if _denied is not None:
+            return _denied
         
         from GeneralAgent import GeneralAgent
         agent = GeneralAgent(agent_id)
@@ -6978,6 +7089,8 @@ def get_user_agents(user_id=None):
     try:
         if user_id is None:
             user_id = request.json['user_id']
+        if _session_is_regular_user():
+            user_id = current_user.id   # a regular user may only ask about themselves (2026-09-22)
         agents = fetch_user_agents(user_id, current_user.role)
         print('AGENTS -=-==--=--=>>>', agents)
         if agents is None:
@@ -7016,6 +7129,7 @@ def chat_data_explain():
 
 @app.route('/chat/data', methods = ['GET', 'POST'])
 @cross_origin()
+@api_key_or_session_required()   # was open to anonymous callers (2026-09-22)
 def chat():
     try:
         logger.info("Received request at /chat/data...")
@@ -7034,6 +7148,10 @@ def chat():
             question = request.args.get('question')
             conversation_history = request.args.get('history')  # Retrieve conversation history from request
             format_table_as_json_string = request.args.get('format_table_as_json')
+
+        _denied = _agent_access_refusal(agent_id)   # regular users: shared agents only (2026-09-22)
+        if _denied is not None:
+            return _denied
 
         conversation_history = str(conversation_history)
 
@@ -12962,6 +13080,9 @@ def process_document_as_knowledge(file_path, agent_id, description='', user_id=N
 @api_key_or_session_required()
 def get_agent_knowledge_route(agent_id):
     """Get knowledge items for an agent"""
+    _denied = _agent_access_refusal(agent_id)   # regular users: shared agents only (2026-09-22)
+    if _denied is not None:
+        return _denied
     knowledge_items = get_agent_knowledge(agent_id)
     return jsonify(knowledge_items)
 
@@ -12971,6 +13092,9 @@ def get_agent_knowledge_route(agent_id):
 @login_required
 def get_agent_knowledge_user_route(agent_id):
     """Get knowledge items for an agent"""
+    _denied = _agent_access_refusal(agent_id)   # regular users: shared agents only (2026-09-22)
+    if _denied is not None:
+        return _denied
     knowledge_items = get_agent_knowledge_for_user(agent_id)
     return jsonify(knowledge_items)
 
@@ -13438,6 +13562,9 @@ def delete_agent_knowledge_route(knowledge_id):
 @login_required
 def agent_knowledge_page(agent_id):
     """Render agent knowledge management page"""
+    _denied = _agent_access_refusal(agent_id)   # regular users: shared agents only (2026-09-22)
+    if _denied is not None:
+        return _denied
     return render_template('agent_knowledge.html', agent_id=agent_id)
 
 
@@ -15120,6 +15247,9 @@ def find_agent_knowledge_documents(agent_id, user_id=None):
 @api_key_or_session_required()
 def export_agent(agent_id):
     """Export an agent with all its configurations, tools, and knowledge"""
+    _denied = _agent_access_refusal(agent_id)   # regular users: shared agents only (2026-09-22)
+    if _denied is not None:
+        return _denied
     try:
         import tempfile
         import shutil

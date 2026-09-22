@@ -25,11 +25,19 @@ class ServiceClient:
         self.timeout = timeout
 
     def _headers(self) -> Dict[str, str]:
-        return {
+        h = {
             "X-API-Key": self.api_key,
             "Content-Type": "application/json",
             "Connection": "close",
         }
+        # Connection ACL (2026-09-22): carry the per-turn user when one is
+        # set (routes/chat.py); headless callers stay identity-less.
+        try:
+            from graph.workflow_tools import identity_headers as _identity_headers
+            h.update(_identity_headers())
+        except ImportError:
+            pass
+        return h
 
     async def get(self, endpoint: str, params: Optional[Dict] = None) -> Dict[str, Any]:
         """GET request with retry."""

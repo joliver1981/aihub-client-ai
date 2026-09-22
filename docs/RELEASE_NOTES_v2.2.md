@@ -58,6 +58,14 @@ app registration (OAuth2 client credentials, application permission `Mail.Send`)
   Assistant that uses that connection with their group on the **Groups** page. A connection that
   is not shared is reported as an access restriction, never as "no such database".
   `CONNECTION_ACL_ENFORCE=false` in `.env` restores the previous tenant-wide behaviour.
+  Command Center applies the same rule for regular users.
+- **Agent access for regular users is enforced by the routes, not just the pages.** An End
+  User's browser session can now reach only the agents shared with their groups everywhere
+  — agent listings, general and data chat, the Data Explorer, agent knowledge and export —
+  which is what the Assistants pages always showed them. Two chat routes that accepted
+  anonymous calls now require a signed-in session or an API key. Developers and
+  administrators are unchanged. `AGENT_SESSION_ACL_ENFORCE=false` restores the previous
+  behaviour.
 
 ---
 

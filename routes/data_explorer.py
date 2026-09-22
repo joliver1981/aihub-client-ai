@@ -159,6 +159,35 @@ def data_explorer():
     return render_template("data_explorer.html")
 
 
+def _regular_user_agent_refusal(agent_id):
+    """Regular users (role 1) may use only the data agents shared with their
+    groups (2026-09-22, docs/handoff-the-agent-connection-acl.md §9 — the same
+    rule app._agent_access_refusal applies to the classic agent routes; the
+    Data Explorer's dropdown was already scoped, the chat/refresh routes were
+    not). None = allowed; else the (response, 403) to return. A resolver error
+    fails CLOSED. Kill switch AGENT_SESSION_ACL_ENFORCE=false."""
+    try:
+        role = int(getattr(current_user, "role", 0) or 0)
+    except (TypeError, ValueError):
+        role = 0
+    if role >= 2:
+        return None
+    if (os.getenv("AGENT_SESSION_ACL_ENFORCE", "true") or "true").strip().lower() \
+            in ("false", "0", "no", "off"):
+        return None
+    try:
+        from DataUtils import accessible_agent_ids
+        ids = {int(i) for i in (accessible_agent_ids(current_user.id, role) or [])}
+        ok = int(agent_id) in ids
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"[data_explorer] agent scope error: {e} — deny")
+        ok = False
+    if not ok:
+        return jsonify({"error": "You do not have access to that agent.",
+                        "access": "denied"}), 403
+    return None
+
+
 @data_explorer_bp.route("/data_explorer/chat", methods=["POST"])
 @cross_origin()
 @login_required
@@ -174,6 +203,9 @@ def data_explorer_chat():
 
     data = request.get_json()
     agent_id = data.get("agent_id")
+    _denied = _regular_user_agent_refusal(agent_id)
+    if _denied is not None:
+        return _denied
     question = data.get("question", "")
     conversation_history_raw = data.get("history", "[]")
 
@@ -351,6 +383,9 @@ def data_explorer_refresh_query():
 
     if not sql or not agent_id:
         return jsonify({"error": "Missing sql or agent_id"}), 400
+    _denied = _regular_user_agent_refusal(agent_id)
+    if _denied is not None:
+        return _denied
 
     session_id = session.get("session_id")
     engine = _get_session_engine(session_id)

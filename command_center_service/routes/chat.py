@@ -641,6 +641,14 @@ async def chat(request: Request):
             # for real-time progress events emitted by graph nodes.
             from graph.progress import register_queue, cleanup_queue
             _progress_queue = register_queue(session_id)
+            # Connection ACL (2026-09-22): the platform calls this turn's tools
+            # make carry the VERIFIED user, so /get/connections and
+            # /api/discover/* scope a regular user to the connections behind
+            # their shared Data Assistants. create_task() copies the current
+            # context, so the graph task (and its tools) inherit it.
+            from graph import workflow_tools as _wt_identity
+            _wt_identity.CURRENT_USER.set(
+                dict(user_context) if isinstance(user_context, dict) else {})
             try:
                 _invoke_task = asyncio.create_task(
                     _graph.ainvoke(graph_input, config=config)

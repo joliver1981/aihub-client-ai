@@ -13,10 +13,25 @@ from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
-# Simple TTL cache
-_cache: Dict[str, Any] = {}
-_cache_time: float = 0
+# Simple TTL cache — keyed per IDENTITY since 2026-09-22: a regular user's
+# landscape is scoped to their groups (connection ACL + agent visibility), so
+# one shared entry would hand user A's scoped view to user B for 60 seconds
+# (seen live: a no-group seat inherited another seat's ERPDB). Developers /
+# admins share the unrestricted "*" entry exactly as before.
+_caches: Dict[str, Any] = {}          # key -> (landscape, fetched_at)
 _CACHE_TTL = 60  # seconds
+
+
+def landscape_cache_key(user_context=None) -> str:
+    """'u:<user_id>' for a regular user (role < 2), '*' for everyone else."""
+    try:
+        uid = (user_context or {}).get("user_id")
+        role = int((user_context or {}).get("role") or 0)
+    except (TypeError, ValueError, AttributeError):
+        return "*"
+    if uid in (None, "", 0, "0", "anonymous") or role >= 2:
+        return "*"
+    return f"u:{uid}"
 
 # Show each data agent's connection in landscape summaries so a named
 # connection resolves to the agent that actually queries it. Same env var as
@@ -35,10 +50,10 @@ async def scan_platform(user_context=None) -> Dict[str, Any]:
     per-user landscape filter; the agent-list endpoints already apply that filter
     server-side (app._agent_visibility_filter), so it is advisory here.
     """
-    global _cache, _cache_time
-
-    if _cache and (time.time() - _cache_time) < _CACHE_TTL:
-        return _cache
+    _key = landscape_cache_key(user_context)
+    _hit = _caches.get(_key)
+    if _hit and (time.time() - _hit[1]) < _CACHE_TTL:
+        return _hit[0]
 
     import httpx
 
@@ -54,6 +69,15 @@ async def scan_platform(user_context=None) -> Dict[str, Any]:
         "Content-Type": "application/json",
         "Connection": "close",
     }
+    # Connection ACL (2026-09-22): a REGULAR user's landscape must be what
+    # they may use — the assertion scopes /api/connections (and the agent
+    # listings) to their groups. identity_headers() itself sends nothing for
+    # Developers/admins, so their landscape is unchanged.
+    try:
+        from graph.workflow_tools import identity_headers as _identity_headers
+        headers.update(_identity_headers(user_context))
+    except ImportError:
+        logger.warning("identity headers unavailable — landscape scanned unscoped")
 
     landscape = {
         "agents": [],
@@ -169,8 +193,11 @@ async def scan_platform(user_context=None) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"Failed to fetch MCP servers: {e}")
 
-    _cache = landscape
-    _cache_time = time.time()
+    # A regular user's landscape is what THEY may use, not the platform's
+    # total state — the summary says so (F-2 lesson: never let a scoped view
+    # read as "the platform has none").
+    landscape["scoped_to_user"] = (_key != "*")
+    _caches[_key] = (landscape, time.time())
 
     total = (
         len(landscape["agents"]) + len(landscape["data_agents"])
@@ -188,6 +215,13 @@ def format_landscape_summary(landscape: Dict[str, Any], max_agents: int = 0) -> 
     If max_agents > 0, limits general agents shown (data agents always shown in full).
     """
     parts = []
+    scoped = bool(landscape.get("scoped_to_user"))
+    if scoped:
+        parts.append("**ACCESS SCOPE:** this landscape is limited to what THIS user may use — "
+                     "agents and data connections not shared with their groups are not shown. "
+                     "If something they ask about is missing, say it may exist but is not shared "
+                     "with their account (an administrator shares an agent or a Data Assistant "
+                     "with their group on the Groups page) — never that the platform has none.")
 
     if landscape.get("agents"):
         enabled = [a for a in landscape["agents"] if a.get("enabled")]
@@ -258,6 +292,10 @@ def format_landscape_summary(landscape: Dict[str, Any], max_agents: int = 0) -> 
             parts.append(f"- **{name}** ({stype})" if stype else f"- **{name}**")
 
     if not parts:
+        if scoped:
+            return ("No agents or data connections are shared with this user's account — an "
+                    "access restriction, not an empty platform. An administrator shares an agent "
+                    "or a Data Assistant with one of their groups (Groups page).")
         return "No agents or resources discovered. The platform may need configuration."
 
     return "\n".join(parts)
@@ -281,9 +319,7 @@ def find_agents_for_query(landscape: Dict[str, Any], query_type: str = "data") -
 
 def invalidate_cache():
     """Force a fresh scan on next call."""
-    global _cache, _cache_time
-    _cache = {}
-    _cache_time = 0
+    _caches.clear()
 
 
 def _empty_landscape() -> Dict[str, Any]:

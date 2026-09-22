@@ -73,12 +73,22 @@ class _World:
             self.chat_calls.append((agent_id, prompt))
             return {"answer": f"agent {agent_id} says hi", "conversation_history": []}, None
 
-        ns = {"request": request, "jsonify": jsonify,
+        # No browser session in this world: the 2026-09-22 session branch of
+        # _agent_visibility_filter (regular users) must stay inert here, so
+        # every pre-existing assertion-path expectation holds unchanged.
+        class _NoSession:
+            is_authenticated = False
+            id = None
+            role = None
+
+        ns = {"request": request, "jsonify": jsonify, "os": os,
               "logger": logging.getLogger("test_agent_chat_visibility"),
+              "current_user": _NoSession(),
               "process_chat_data_request": _process_chat_data_request,
               "enhance_engines": {}, "nlq_systems": {},
               "active_agents": {}, "load_agents": lambda **kw: None}
-        load_app_symbols(["_InvalidUserAssertion", "_agent_visibility_filter",
+        load_app_symbols(["_InvalidUserAssertion", "_session_agent_acl_enforced",
+                          "_session_agent_scope", "_agent_visibility_filter",
                           "api_agent_chat"], ns)
         self.ns = ns
         app = Flask(__name__)
