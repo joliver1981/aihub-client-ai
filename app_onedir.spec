@@ -223,6 +223,10 @@ a = Analysis(
         # misses — list both explicitly so the frozen build can sign/verify.
         'shared_auth',
         'jwt',
+        # Connection ACL for delegated regular users (2026-09-22): a root
+        # module app.py imports lazily inside the /get/connections and
+        # /api/discover/* routes — listed explicitly, same trap as shared_auth.
+        'connection_acl',
         # SFTP for the workflow File Transfer node + CC transfer tools.
         # sftp_transfer does a lazy `import paramiko` inside _import_paramiko()
         # — same trap as jwt above; list it and its binary deps explicitly so

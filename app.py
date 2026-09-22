@@ -3398,6 +3398,20 @@ def get_connections():
     # END NEW CODE
     # =========================================================================
     
+    # Connection ACL (2026-09-22): a delegated regular user sees only the
+    # connections behind Data Assistants shared with their groups. No
+    # assertion (browser session, CC, scheduler) = unchanged, every row.
+    try:
+        _scope = _caller_connection_scope()
+    except _InvalidUserAssertion as e:
+        logger.warning(f"[conn-acl] /get/connections invalid assertion: {e}")
+        return jsonify({'status': 'error', 'error': f'invalid user assertion: {e}'}), 403
+    if _scope is not None and not df.empty and 'id' in df.columns:
+        _allowed = {int(i) for i in _scope}
+        _before = len(df)
+        df = df[df['id'].apply(lambda v: int(v) in _allowed)]
+        logger.info(f"[conn-acl] /get/connections scoped {_before} -> {len(df)} rows")
+
     json_df = dataframe_to_json(df)
     return jsonify(json_df)
 
@@ -6409,6 +6423,80 @@ def _caller_identity_or_session():
     except Exception:
         pass
     return None, None
+
+
+# ---------------------------------------------------------------------------
+# Connection ACL for delegated callers (2026-09-22, Option A of
+# docs/handoff-the-agent-connection-acl.md). The Agent calls /get/connections
+# and /api/discover/* with the platform service key, which
+# api_key_or_session_required treats as a trusted internal caller — so until
+# now a regular user could list and query EVERY tenant connection through The
+# Agent. The rule is the one classic mode already applies: a regular user may
+# touch exactly the connections behind the Data Assistants shared with their
+# groups (connection_acl.accessible_connection_ids).
+#   * assertion ABSENT  -> unrestricted (browser sessions, CC, scheduler,
+#                          dispatcher — today's posture, unchanged)
+#   * role >= floor     -> unrestricted (Developers already see every
+#                          connection on the Connections page; floor = 2,
+#                          CONNECTION_ACL_UNRESTRICTED_ROLE)
+#   * role <  floor     -> [ids] allow list; [] = deny-all (fail closed)
+#   * assertion forged  -> _InvalidUserAssertion -> the route answers 403
+# Kill switch CONNECTION_ACL_ENFORCE=false: log what WOULD have been filtered
+# and behave exactly as before.
+# ---------------------------------------------------------------------------
+def _connection_acl_enforced() -> bool:
+    return (os.getenv('CONNECTION_ACL_ENFORCE', 'true') or 'true').strip().lower() \
+        not in ('false', '0', 'no', 'off')
+
+
+def _caller_connection_scope():
+    """None = no filtering; [ids] = the connections the asserted user may use
+    ([] = none). Raises _InvalidUserAssertion on a forged assertion."""
+    uid, role = _caller_identity()
+    if uid is None:
+        return None
+    from connection_acl import accessible_connection_ids, unrestricted_from_role
+    try:
+        _role = int(role or 0)
+    except (TypeError, ValueError):
+        _role = 0
+    if _role >= unrestricted_from_role():
+        return None
+    allowed = accessible_connection_ids(uid, role)
+    if allowed is None:
+        return None
+    if not _connection_acl_enforced():
+        logger.info(f"[conn-acl] DRY RUN (CONNECTION_ACL_ENFORCE=false): user {uid} role {_role} "
+                    f"would be limited to connections {sorted(allowed)}")
+        return None
+    return allowed
+
+
+def _connection_denied_response(connection_id, scope):
+    """The terminal, honest answer for a connection outside the caller's scope
+    — an access restriction, never "does not exist" (RU pack F-2 lesson)."""
+    logger.info(f"[conn-acl] denied connection {connection_id} "
+                f"(caller may use: {sorted(scope or [])})")
+    return jsonify({
+        'success': False, 'access': 'denied',
+        'error': (f"Connection {connection_id} is not shared with your account — this is an "
+                  "access restriction, not a missing connection. An administrator shares a "
+                  "Data Assistant that uses it with one of your groups (Groups page)."),
+    }), 403
+
+
+def _connection_access_refusal(connection_id):
+    """None when the caller may use the connection; else the (response, 403)
+    to return. Runs at the TOP of every /api/discover/* route, before any
+    database work."""
+    try:
+        scope = _caller_connection_scope()
+    except _InvalidUserAssertion as e:
+        logger.warning(f"[conn-acl] invalid X-AIHub-User assertion: {e}")
+        return jsonify({'success': False, 'error': f'invalid user assertion: {e}'}), 403
+    if scope is not None and int(connection_id) not in {int(i) for i in scope}:
+        return _connection_denied_response(connection_id, scope)
+    return None
 
 
 @app.route("/api/internal/document-search-unified", methods=['POST'])
@@ -17285,6 +17373,9 @@ def update_column():
 @api_key_or_session_required(min_role=2)
 def discover_tables_api(connection_id):
     """Discover tables from the actual database (works with all database types)."""
+    _refused = _connection_access_refusal(connection_id)   # conn-acl, 2026-09-22
+    if _refused is not None:
+        return _refused
     try:
         # Get TARGET database connection info from app database
         query = "SELECT * FROM Connections WHERE id = ?"
@@ -17394,6 +17485,9 @@ def discover_query_api(connection_id):
         dominate the reply.
 
     Same Developer-family gate as the rest of /api/discover/*."""
+    _refused = _connection_access_refusal(connection_id)   # conn-acl, 2026-09-22
+    if _refused is not None:
+        return _refused
     body = request.get_json(silent=True) or {}
     sql = (body.get('sql') or '').strip()
     if not sql:
@@ -17456,6 +17550,9 @@ def discover_table_schema_api(connection_id):
     If the live read fails but the dictionary has the table, fall back to
     dictionary-only WITH an explicit source marker — never silently. Read-
     only; same gate as the tables discovery above."""
+    _refused = _connection_access_refusal(connection_id)   # conn-acl, 2026-09-22
+    if _refused is not None:
+        return _refused
     table = (request.args.get('table') or '').strip()
     if not table:
         return jsonify({'success': False, 'error': "missing required query param 'table'"}), 400

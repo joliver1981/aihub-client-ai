@@ -361,12 +361,17 @@ Record: the assigned integration's id and name, **and** one unassigned integrati
 
 This gives RU-08 something real to refuse to list. Record whether any other secrets exist.
 
-### 3.9 Data connections — record only, change nothing
+### 3.9 Data connections — share ONE Data Assistant with group A
 
-`list_data_connections` is **not** group-scoped: a regular user sees and can query every connection
-on the install. That is the shipped posture and RU-05 reports on it. Just record the count and the
-names, and note **which** AIRDB is which — brief 1 §2.1 warns there is more than one copy on
-`10.0.0.6` with different facts (10 stores vs 15).
+Since 2026-09-22 (`docs/handoff-the-agent-connection-acl.md`, Option A) `list_data_connections`
+and every probe / schema / export call ARE group-scoped for regular users: a role-1 seat sees exactly
+the connections behind the Data Assistants (data agents) shared with its groups; Developers and
+admins still see everything. So the fixture is one share: on the **Groups** page share the
+**AR Collections Assistant** (the data agent on ERPDB) with *Agent Test A* — `ru_alex` then sees
+ERPDB only, `ru_casey` and `ru_drew` see nothing (the deny-all wording), `dev_erin` sees all six.
+Record the count and the names, and note **which** AIRDB is which — brief 1 §2.1 warns there is
+more than one copy on `10.0.0.6` with different facts (10 stores vs 15). Confirm the main app's
+`CONNECTION_ACL_ENFORCE` is unset or `true` (the kill switch restores the old tenant-wide list).
 
 ### 3.10 Optional extras
 
@@ -613,9 +618,15 @@ skill  ru-pack-fixture   scope tenant   (saved + approved through My Work)
 secret TEST_SHARED_KEY   Local Secrets
 (no tenant View seeded — RU-21 creates one)
 
--- CONNECTIONS (tenant-wide, RU-05) -----------------------------------
+-- CONNECTIONS (connection ACL since 2026-09-22, RU-05) ---------------
 6 total: ERPDB(1) · EDW SQL Server(5) · EDW Postgres(18) · EDWDB Postgres(28)
          AIRDB2(1071, 15 stores) · AIRDB(1072, 10 stores)
+FIXTURE: share the AR Collections Assistant (the data agent on ERPDB) with
+         Agent Test A — Groups page, or
+         INSERT dbo.AgentGroups (group_id, agent_id, TenantId) VALUES (<A>, <876>, 1)
+per seat (CONNECTION_ACL_ENFORCE unset/true on the main app):
+         ru_alex = ERPDB only · ru_casey = none · ru_drew = none
+         dev_erin (role 2) = all 6 · admin = all 6
 === END ===
 ```
 

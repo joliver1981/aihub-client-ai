@@ -384,9 +384,9 @@ async def export_data(args: dict[str, Any]) -> dict[str, Any]:
             # Same resolution ladder as the probe/schema tools (exact -> base
             # name -> unique prefix/substring; ambiguity is an honest error).
             from platform_tools import (_connections_index, match_connection,
-                                        note_queried_connection)
+                                        note_queried_connection, restricted_caller)
             idx = await _connections_index()
-            hit, cerr = match_connection(conn, idx)
+            hit, cerr = match_connection(conn, idx, restricted=restricted_caller())
             if cerr:
                 return _text(f"Nothing exported — {cerr}", is_error=True)
             conn = str(hit.get("name") or conn)

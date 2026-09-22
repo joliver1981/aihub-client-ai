@@ -724,6 +724,12 @@ only as strong as the search behind it, so:
   found nothing after July; I have not checked C or D" — never widened to
   connections you did not query. A failed or unresolved lookup (unknown name,
   listing error) is NOT a checked source.
+- ACCESS SCOPE: the connections you can list are the ones available to THIS
+  user — the platform hides connections not shared with their account (an
+  administrator shares a Data Assistant with their group). If someone asks
+  about a database you cannot see, say it may exist but is not shared with
+  them and name that admin path — never that the platform has no such
+  database. A denied or hidden connection is NOT a checked source either.
 - A negative statement about a specific entity (a customer has no open
   balance, a vendor has no orders) must come from a query whose population
   included that entity — never from its absence in a list you had filtered.

@@ -74,7 +74,11 @@ async def _run_sql_tile(t: dict, tile: dict) -> None:
         return
     data, status = await _post(f"/api/discover/query/{conn_id}",
                                {"sql": str(t.get("sql") or "").strip()})
-    if data.get("rejected"):
+    if data.get("access") == "denied":
+        # Connection ACL: the refreshing user may not use this tile's
+        # connection — say so in the platform's words (not "no data").
+        tile["error"] = f"access denied: {data.get('error')}"
+    elif data.get("rejected"):
         tile["error"] = f"rejected by read-only gate: {data.get('error')}"
     elif data.get("sql_error"):
         tile["error"] = f"SQL error: {data.get('error')}"

@@ -16,6 +16,7 @@ Honesty rules carried over from CC's tool bodies:
 import asyncio
 import json
 import contextvars
+import os
 import re
 from typing import Any, Optional
 
@@ -163,11 +164,73 @@ def _unwrap(data):
     return data
 
 
+class ConnectionAccessDenied(Exception):
+    """The platform refused a connection for THIS user (403, access: denied —
+    the connection ACL, 2026-09-22). The message is the platform's own honest
+    text: an access restriction, never "does not exist"."""
+
+
+def _denied_message(r) -> Optional[str]:
+    """The platform's denial text when `r` is a connection-ACL 403, else None."""
+    if getattr(r, "status_code", None) != 403:
+        return None
+    try:
+        body = r.json()
+    except Exception:
+        return None
+    if isinstance(body, dict) and body.get("access") == "denied":
+        return str(body.get("error") or "this connection is not shared with your account")
+    return None
+
+
 async def _get(path: str, timeout: Optional[httpx.Timeout] = None):
     async with httpx.AsyncClient(timeout=timeout or _TIMEOUT) as client:
         r = await client.get(f"{get_base_url()}{path}", headers=_headers())
+        denied = _denied_message(r)
+        if denied:
+            raise ConnectionAccessDenied(denied)
         r.raise_for_status()
         return _unwrap(r.json())
+
+
+# ---------------------------------------------------------------------------
+# Connection ACL wording (2026-09-22). The platform scopes /get/connections
+# and /api/discover/* to the connections behind the Data Assistants shared
+# with a regular user's groups (role below CONNECTION_ACL_UNRESTRICTED_ROLE,
+# default 2). The tools must then describe what they see as an ACCESS-scoped
+# view — never as the platform's total state (RU pack F-2: "that document is
+# not in the store" about a document the user simply could not read).
+# ---------------------------------------------------------------------------
+def _acl_floor() -> int:
+    try:
+        return int(os.getenv("CONNECTION_ACL_UNRESTRICTED_ROLE", "2") or 2)
+    except (TypeError, ValueError):
+        return 2
+
+
+def restricted_caller() -> bool:
+    """True when this turn runs for a user whose connection list the platform
+    scopes (verified role below the ACL floor)."""
+    user = CURRENT_USER.get() or {}
+    try:
+        return int(user.get("role") or 0) < _acl_floor()
+    except (TypeError, ValueError):
+        return False
+
+
+ACCESS_HINT = ("An administrator grants access by sharing a Data Assistant (data agent) "
+               "that uses the connection with one of your groups (Groups page).")
+
+SCOPED_NOTE = ("\nThis list is scoped to your access: other connections may exist on the "
+               "platform that are not shared with your account. " + ACCESS_HINT)
+
+NO_ACCESS_TEXT = ("No data connections are shared with your account — this is an access "
+                  "restriction, not an empty platform. " + ACCESS_HINT + " Agents shared "
+                  "with you (list_agents / ask_agent) can still answer from their own sources.")
+
+
+def _no_connections_text() -> str:
+    return NO_ACCESS_TEXT if restricted_caller() else "No data connections are configured."
 
 
 async def _post(path: str, body: dict, timeout: float | None = None):
@@ -227,8 +290,13 @@ def _known_names(conns: list) -> str:
                      if isinstance(c, dict) and c.get("name"))
 
 
-def match_connection(ref, conns: list) -> tuple:
+def match_connection(ref, conns: list, restricted: bool = False) -> tuple:
     """Resolve a connection reference against the index -> (row, error).
+
+    `restricted=True` (a regular user whose index the platform scoped, see
+    restricted_caller): an unknown id/name is worded as an ACCESS restriction
+    and an EMPTY index refuses a numeric id instead of passing it through —
+    for that caller an empty index is deny-all, not "index unavailable".
 
     Ladder, first hit wins: numeric id -> exact name (case-insensitive) ->
     exact BASE name ('EDW' -> 'EDW (SQL Server)', 'EDWDB' -> 'EDWDB (Postgres)')
@@ -249,6 +317,10 @@ def match_connection(ref, conns: list) -> tuple:
         hit = [c for c in conns if str(c.get("id")) == s]
         if hit:
             return hit[0], None
+        if restricted:
+            return None, (f"Connection id {s} is not among the connections available to "
+                          f"your account ({_known_names(conns) or 'none are shared with you'})"
+                          " — an access restriction, not a missing connection. " + ACCESS_HINT)
         if not conns:
             # index unavailable: keep the pre-existing pass-through so an id
             # the platform would accept is not refused on a listing hiccup
@@ -271,6 +343,10 @@ def match_connection(ref, conns: list) -> tuple:
             cands = ", ".join(f"{c.get('name')} (id {c.get('id')})" for c in tier)
             return None, (f"'{ref}' is ambiguous — it matches {len(tier)} "
                           f"connections: {cands}. Use the full name or the id.")
+    if restricted:
+        return None, (f"'{ref}' is not among the connections available to your account "
+                      f"({_known_names(conns) or 'none are shared with you'}) — an access "
+                      "restriction, not a missing connection. " + ACCESS_HINT)
     return None, (f"No connection named '{ref}'. Known connections: "
                   f"{_known_names(conns) or '(none)'}")
 
@@ -293,7 +369,7 @@ async def _resolve_connection_row(ref) -> tuple:
     # proof the platform reported these connections this turn, whichever
     # path produced the index.
     note_known_connections(conns)
-    return match_connection(ref, conns)
+    return match_connection(ref, conns, restricted=restricted_caller())
 
 
 async def _resolve_connection(ref) -> tuple:
@@ -329,9 +405,12 @@ async def list_data_connections(args: dict[str, Any]) -> dict[str, Any]:
     try:
         conns = await _connections_index()
         if not conns:
-            return _text("No data connections are configured.")
+            return _text(_no_connections_text())
         lines = [f"- id {c['id']} — {c['name']} ({c.get('type') or 'type ?'}, "
                  f"db {c['database']})" for c in conns]
+        if restricted_caller():
+            return _text("Data connections available to your account:\n" + "\n".join(lines)
+                         + SCOPED_NOTE + "\n\n" + COVERAGE_RULE)
         return _text("Data connections:\n" + "\n".join(lines) + "\n\n" + COVERAGE_RULE)
     except Exception as e:
         logger.error(f"list_data_connections failed: {e}")
@@ -412,6 +491,8 @@ async def get_connection_schema(args: dict[str, Any]) -> dict[str, Any]:
         if data.get("source") == "dictionary_only":
             lines.append("NOTE: live DB unreachable — this is Data Dictionary info and may be stale.")
         return _text("\n".join(lines))
+    except ConnectionAccessDenied as e:
+        return _text(f"Access denied: {e}", is_error=True)
     except Exception as e:
         logger.error(f"get_connection_schema failed: {e}")
         return _text(f"Schema lookup failed: {e}", is_error=True)
@@ -453,6 +534,10 @@ async def probe_connection_query(args: dict[str, Any]) -> dict[str, Any]:
         rnote = _resolution_note(args["connection"], row)
         data, status = await _post(f"/api/discover/query/{conn_id}",
                                    {"sql": str(args["sql"]).strip()})
+        if data.get("access") == "denied":
+            # Connection ACL: the platform's own wording — an access
+            # restriction, never "does not exist".
+            return _text(f"{rnote}Access denied: {data.get('error')}", is_error=True)
         if data.get("rejected"):
             return _text(f"{rnote}Query rejected by the read-only gate: {data.get('error')}",
                          is_error=True)
@@ -578,12 +663,13 @@ async def search_tables(args: dict[str, Any]) -> dict[str, Any]:
         conns = await _connections_index()
         note_known_connections(conns)
         if not conns:
-            return _text("No data connections are configured.")
+            return _text(_no_connections_text())
         wanted = args.get("connections") or []
         if wanted:
             picked, errs = [], []
+            restricted = restricted_caller()
             for ref in wanted:
-                row, err = match_connection(ref, conns)
+                row, err = match_connection(ref, conns, restricted=restricted)
                 if err:
                     errs.append(err)
                 elif row not in picked:
@@ -606,7 +692,8 @@ async def search_tables(args: dict[str, Any]) -> dict[str, Any]:
                 hits.append(f"- {label}: {shown}{extra}")
             else:
                 misses.append(label)
-        lines = [f"Tables matching [{', '.join(pats)}] across {len(conns)} connection(s):"]
+        scope = " available to your account" if restricted_caller() else ""
+        lines = [f"Tables matching [{', '.join(pats)}] across {len(conns)} connection(s){scope}:"]
         lines += hits or ["- (no connection has a matching table name)"]
         if misses:
             lines.append(f"No match on: {', '.join(misses)}")

@@ -49,6 +49,18 @@ app registration (OAuth2 client credentials, application permission `Mail.Send`)
 
 ---
 
+## Security
+
+- **Data connections in The Agent are now scoped for regular users.** An End User (role 1) can
+  list, inspect and query only the connections behind the Data Assistants shared with one of their
+  groups — the same rule the classic Data Assistants page has always applied. Developers and
+  administrators are unchanged. To give a regular user data access in The Agent, share a Data
+  Assistant that uses that connection with their group on the **Groups** page. A connection that
+  is not shared is reported as an access restriction, never as "no such database".
+  `CONNECTION_ACL_ENFORCE=false` in `.env` restores the previous tenant-wide behaviour.
+
+---
+
 ## Upgrade notes
 
 1. Run the v2.2 installer over your existing installation.
