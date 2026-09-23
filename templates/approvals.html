@@ -943,12 +943,30 @@
                                  && typeof meta.correctable === 'object') ? meta.correctable : null;
             if (correctable && Object.keys(correctable).length && approval.status === 'Pending') {
                 window._correctableOrig = {};
+                const corrOpts = (meta.correctable_options && typeof meta.correctable_options === 'object')
+                    ? meta.correctable_options : {};
                 const rows = Object.keys(correctable).map(k => {
-                    window._correctableOrig[k] = String(correctable[k] == null ? '' : correctable[k]);
+                    const cur = String(correctable[k] == null ? '' : correctable[k]);
+                    window._correctableOrig[k] = cur;
+                    const opts = Array.isArray(corrOpts[k]) ? corrOpts[k].map(String) : null;
+                    let field;
+                    if (opts && opts.length) {
+                        // v11: a dropdown when the automation supplied the choices
+                        // (Document Type). The current value stays selectable even
+                        // when it is not one of them, so an untouched form still
+                        // means "unchanged".
+                        const list = (cur && !opts.includes(cur)) ? [cur].concat(opts) : opts;
+                        field = `<select class="form-control form-control-sm corr-input" data-field="${corrEsc(k)}">`
+                              + (cur ? '' : '<option value="" selected></option>')
+                              + list.map(o => `<option value="${corrEsc(o)}"${o === cur ? ' selected' : ''}>${corrEsc(o)}</option>`).join('')
+                              + `</select>`;
+                    } else {
+                        field = `<input type="text" class="form-control form-control-sm corr-input"
+                               data-field="${corrEsc(k)}" value="${corrEsc(cur)}">`;
+                    }
                     return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0">
                         <label style="min-width:150px;margin:0">${corrEsc(corrLabel(k))}</label>
-                        <input type="text" class="form-control form-control-sm corr-input"
-                               data-field="${corrEsc(k)}" value="${corrEsc(correctable[k])}">
+                        ${field}
                     </div>`;
                 }).join('');
                 $('#modalData').before(

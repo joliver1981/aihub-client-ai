@@ -1545,6 +1545,15 @@ def runtime_review_item():
                        for k, v in list(correctable.items())[:8]}
     else:
         correctable = None
+    # v11 (2026-09-23): optional dropdown choices per correctable field —
+    # the approvals UIs render a <select> instead of free text.
+    options = data.get("correctable_options")
+    if isinstance(options, dict):
+        options = {str(k)[:64]: [str(x)[:80] for x in (v or []) if str(x).strip()][:40]
+                   for k, v in list(options.items())[:8] if isinstance(v, (list, tuple))}
+        options = {k: v for k, v in options.items() if v} or None
+    else:
+        options = None
     from . import approval_store
     row = approval_store.add_row(
         _get_manager().base_path, title=title, description=message,
@@ -1555,6 +1564,7 @@ def runtime_review_item():
             "run_id": run.get("run_id"), "automation_id": run.get("automation_id"),
             "automation_name": auto_name, "group_name": group_name,
             "correctable": correctable,
+            "correctable_options": options,
             "attachments": attachments,  # name/size/relpath — relpath drives serving
         }))
     try:

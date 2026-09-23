@@ -462,7 +462,7 @@ def skill(name):
 
 
 def review_item(message, title=None, files=None, assignee=None, assignee_group=None,
-                correctable=None):
+                correctable=None, correctable_options=None):
     """Send a NON-BLOCKING review item to the My Approvals queue and continue.
 
     Use for per-document exceptions in a batch: the run keeps going while a
@@ -478,6 +478,8 @@ def review_item(message, title=None, files=None, assignee=None, assignee_group=N
     approve). The approvals UI renders these as editable inputs; the
     reviewer's values come back via review_decisions_detailed() under
     'corrections'. ALWAYS re-validate corrected values before using them.
+    correctable_options: optional {field: [choices]} — the UI renders that
+    field as a dropdown instead of free text (e.g. a document type list).
 
     For a BLOCKING gate that pauses the run, use checkpoint() instead."""
     import os as __os
@@ -504,6 +506,9 @@ def review_item(message, title=None, files=None, assignee=None, assignee_group=N
     if correctable is not None:
         body["correctable"] = {str(k): ("" if v is None else str(v))
                                for k, v in dict(correctable).items()}
+    if correctable_options:
+        body["correctable_options"] = {str(k): [str(x) for x in (v or [])]
+                                       for k, v in dict(correctable_options).items()}
     try:
         res = _runtime_post("/automations/api/runtime/review_item", body)
         rid = res.get("request_id")

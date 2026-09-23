@@ -3293,7 +3293,19 @@
           const lab = el("label", "", k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
                                        .replace(/^Form Type$/, "Document Type"));
           lab.style.minWidth = "140px";
-          const inp = el("input"); inp.type = "text"; inp.value = corrOrig[k];
+          const opts = (p.correctable_options && Array.isArray(p.correctable_options[k]))
+            ? p.correctable_options[k].map(String) : null;
+          let inp;
+          if (opts && opts.length) {
+            // v11: dropdown when the automation supplied the choices (Document Type)
+            inp = el("select");
+            const list = (corrOrig[k] && !opts.includes(corrOrig[k])) ? [corrOrig[k]].concat(opts) : opts;
+            if (!corrOrig[k]) { const o0 = el("option"); o0.value = ""; o0.textContent = ""; inp.appendChild(o0); }
+            list.forEach(o => { const opt = el("option"); opt.value = o; opt.textContent = o;
+                                if (o === corrOrig[k]) opt.selected = true; inp.appendChild(opt); });
+          } else {
+            inp = el("input"); inp.type = "text"; inp.value = corrOrig[k];
+          }
           inp.dataset.field = k; inp.style.flex = "1";
           corrInputs.push(inp);
           row.append(lab, inp); grid.appendChild(row);

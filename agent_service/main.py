@@ -555,6 +555,8 @@ async def work_list(request: Request):
                         # fields ride through so the UI can render them.
                         "correctable": (ad.get("correctable")
                                         if isinstance(ad.get("correctable"), dict) else None),
+                        "correctable_options": (ad.get("correctable_options")
+                                                if isinstance(ad.get("correctable_options"), dict) else None),
                         "attachments": ad.get("attachments") or []}})
     # Runs AS the viewer (X-AIHub-User assertion): the platform scopes by the
     # user's agent access and denies role < 2, so no body reaches a seat that
