@@ -3625,12 +3625,12 @@
     const box = document.getElementById("model");
     box.innerHTML = "";
     const role = (d.user || {}).role || 0;
+    // Regular users don't see the brain model at all (james 2026-09-23);
+    // Developers see a read-only label, Admins get the pickers below.
+    if (role < 2) return;
     if (role < 3) {
-      // Non-admins see what powers THEIR turns: regular users run the
-      // regular-users model, so the label stays honest per viewer.
-      const mine = role < 2 ? (d.model_role1 || d.model) : d.model;
-      box.appendChild(el("span", "", "brain: " + mine
-        + (role >= 2 && d.model !== d.model_default ? " *" : "")));
+      box.appendChild(el("span", "", "brain: " + d.model
+        + (d.model !== d.model_default ? " *" : "")));
       return;
     }
     pickModelRow(box, d, "brain: ", "model", "model_default",
