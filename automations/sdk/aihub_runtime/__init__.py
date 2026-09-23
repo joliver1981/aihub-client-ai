@@ -37,7 +37,7 @@ import urllib.request as _urlrequest
 
 __all__ = ["connection", "secret", "input", "inputs", "log", "checkpoint", "query",
            "review_item", "review_decisions", "review_decisions_detailed",
-           "send_email", "llm", "ai_extract", "help",
+           "review_outcome", "send_email", "llm", "ai_extract", "help",
            "AutomationRuntimeError", "AutomationAborted"]
 
 _RESOLVE_PATH = "/automations/api/runtime/resolve"
@@ -155,7 +155,7 @@ def _token_claims():
 
 _CHAT_AUDIENCE = "code-interpreter-run"   # shared_auth.AUD_CODE_RUN
 _PLATFORM_RUN_VERBS = ("send_email", "checkpoint", "review_item", "review_decisions",
-                       "llm", "ai_extract")
+                       "review_outcome", "llm", "ai_extract")
 
 
 # What the model can actually do instead, PER VERB (2026-09-05, james's
@@ -171,6 +171,8 @@ _CHAT_LANE_ALTERNATIVES = {
                    "matters."),
     "review_item": ("Report the exceptions in your reply (or raise a work item) instead; "
                     "the review queue serves supervised runs."),
+    "review_outcome": ("Report the outcome in your reply instead; the review queue serves "
+                       "supervised runs."),
     "llm/ai_extract": ("No chat tool runs an LLM inside your code. For AI judgment over "
                        "many items build an (ephemeral) Automation, where aihub.llm / "
                        "aihub.ai_extract work inside the loop; for a handful of items, do "
@@ -214,6 +216,7 @@ def help():  # noqa: A001 - deliberate, reads naturally in scripts
         "  aihub.send_email(to, subject, body='', html_body=None, files=None) -> True/False (raises on a 4xx)",
         "  aihub.checkpoint(message, files=None, assignee=None) -> pause for human approval",
         "  aihub.review_item(message, ...) / aihub.review_decisions(ids) -> My Approvals bridge",
+        "  aihub.review_outcome(request_id, code, note=, label=) -> write back what the decision did",
         "  aihub.llm(prompt, system=None, images=None) -> str  |  aihub.ai_extract(prompt, schema=None, ...)",
         "  aihub.skill(name)               -> body of a tenant/product SKILL.md (pass as system= to llm/ai_extract)",
         "",
@@ -570,6 +573,48 @@ def review_decisions_detailed(request_ids):
     except Exception as e:
         log(f"review_decisions poll failed (treating as pending): {e}")
         return None
+
+
+def review_outcome(request_id, outcome, note=None, label=None, batch=None, detail=None):
+    """Write back what a reviewer's decision actually DID, once the batch has
+    applied it — call this for EVERY review item after your decisions are
+    processed (james 2026-09-23: an approved-with-correction document was
+    refused by re-validation and the row just kept reading 'Approved').
+
+    outcome: short code, e.g. 'included', 'acknowledged', 'rejected',
+             'correction_refused', 'undecided', 'not_published'.
+    label:   badge text the reviewer sees in the list ("Correction REFUSED —
+             not imported"); note: plain-text explanation — what happened,
+             where the file went, what to do next. Line breaks are kept.
+    batch:   your batch id/stamp; detail: optional small {field: value} dict.
+
+    Non-fatal: returns True when recorded, False otherwise (logged). On a
+    platform build without this endpoint it returns False — guard nothing,
+    just call it."""
+    import os as __os
+    token = __os.environ.get("AIHUB_RUN_TOKEN")
+    if not token:
+        log("review outcome skipped: no run token")
+        return False
+    blocked = _chat_lane_block("review_outcome")
+    if blocked:
+        log(f"review outcome skipped: {blocked}")
+        return False
+    body = {"token": token, "request_id": str(request_id), "outcome": str(outcome)}
+    if note is not None:
+        body["note"] = str(note)
+    if label is not None:
+        body["label"] = str(label)
+    if batch is not None:
+        body["batch"] = str(batch)
+    if isinstance(detail, dict):
+        body["detail"] = {str(k): ("" if v is None else str(v)) for k, v in detail.items()}
+    try:
+        res = _runtime_post("/automations/api/runtime/review_item_outcome", body)
+        return bool(res.get("ok"))
+    except Exception as e:
+        log(f"review outcome could not be recorded (continuing): {e}")
+        return False
 
 
 def send_email(to, subject, body="", html_body=None, files=None):

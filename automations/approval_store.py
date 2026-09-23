@@ -118,6 +118,34 @@ def settle_row(base_path: str, request_id: str, status: str,
         return row
 
 
+def annotate_row(base_path: str, request_id: str, outcome: Dict) -> Optional[Dict]:
+    """Record what the decision on this row actually DID once the batch
+    closed (james 2026-09-23: a reviewer approved a corrected document, the
+    automation refused the correction, and nothing anywhere said so — the
+    row just read 'Approved'). Written by the automation through the
+    run-token endpoint after it has applied decisions; allowed on ANY
+    status because outcomes are known only after the row was decided.
+    Shape: {"code": <short id>, "label": <badge text>, "note": <plain
+    text for the reviewer>, "batch": <batch stamp>, "at": <utc>}; a later
+    call merges over an earlier one."""
+    if not isinstance(outcome, dict) or not outcome:
+        return None
+    with _LOCK:
+        row = get_row(base_path, request_id)
+        if row is None:
+            return None
+        prev = row.get("outcome") if isinstance(row.get("outcome"), dict) else {}
+        merged = dict(prev)
+        merged.update(outcome)
+        merged["at"] = _now()
+        row["outcome"] = merged
+        tmp = _path(base_path, request_id) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(row, f, indent=2)
+        os.replace(tmp, _path(base_path, request_id))
+        return row
+
+
 def list_rows(base_path: str, status: Optional[str] = None,
               assigned_to_id: Optional[int] = None,
               member_of_group_ids=None) -> List[Dict]:

@@ -146,6 +146,19 @@
         .modal-section p { margin: 8px 0; color: var(--text-secondary, #a1a1aa); }
         .modal-section p strong { color: var(--text-primary, #fff); }
         
+        /* Review-item descriptions are structured, multi-line text: keep the
+           automation's line breaks (james 2026-09-23 — one wrapped blob hid
+           why a document was flagged and what each decision does). */
+        #modalDescription { white-space: pre-wrap; line-height: 1.5; }
+        .outcome-banner { margin: 8px 0 4px; padding: 10px 12px; border-radius: 8px;
+                          border: 1px solid; white-space: pre-wrap; line-height: 1.45; }
+        .outcome-banner .outcome-label { display: block; font-weight: 700; margin-bottom: 4px; }
+        .outcome-good  { background: rgba(22,163,74,.12);  border-color: #16a34a; }
+        .outcome-bad   { background: rgba(220,38,38,.14);  border-color: #dc2626; }
+        .outcome-warn  { background: rgba(217,119,6,.14);  border-color: #d97706; }
+        .outcome-muted { background: rgba(148,163,184,.14); border-color: #94a3b8; }
+        .outcome-chip { display: inline-block; margin-top: 3px; padding: 1px 7px; border-radius: 10px;
+                        font-size: 11px; font-weight: 600; border: 1px solid; }
         .modal-data-preview { background: var(--bg-elevated, #111111); border: 1px solid var(--border-subtle, #27272a); padding: 14px; border-radius: 10px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; max-height: 250px; overflow: auto; white-space: pre; line-height: 1.5; color: var(--text-primary, #fff); }
         
         .modal-footer { padding: 16px 28px; background: var(--bg-elevated, #111111); border-radius: 0 0 14px 14px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border-subtle, #27272a); position: sticky; bottom: 0; z-index: 1; }
@@ -753,7 +766,7 @@
                     </td>
                     <td>${typeBadge}</td>
                     <td class="title-cell" title="${String(approval.title || '').replace(/"/g, '&quot;')}">
-                        <strong>${approval.title}</strong>
+                        <strong>${approval.title}</strong>${outcomeChip(approval)}
                     </td>
                     <td class="source-cell" title="${String(sourceName || '').replace(/"/g, '&quot;')}">${sourceName || '-'}</td>
                     <td title="${requestedDate}">${requestedRelative}</td>
@@ -841,6 +854,30 @@
         
         function getStatusClass(status) {
             return 'status-' + status.toLowerCase().replace(/[^a-z]/g, '');
+        }
+
+        // Final outcome of a review item (approval.outcome, written back by
+        // the automation after its batch closed): tone by code family.
+        function outcomeTone(code) {
+            const c = String(code || '').toLowerCase();
+            if (/refused|failed|rejected|not_published|error/.test(c)) return 'bad';
+            if (/undecided|excluded|expired|cancelled|missing/.test(c)) return 'warn';
+            if (/included|published|imported|accepted/.test(c)) return 'good';
+            return 'muted';
+        }
+        function outcomeIcon(tone) {
+            return {good: 'fa-check-circle', bad: 'fa-times-circle',
+                    warn: 'fa-exclamation-triangle', muted: 'fa-info-circle'}[tone] || 'fa-info-circle';
+        }
+        function outcomeChip(approval) {
+            const oc = approval && approval.outcome;
+            if (!oc || !(oc.label || oc.code)) return '';
+            const tone = outcomeTone(oc.code);
+            const colors = {good: '#16a34a', bad: '#dc2626', warn: '#d97706', muted: '#94a3b8'};
+            const text = String(oc.label || oc.code).replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return `<div><span class="outcome-chip" style="border-color:${colors[tone]};color:${colors[tone]}"`
+                 + ` title="Outcome recorded by the automation after the batch closed">${text}</span></div>`;
         }
         
         function viewApproval(requestId) {
@@ -945,6 +982,26 @@
             }
             
             $('#modalDescription').text(approval.description || 'No description provided');
+
+            // What the decision actually DID, written back by the automation
+            // once its batch closed (approval_store.annotate_row). Shown above
+            // the raw context so a refused correction / an excluded document
+            // is the first thing a reviewer sees on a decided row.
+            $('#modalOutcome').remove();
+            const oc = approval.outcome;
+            if (oc && (oc.code || oc.label || oc.note)) {
+                const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const tone = outcomeTone(oc.code);
+                const when = oc.at ? ' · ' + TimezoneUtils.formatDate(oc.at) : '';
+                const batch = oc.batch ? ' · batch ' + esc(oc.batch) : '';
+                $('#modalDescription').after(
+                    `<div id="modalOutcome" class="outcome-banner outcome-${tone}">
+                        <span class="outcome-label"><i class="fas ${outcomeIcon(tone)}"></i> `
+                        + `What happened: ${esc(oc.label || oc.code)}</span>${esc(oc.note || '')}`
+                        + `<div style="font-size:11px;opacity:.75;margin-top:6px">recorded by the automation${batch}${when}</div>
+                     </div>`);
+            }
             
             // Display JSON data with proper formatting
             try {

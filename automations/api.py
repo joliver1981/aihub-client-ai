@@ -1531,7 +1531,10 @@ def runtime_review_item():
             pass
     auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
     auto_name = auto.get("name") or run.get("automation_id", "")
-    message = (data.get("message") or "Review requested")[:1000]
+    # 4000 (was 1000): a structured, multi-line review message — why the
+    # document needs a human, what each decision does, how to make it
+    # importable — did not fit and was silently cut mid-sentence.
+    message = (data.get("message") or "Review requested")[:4000]
     title = (data.get("title") or f"Automation exception — {auto_name}")[:490]
     # BRD §10 fix-and-approve: the script may declare correctable fields
     # ({field: current value}); the approvals UI renders them as inputs and
@@ -1602,6 +1605,59 @@ def runtime_review_items_status():
                     "comments": row.get("comments"),
                     "corrections": row.get("corrections")}
     return jsonify({"statuses": out})
+
+
+_OUTCOME_CODE_RE = re.compile(r"^[a-z0-9_]{1,40}$")
+
+
+@automations_bp.route("/api/runtime/review_item_outcome", methods=["POST"])
+def runtime_review_item_outcome():
+    """SDK side of aihub.review_outcome(): after the batch has applied the
+    reviewer's decision, write back what that decision actually DID — the
+    row was included in the CSV, acknowledged, excluded, or the reviewer's
+    correction was refused and why (james 2026-09-23: a refused correction
+    left the row reading 'Approved' with nothing anywhere saying it was not
+    imported). Run-scoped like review_items_status: a run may only annotate
+    rows it created. Allowed on decided rows — that is the whole point."""
+    if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
+        return jsonify({"error": "Automations feature is disabled"}), 403
+    data = request.get_json(silent=True) or {}
+    run, _claims, fail = _live_run_from_token(data.get("token"), allow_codestep=False)
+    if fail:
+        return fail
+    rid = str(data.get("request_id") or "").strip()
+    code = str(data.get("outcome") or "").strip().lower()
+    if not rid or not _OUTCOME_CODE_RE.match(code):
+        return jsonify({"error": "request_id and outcome (a-z0-9_ short code) are required"}), 400
+    from . import approval_store
+    row = approval_store.get_row(_get_manager().base_path, rid)
+    owned = False
+    if row:
+        try:
+            owned = (json.loads(row.get("approval_data") or "{}")
+                     .get("run_id") == run.get("run_id"))
+        except (ValueError, TypeError):
+            owned = False
+    if not row or not owned:
+        return jsonify({"error": "review item not found for this run"}), 404
+    outcome = {"code": code,
+               "label": str(data.get("label") or "")[:120],
+               "note": str(data.get("note") or "")[:2000],
+               "batch": str(data.get("batch") or "")[:80]}
+    detail = data.get("detail")
+    if isinstance(detail, dict):
+        outcome["detail"] = {str(k)[:64]: ("" if v is None else str(v))[:300]
+                             for k, v in list(detail.items())[:12]}
+    approval_store.annotate_row(_get_manager().base_path, rid, outcome)
+    workdir = _run_workdir(run)
+    if workdir:
+        try:
+            from .runner import RunEventLog
+            RunEventLog(workdir).emit("review_outcome", request_id=rid, outcome=code,
+                                      label=outcome["label"])
+        except Exception:
+            pass
+    return jsonify({"ok": True, "request_id": rid, "outcome": code})
 
 
 _EMAIL_MEDIA_TYPES = {".csv": "text/csv", ".txt": "text/plain", ".json": "application/json",
