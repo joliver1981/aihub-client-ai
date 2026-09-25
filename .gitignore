@@ -186,6 +186,7 @@ data/test_default_embed/
 data/test_store_stress/
 data/initial_setup_state.json
 data/onboarding_state.json
+data/email_settings.json
 data/AI_Hub_Feedback_Review*
 knowledge_files/
 agent_sessions/
