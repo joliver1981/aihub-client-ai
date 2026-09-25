@@ -42,6 +42,9 @@ __all__ = ["connection", "secret", "input", "inputs", "log", "checkpoint", "quer
 
 _RESOLVE_PATH = "/automations/api/runtime/resolve"
 _HTTP_TIMEOUT = int(_os.getenv("AIHUB_RUNTIME_HTTP_TIMEOUT", "30") or "30")
+# An AI call (llm / ai_extract) may carry several page images and take the
+# model a minute or more; the server side allows 180 s, so the client does too.
+_AI_TIMEOUT = int(_os.getenv("AIHUB_RUNTIME_AI_TIMEOUT", "180") or "180")
 
 _cache = {}
 _inputs_cache = None
@@ -380,7 +383,7 @@ def _ai_call(body):
         raise AutomationRuntimeError(blocked)
     body["token"] = token
     try:
-        res = _runtime_post("/automations/api/runtime/ai", body)
+        res = _runtime_post("/automations/api/runtime/ai", body, timeout=_AI_TIMEOUT)
     except AutomationRuntimeError:
         raise
     except Exception as e:
@@ -685,7 +688,7 @@ def send_email(to, subject, body="", html_body=None, files=None):
     return False
 
 
-def _runtime_post(path, body):
+def _runtime_post(path, body, timeout=None):
     base_url = (_os.environ.get("AIHUB_RUNTIME_URL") or "").rstrip("/")
     if not base_url:
         raise AutomationRuntimeError(
@@ -693,7 +696,7 @@ def _runtime_post(path, body):
     req = _urlrequest.Request(
         base_url + path, data=_json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json"}, method="POST")
-    with _urlrequest.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
+    with _urlrequest.urlopen(req, timeout=timeout or _HTTP_TIMEOUT) as resp:
         return _json.loads(resp.read().decode("utf-8"))
 
 
