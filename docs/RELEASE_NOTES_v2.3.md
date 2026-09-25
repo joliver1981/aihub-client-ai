@@ -4,7 +4,7 @@
 
 - **Preview attachments** — open PDFs, images, text/CSV and media in a new browser tab, alongside Download.
 - **Route work to a team** — The Agent can send a My Work item to a group; any member can claim it.
-- **Review outcomes** — My Approvals shows what happened to each reviewed item once the automation finishes.
+- **Final result on reviewed items** — after you approve or reject a review item, My Approvals shows what the automation actually did with it (for example, filed, or refused with the reason).
 - **Dropdowns on review items** — automations can offer a list of valid values (e.g. Document Type).
 - **Faster feedback** — questions asked on an item appear instantly with a thinking indicator.
 
