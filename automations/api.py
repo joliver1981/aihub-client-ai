@@ -1785,8 +1785,9 @@ def runtime_review_item_outcome():
                "batch": str(data.get("batch") or "")[:80]}
     detail = data.get("detail")
     if isinstance(detail, dict):
-        outcome["detail"] = {str(k)[:64]: ("" if v is None else str(v))[:300]
-                             for k, v in list(detail.items())[:12]}
+        # strings only, no count or length cap (James 2026-09-25)
+        outcome["detail"] = {str(k).strip(): ("" if v is None else str(v))
+                             for k, v in detail.items() if str(k).strip()}
     approval_store.annotate_row(_get_manager().base_path, rid, outcome)
     workdir = _run_workdir(run)
     if workdir:
