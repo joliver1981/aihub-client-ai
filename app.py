@@ -6919,6 +6919,38 @@ def _rt_workflow_pending(params):
             for r in rows]
 
 
+def _rt_workflow_decided(params):
+    """Decided ApprovalRequests for one user (agent_service My Work history,
+    2026-09-25): rows addressed to them (user / group / Developer+ pool) or
+    decided by them (responded_by = their id or username), newest first."""
+    uid = int(params.get("user_id"))
+    try:
+        role = int(params.get("role") or 0)
+    except (TypeError, ValueError):
+        role = 0
+    try:
+        limit = max(1, int(params.get("limit") or 100))
+    except (TypeError, ValueError):
+        limit = 100
+    uname = str(params.get("username") or "").strip() or str(uid)
+    pool_sql = ("   OR assigned_to_type = 'unassigned'\n"
+                "   OR assigned_to_type IS NULL" if role >= 2 else "")
+    rows = query_app_database(f"""
+        SELECT TOP {int(limit)} request_id, title, description, status, requested_at,
+               due_date, priority, approval_data, assigned_to_type,
+               assigned_to_id, responded_by, response_at, comments
+        FROM ApprovalRequests
+        WHERE status <> 'Pending' AND (
+              (assigned_to_type = 'user'  AND assigned_to_id = ?)
+           OR (assigned_to_type = 'group' AND assigned_to_id IN
+                (SELECT group_id FROM UserGroups WHERE user_id = ?))
+           OR responded_by = ? OR responded_by = ?
+        {pool_sql})
+        ORDER BY response_at DESC""", (uid, uid, str(uid), uname)) or []
+    return [{k: (_rt_date(v) if hasattr(v, "strftime") else v) for k, v in r.items()}
+            for r in rows]
+
+
 def _rt_users(_params):
     return [{"id": int(r["id"]), "name": str(r.get("name") or "").strip(),
              "username": str(r.get("user_name") or "").strip(),
@@ -6931,6 +6963,7 @@ _READTHROUGH_OPS = {
     "agents": _rt_agents, "agent_detail": _rt_agent_detail, "groups": _rt_groups,
     "group_membership": _rt_group_membership, "knowledge_row": _rt_knowledge_row,
     "user_group_ids": _rt_user_group_ids, "workflow_pending": _rt_workflow_pending,
+    "workflow_decided": _rt_workflow_decided,
     "users": _rt_users,
 }
 

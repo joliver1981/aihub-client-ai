@@ -156,6 +156,9 @@
   .t-provide_input{color:var(--accent);background:var(--accent-tint)}
   .t-review{color:var(--green);background:var(--green-tint)}
   .t-acknowledge{color:var(--text3);background:var(--raised)}
+  .t-approved{color:var(--green);background:var(--green-tint)}
+  .t-rejected{color:#b3261e;background:rgba(179,38,30,.12)}
+  .t-other{color:var(--text3);background:var(--raised)}
   .t-do_offline{color:var(--text2);background:var(--raised)}
   .qmeta{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--text3)}
   .qtitle{font-weight:570;font-size:12.5px;line-height:1.35}
@@ -428,6 +431,7 @@
   <div id="work-head">
     <h1>My Work</h1><span class="sub">Everything waiting on you</span>
     <button id="work-refresh">↻ Refresh</button>
+    <button id="work-mode" title="Your approval and rejection history">🕘 History</button>
   </div>
   <div class="chips" id="work-chips"></div>
   <div id="work-body">
@@ -3075,6 +3079,7 @@
   const detailEl = document.getElementById("work-detail");
   const chipsEl = document.getElementById("work-chips");
   let workItems = [], workFilter = "all", selected = null, me = null;
+  let workMode = "open";   // "open" = waiting on you; "decided" = your history
 
   const VERB_LABEL = { approve_deny: "✓ Approval", edit_and_return: "✎ Email / Edit",
                        provide_input: "? Question", review: "◇ Review",
@@ -3095,21 +3100,34 @@
     queueEl.innerHTML = ""; detailEl.innerHTML = "";
     detailEl.appendChild(el("div", "", "Loading…"));
     try {
-      const r = await fetch("/api/work/list", { headers: H() });
+      const decided = workMode === "decided";
+      const r = await fetch(decided ? "/api/work/decided?limit=200" : "/api/work/list",
+                            { headers: H() });
       const d = await r.json();
       workItems = d.items || [];
-      const c = document.getElementById("work-count");
-      c.textContent = d.total; c.style.display = d.total ? "" : "none";
+      if (!decided) {
+        const c = document.getElementById("work-count");
+        c.textContent = d.total; c.style.display = d.total ? "" : "none";
+      }
+      const sub = document.querySelector("#work-head .sub");
+      if (sub) sub.textContent = decided ? "What you decided, most recent first"
+                                         : "Everything waiting on you";
+      document.getElementById("work-mode").textContent = decided ? "◀ Open items" : "🕘 History";
       renderChips(); renderQueue();
       detailEl.innerHTML = "";
       detailEl.appendChild(el("div", "", "")).id = "work-empty";
       document.getElementById("work-empty").textContent = workItems.length
-        ? "Select an item." : "Nothing is waiting on you. Enjoy it.";
+        ? "Select an item."
+        : (decided ? "No decided items yet." : "Nothing is waiting on you. Enjoy it.");
     } catch (e) {
       detailEl.textContent = "Could not load: " + e.message;
     }
   }
   document.getElementById("work-refresh").onclick = loadWork;
+  document.getElementById("work-mode").onclick = () => {
+    workMode = workMode === "open" ? "decided" : "open";
+    workFilter = "all"; selected = null; loadWork();
+  };
 
   function renderChips() {
     chipsEl.innerHTML = "";
@@ -3122,22 +3140,47 @@
       b.onclick = () => { workFilter = key; renderChips(); renderQueue(); };
       chipsEl.appendChild(b);
     };
+    if (workMode === "decided") {
+      const dc = {};
+      workItems.forEach(i => { const k = decisionKey(i); dc[k] = (dc[k] || 0) + 1; });
+      mk("all", "All", workItems.length);
+      [["approved", "Approved"], ["rejected", "Rejected"], ["other", "Other"]]
+        .forEach(([k, label]) => { if (dc[k]) mk(k, label, dc[k]); });
+      return;
+    }
     mk("all", "All", workItems.length);
     Object.entries(VERB_LABEL).forEach(([v, label]) => {
       if (counts[v]) mk(v, label.replace(/^[^ ]+ /, ""), counts[v]);
     });
   }
 
+  function decisionKey(i) {
+    const s = String(i.decision || "").toLowerCase();
+    if (/approv|done|acknowledg|sent|complete|accept/.test(s)) return "approved";
+    if (/reject|deni|abort|cancel|declin|refus/.test(s)) return "rejected";
+    return "other";
+  }
+  function decisionLabel(i) {
+    const k = decisionKey(i);
+    return (k === "approved" ? "✓ " : k === "rejected" ? "✕ " : "◦ ") + (i.decision || "Decided");
+  }
+
   function renderQueue() {
     queueEl.innerHTML = "";
-    const list = workItems.filter(i => workFilter === "all" || i.verb === workFilter);
+    const list = workItems.filter(i => workFilter === "all"
+      || (workMode === "decided" ? decisionKey(i) === workFilter : i.verb === workFilter));
     if (!list.length) queueEl.appendChild(el("div", "qfrom", "No items in this filter."));
     list.forEach(item => {
       const b = el("button", "qitem" + (selected === item ? " on" : ""));
       const row = el("div", "qrow");
-      row.appendChild(el("span", "tchip t-" + item.verb,
-                         VERB_LABEL[item.verb] || item.verb));
-      row.appendChild(el("span", "qmeta", fmtLocal(item.requested_at)));
+      if (workMode === "decided") {
+        row.appendChild(el("span", "tchip t-" + decisionKey(item), decisionLabel(item)));
+        row.appendChild(el("span", "qmeta", fmtLocal(item.decided_at) || item.decided_at || ""));
+      } else {
+        row.appendChild(el("span", "tchip t-" + item.verb,
+                           VERB_LABEL[item.verb] || item.verb));
+        row.appendChild(el("span", "qmeta", fmtLocal(item.requested_at)));
+      }
       b.appendChild(row);
       b.appendChild(el("div", "qtitle", item.title));
       const from = el("div", "qfrom");
@@ -3178,6 +3221,7 @@
 
   function renderDetail(item) {
     detailEl.innerHTML = "";
+    if (item.status === "decided") { renderDecidedDetail(item); return; }
     detailEl.appendChild(el("div", "crumb",
       `${item.source} · ${item.verb.replace("_", " ")} · raised ${fmtLocal(item.requested_at) || ""}`));
     detailEl.appendChild(el("div", "dtitle", item.title));
@@ -3489,7 +3533,56 @@
     }
     detailEl.appendChild(actions);
 
-    // ---- side-thread (all items) ----
+    attachThread(item);
+  }
+
+  // ---- decided item (history): read-only, then the same side thread ----
+  function renderDecidedDetail(item) {
+    detailEl.appendChild(el("div", "crumb",
+      `${item.source} · ${String(item.verb || "").replace("_", " ")} · raised ${fmtLocal(item.requested_at) || ""}`));
+    detailEl.appendChild(el("div", "dtitle", item.title));
+    if (item.summary) {
+      const s = el("div", "dsummary");
+      if (item.source === "agent") renderMd(s, item.summary); else s.textContent = item.summary;
+      detailEl.appendChild(s);
+    }
+    const sec = el("div", "dsection");
+    sec.appendChild(el("div", "dlabel", "Decision"));
+    sec.appendChild(el("div", "dsummary",
+      `${decisionLabel(item)} by ${item.decided_by || "?"} on ${fmtLocal(item.decided_at) || item.decided_at || "?"}`));
+    if (item.comments) sec.appendChild(el("div", "dsummary", "Comment: " + item.comments));
+    if (item.corrections && Object.keys(item.corrections).length) {
+      sec.appendChild(el("div", "dlabel", "Corrections entered"));
+      Object.entries(item.corrections).forEach(([k, v]) =>
+        sec.appendChild(el("div", "dsummary", `${k}: ${v}`)));
+    }
+    const o = item.outcome || {};
+    if (o.label || o.note) {
+      sec.appendChild(el("div", "dlabel", "What happened next"));
+      sec.appendChild(el("div", "dsummary", [o.label, o.note].filter(Boolean).join(": ")));
+      if (o.detail && typeof o.detail === "object")
+        Object.entries(o.detail).forEach(([k, v]) =>
+          sec.appendChild(el("div", "dsummary", `${k}: ${v}`)));
+    }
+    detailEl.appendChild(sec);
+    attachThread(item);
+  }
+
+  // What a question ON the item gets to see besides its text: the payload
+  // (fields), and for a decided item the decision, comments, corrections and
+  // what happened next — otherwise the agent answers from the item's history
+  // text alone and can miss the outcome (seen live 2026-09-25).
+  function threadContext(item) {
+    const c = Object.assign({}, item.payload || {});
+    if (item.status === "decided")
+      Object.assign(c, { decision: item.decision, decided_by: item.decided_by,
+                         decided_at: item.decided_at, comments: item.comments,
+                         corrections: item.corrections, outcome: item.outcome });
+    return c;
+  }
+
+  // ---- side-thread (open and decided items alike) ----
+  function attachThread(item) {
     const ts = el("div", "dsection");
     ts.appendChild(el("div", "dlabel", "Thread with the agent"));
     const box = el("div", "thread-box"); ts.appendChild(box);
@@ -3543,7 +3636,7 @@
         const r = await fetch("/api/work/thread", { method: "POST", headers: H(),
           body: JSON.stringify({ source: item.source, id: item.id,
                                  question, title: item.title,
-                                 context: item.payload, summary: item.summary || "",
+                                 context: threadContext(item), summary: item.summary || "",
                                  timezone: browserTz() }) });
         const d = await r.json().catch(() => ({}));
         if (!r.ok || !Array.isArray(d.thread))

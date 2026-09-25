@@ -138,15 +138,33 @@ def _resolve_group(ref: str) -> tuple:
 
 @tool(
     "list_my_work",
-    "List the open items in the current user's My Work queue (their personal "
-    "items, items routed to their groups, plus, for Developer+ users, the "
-    "unclaimed shared items).",
-    {},
+    "List the current user's My Work items. view=open (default): what is waiting "
+    "on them (their personal items, items routed to their groups, plus, for "
+    "Developer+ users, the unclaimed shared items). view=decided: their approval / "
+    "rejection history across agent items, workflow approvals and automation review "
+    "items, most recent first, with comments, corrections and what happened next.",
+    {
+        "type": "object",
+        "properties": {
+            "view": {"type": "string", "enum": ["open", "decided"],
+                     "description": "open (default) = waiting on the user; "
+                                    "decided = their approval / rejection history"},
+            "limit": {"type": "integer",
+                      "description": "decided view: how many to list (default 30)"},
+        },
+    },
 )
 async def list_my_work(args: dict[str, Any]) -> dict[str, Any]:
     import readthrough
     user = CURRENT_USER.get()
     uid = int(user.get("user_id") or 0)
+    if str((args or {}).get("view") or "open").strip().lower() == "decided":
+        import work_history
+        try:
+            limit = max(1, int((args or {}).get("limit") or 30))
+        except (TypeError, ValueError):
+            limit = 30
+        return _text(work_history.as_text(work_history.decided_items(user, limit), limit))
     items = workitem_store.list_items(uid, role=int(user.get("role") or 0),
                                       group_ids=readthrough.user_group_ids(uid))
     if not items:

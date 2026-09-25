@@ -84,6 +84,11 @@ def fetch(op: str, **params):
         body = r.json() or {}
     except Exception:
         body = {}
+    # A main app older than this service does not know a newer op (400
+    # "unknown readthrough op"): that is "unavailable", so the caller's
+    # direct-SQL path runs, not a hard failure (2026-09-25, workflow_decided).
+    if r.status_code == 400 and "unknown readthrough op" in str(body.get("message") or ""):
+        raise ReadthroughUnavailable(f"op '{op}' unknown to this main app")
     if r.status_code >= 400 or body.get("status") != "success":
         raise RuntimeError(f"readthrough '{op}' failed: HTTP {r.status_code} "
                            f"{(body.get('message') or r.text)[:200]}")
@@ -292,6 +297,93 @@ def automation_pending(user_id: int, group_ids: list, *, role) -> list:
     rows.sort(key=lambda r: (-(r.get("priority") or 0),
                              r.get("requested_at") or ""), reverse=False)
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Decided rows (My Work history, 2026-09-25) — the same visibility floor as
+# the pending fetches, status other than Pending, newest decision first.
+# ---------------------------------------------------------------------------
+
+def workflow_decided(user_id: int, *, role, username: str = "", limit: int = 100) -> list:
+    """Decided ApprovalRequests addressed to this user (user / group /
+    Developer+ pool) or decided by them (responded_by = their id or their
+    username). Main-app op first, direct SQL otherwise."""
+    pool = _may_see_pool(role)
+    try:
+        role_param = int(role or 0)
+    except (TypeError, ValueError):
+        role_param = 0
+    try:
+        limit = max(1, int(limit or 100))
+    except (TypeError, ValueError):
+        limit = 100
+    uname = str(username or "").strip() or str(int(user_id))
+
+    def _sql():
+        conn = _db()
+        try:
+            cur = conn.cursor()
+            pool_sql = ("   OR assigned_to_type = 'unassigned'\n"
+                        "   OR assigned_to_type IS NULL" if pool else "")
+            cur.execute(
+                f"""
+                SELECT TOP {int(limit)} request_id, title, description, status, requested_at,
+                       due_date, priority, approval_data, assigned_to_type,
+                       assigned_to_id, responded_by, response_at, comments
+                FROM ApprovalRequests
+                WHERE status <> 'Pending' AND (
+                      (assigned_to_type = 'user'  AND assigned_to_id = ?)
+                   OR (assigned_to_type = 'group' AND assigned_to_id IN
+                        (SELECT group_id FROM UserGroups WHERE user_id = ?))
+                   OR responded_by = ? OR responded_by = ?
+                {pool_sql})
+                ORDER BY response_at DESC
+                """, int(user_id), int(user_id), str(int(user_id)), uname)
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+        finally:
+            conn.close()
+    try:
+        rows = list(fetch_or_sql("workflow_decided", _sql, user_id=int(user_id),
+                                 role=role_param, username=uname, limit=limit) or [])
+    except Exception as e:
+        logger.warning(f"workflow_decided unavailable: {e}")
+        return []
+    if not pool:
+        rows = [r for r in rows if not _is_pool_row(r)]
+    return rows
+
+
+def automation_decided(user_id: int, group_ids: list, *, role, username: str = "",
+                       limit: int = 100) -> list:
+    """Decided automation checkpoint / review rows visible to this user by
+    the pending rule, plus rows they decided themselves; newest first."""
+    pool = _may_see_pool(role)
+    uname = str(username or "").strip().lower()
+    rows = []
+    pattern = os.path.join(APP_ROOT, "automations", "tenant_*", "_approvals", "*.json")
+    for path in glob.glob(pattern):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                row = json.load(f)
+        except Exception:
+            continue
+        if row.get("status") == "Pending":
+            continue
+        at, aid = row.get("assigned_to_type"), row.get("assigned_to_id")
+        who = str(row.get("responded_by") or "").strip().lower()
+        visible = ((pool and _is_pool_row(row))
+                   or (at == "user" and aid == int(user_id))
+                   or (at == "group" and aid in (group_ids or []))
+                   or (who and (who == str(int(user_id)) or (uname and who == uname))))
+        if visible:
+            rows.append(row)
+    rows.sort(key=lambda r: str(r.get("response_at") or ""), reverse=True)
+    try:
+        limit = max(1, int(limit or 100))
+    except (TypeError, ValueError):
+        limit = 100
+    return rows[:limit]
 
 
 # ---------------------------------------------------------------------------

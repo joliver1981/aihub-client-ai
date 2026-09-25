@@ -647,6 +647,21 @@ async def work_release(request: Request):
     return {"item": _agent_item_view(item)}
 
 
+@app.get("/api/work/decided")
+async def work_decided(request: Request):
+    """The caller's approval / rejection history across sources, newest
+    decision first (James 2026-09-25). Read-only; the side thread works on
+    these items like on open ones. `limit` is a page size, default 100."""
+    user = _verify_request(request)
+    try:
+        limit = max(1, int(request.query_params.get("limit") or 100))
+    except (TypeError, ValueError):
+        limit = 100
+    import work_history
+    items = work_history.decided_items(user, limit)
+    return {"items": items, "total": len(items)}
+
+
 @app.post("/api/work/respond")
 async def work_respond(request: Request):
     """Close an agent-raised item with the human's response. Approving a
