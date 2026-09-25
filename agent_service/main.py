@@ -531,6 +531,22 @@ def _parse_approval_data(raw):
         return {}
 
 
+def _readthrough_summary(source: str, ref: str, user: dict) -> str:
+    """The description of a workflow/automation approval row, for a question
+    asked on it (the shadow row carries only the title)."""
+    try:
+        uid = int(user["user_id"] or 0)
+        role = int(user.get("role") or 0)
+        rows = (readthrough.workflow_pending(uid, role=role) if source == "workflow"
+                else readthrough.automation_pending(uid, readthrough.user_group_ids(uid), role=role))
+        for row in rows:
+            if str(row.get("request_id")) == str(ref):
+                return str(row.get("description") or "")
+    except Exception:
+        pass
+    return ""
+
+
 @app.get("/api/work/list")
 async def work_list(request: Request):
     user = _verify_request(request)
@@ -925,6 +941,13 @@ async def work_thread(request: Request):
                                           str(body.get("title") or source))
     anchor_id = item["work_item_id"]
     context = body.get("context") or item.get("payload") or {}
+    # The item's own text (a review item's full description: what the checks
+    # found, how a split scan was cut and why) is what a question ON the item
+    # is about. Read-through items have only a title in the shadow row, so the
+    # text comes with the question, else from the platform row (2026-09-25).
+    summary = str(body.get("summary") or item.get("summary") or "").strip()
+    if not summary and source in ("workflow", "automation"):
+        summary = _readthrough_summary(source, ref, user)
 
     workitem_store.append_thread(anchor_id, "human", question,
                                  actor=user.get("username"))
@@ -932,7 +955,7 @@ async def work_thread(request: Request):
               "You are answering a question asked ON a work item in My Work. "
               "Answer with evidence from your read-only tools; you cannot and "
               "must not change anything from this thread. Work item context:\n"
-              f"{json.dumps({'source': source, 'title': item.get('title'), 'summary': item.get('summary'), 'payload': context}, default=str)[:3000]}\n\n"
+              f"{json.dumps({'source': source, 'title': item.get('title'), 'summary': summary, 'payload': context}, default=str)}\n\n"
               f"Question: {question}")
     reply_parts, session_id = [], item.get("thread_session")
     async for ev in run_turn(prompt, session_id, user, tool_scope="read"):

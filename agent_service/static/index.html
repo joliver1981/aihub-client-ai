@@ -3543,7 +3543,8 @@
         const r = await fetch("/api/work/thread", { method: "POST", headers: H(),
           body: JSON.stringify({ source: item.source, id: item.id,
                                  question, title: item.title,
-                                 context: item.payload, timezone: browserTz() }) });
+                                 context: item.payload, summary: item.summary || "",
+                                 timezone: browserTz() }) });
         const d = await r.json().catch(() => ({}));
         if (!r.ok || !Array.isArray(d.thread))
           throw new Error(d.detail || d.error

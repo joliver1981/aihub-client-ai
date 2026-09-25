@@ -1653,10 +1653,12 @@ def runtime_review_item():
             pass
     auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
     auto_name = auto.get("name") or run.get("automation_id", "")
-    # 4000 (was 1000): a structured, multi-line review message — why the
-    # document needs a human, what each decision does, how to make it
-    # importable — did not fit and was silently cut mid-sentence.
-    message = (data.get("message") or "Review requested")[:4000]
+    # No length cut (was 4000, before that 1000): the review message is a
+    # structured, multi-line text — why the document needs a human, how a
+    # split scan was read and cut, what each decision does — and every cut
+    # here was silent and mid-sentence. The store is one JSON file per row,
+    # so nothing forces a limit (James 2026-09-25: no arbitrary caps).
+    message = (data.get("message") or "Review requested")
     title = (data.get("title") or f"Automation exception — {auto_name}")[:490]
     # BRD §10 fix-and-approve: the script may declare correctable fields
     # ({field: current value}); the approvals UI renders them as inputs and
