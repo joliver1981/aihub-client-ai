@@ -1987,6 +1987,9 @@ def runtime_ai():
     elif json_mode:
         text_prompt += "\n\nReturn ONLY a JSON object (no prose, no code fences)."
 
+    meta = {}
+    t0 = time.time()
+
     def _call(extra_nudge=None):
         # Raw REST (requests) — the app env deliberately has no anthropic SDK,
         # and this needs zero new dependencies. No temperature: reasoning
@@ -2006,12 +2009,19 @@ def runtime_ai():
             json=body, timeout=180)
         if resp.status_code != 200:
             raise RuntimeError(f"Anthropic API {resp.status_code}: {resp.text[:300]}")
-        return "".join(b.get("text", "") for b in resp.json().get("content", [])
+        rj = resp.json()
+        meta["stop_reason"] = rj.get("stop_reason")
+        return "".join(b.get("text", "") for b in rj.get("content", [])
                        if b.get("type") == "text").strip()
 
     try:
         text = _call()
         payload = {"text": text, "model_used": model}
+        if json_mode and meta.get("stop_reason") == "max_tokens":
+            # A reply cut off at max_tokens cannot parse, and a second call
+            # would be cut off the same way: say so instead of re-asking.
+            raise RuntimeError(f"reply truncated at max_tokens={max_tokens} "
+                               "(stop_reason max_tokens) — raise max_tokens")
         if json_mode:
             def _parse(t):
                 t = t.strip()
@@ -2026,9 +2036,11 @@ def runtime_ai():
                               "Reply with ONLY the JSON object.")
                 payload["json"] = _parse(text2)
                 payload["text"] = text2
+        logger.info(f"runtime_ai ok (model {model}): {len(image_blocks or [])} image(s), "
+                    f"{int(time.time() - t0)}s, stop_reason={meta.get('stop_reason')}")
         return jsonify(payload)
     except Exception as e:
-        logger.warning(f"runtime_ai failed (model {model}): {e}")
+        logger.warning(f"runtime_ai failed (model {model}) after {int(time.time() - t0)}s: {e}")
         return jsonify({"error": f"AI call failed: {e}", "model_used": model}), 502
 
 

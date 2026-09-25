@@ -44,7 +44,7 @@ _RESOLVE_PATH = "/automations/api/runtime/resolve"
 _HTTP_TIMEOUT = int(_os.getenv("AIHUB_RUNTIME_HTTP_TIMEOUT", "30") or "30")
 # An AI call (llm / ai_extract) may carry several page images and take the
 # model a minute or more; the server side allows 180 s, so the client does too.
-_AI_TIMEOUT = int(_os.getenv("AIHUB_RUNTIME_AI_TIMEOUT", "180") or "180")
+_AI_TIMEOUT = int(_os.getenv("AIHUB_RUNTIME_AI_TIMEOUT", "400") or "400")
 
 _cache = {}
 _inputs_cache = None
@@ -386,6 +386,18 @@ def _ai_call(body):
         res = _runtime_post("/automations/api/runtime/ai", body, timeout=_AI_TIMEOUT)
     except AutomationRuntimeError:
         raise
+    except _urlerror.HTTPError as e:
+        # The seam answers a provider failure with a 502 whose body names the
+        # cause ("Anthropic API 529: overloaded", "reply truncated at
+        # max_tokens=..."); surface that instead of a bare "HTTP Error 502".
+        detail = ""
+        try:
+            detail = str((_json.loads(e.read().decode("utf-8")) or {}).get("error") or "")
+        except Exception:
+            detail = ""
+        if detail.startswith("AI call failed: "):
+            detail = detail[len("AI call failed: "):]
+        raise AutomationRuntimeError(f"AI call failed: {detail or e}") from None
     except Exception as e:
         raise AutomationRuntimeError(f"AI call failed: {e}") from None
     if res.get("error"):
