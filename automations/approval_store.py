@@ -146,6 +146,49 @@ def annotate_row(base_path: str, request_id: str, outcome: Dict) -> Optional[Dic
         return row
 
 
+def row_visible_to(row: Optional[Dict], user_id, role, group_ids=None) -> bool:
+    """May this user see this row — and therefore its attachments?
+
+    The same rule My Work applies (agent_service/readthrough.automation_pending):
+      * routed to a USER  -> that user only
+      * routed to a GROUP -> members of that group only
+      * routed to nobody ('available to all') -> Developer+ (role >= 2)
+    Role never widens a user- or group-routed row: an admin who is not the
+    named user and not in the group does not see it (james 2026-09-24).
+    A row with no type but an id predates the 'user' default in add_row — it is
+    visible to that user and, like My Work's pool reading of it, to Developer+.
+    Anything unreadable fails CLOSED."""
+    if not row:
+        return False
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        return False
+    try:
+        dev_plus = int(role or 0) >= 2
+    except (TypeError, ValueError):
+        dev_plus = False
+    at = str(row.get("assigned_to_type") or "").strip().lower()
+    aid = row.get("assigned_to_id")
+    try:
+        aid = int(aid) if aid is not None else None
+    except (TypeError, ValueError):
+        return False
+    if at == "group":
+        groups = set()
+        for g in group_ids or []:
+            try:
+                groups.add(int(g))
+            except (TypeError, ValueError):
+                continue
+        return aid is not None and aid in groups
+    if at == "user":
+        return aid is not None and aid == uid
+    if at in ("", "unassigned"):
+        return (aid is not None and aid == uid) or dev_plus
+    return False
+
+
 def list_rows(base_path: str, status: Optional[str] = None,
               assigned_to_id: Optional[int] = None,
               member_of_group_ids=None) -> List[Dict]:

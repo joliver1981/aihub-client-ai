@@ -16,6 +16,8 @@ Automations REST API — Developer+ gated, mirrors agent_environments gating.
     POST   /automations/api/internal/run      X-API-Key           -> scheduler seam (P1 job type)
 
 Gating: login + role in {2,3} (Developer/Admin) + cfg.AUTOMATIONS_ENABLED.
+Exception: the two approval-attachment downloads are login + a per-row check
+(whoever can see the approval row, any role — automations_signed_in).
 Runs execute the PINNED version; dry-runs the latest edit. Concurrent runs
 are skipped (recorded as status='skipped').
 """
@@ -97,6 +99,19 @@ def automations_gate(f):
             return jsonify({"error": "Automations feature is disabled"}), 403
         if not hasattr(current_user, "role") or current_user.role not in [2, 3]:
             return jsonify({"error": "Access denied — Developer role required"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def automations_signed_in(f):
+    """Feature flag + a signed-in user of ANY role. Only for routes that do
+    their own per-item check (the attachment downloads: the viewer must be
+    able to see the approval row — approval_store.row_visible_to)."""
+    @wraps(f)
+    @login_required
+    def decorated(*args, **kwargs):
+        if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
+            return jsonify({"error": "Automations feature is disabled"}), 403
         return f(*args, **kwargs)
     return decorated
 
@@ -1396,14 +1411,110 @@ def _decide_checkpoint(run_id, checkpoint_id, decision, decided_by):
     return {"checkpoint": checkpoint}, 200
 
 
+# Attachment preview (james 2026-09-24): `?inline=1` asks for the file to be
+# SHOWN in the browser tab (built-in PDF viewer, image, text, media player)
+# instead of downloaded. Only types a browser renders natively are served
+# inline, each with a Content-Type fixed HERE (never guessed from the file):
+# HTML, SVG and XML-as-markup are never inline — rendered on the main-app
+# origin they could run script under the viewer's AI Hub session. Text types
+# go out as text/plain + nosniff so they display as text. Anything not listed
+# (Word, Excel, ...) ignores inline=1 and downloads exactly as before.
+_PREVIEW_TYPES = {
+    ".pdf": "application/pdf",
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+    ".txt": "text/plain", ".csv": "text/plain", ".tsv": "text/plain",
+    ".json": "text/plain", ".log": "text/plain", ".md": "text/plain",
+    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg",
+    ".m4a": "audio/mp4", ".mp4": "video/mp4", ".webm": "video/webm",
+}
+
+
+def _text_charset(full: str) -> str:
+    """The charset to declare for a text preview. Werkzeug would otherwise
+    stamp utf-8 on every text/* file, and with nosniff the browser obeys —
+    so an Excel 'CSV (Comma delimited)' export (Windows-1252, no BOM) would
+    preview as replacement characters. UTF-8 when the bytes are UTF-8 (or
+    carry a BOM), UTF-16 for a UTF-16 BOM, else windows-1252."""
+    try:
+        with open(full, "rb") as f:
+            head = f.read(65536)
+    except OSError:
+        return "utf-8"
+    if head.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return "utf-16"
+    try:
+        head.decode("utf-8")
+        return "utf-8"
+    except UnicodeDecodeError as e:
+        # a multi-byte character cut by the 64 KB read is still UTF-8
+        if len(head) == 65536 and e.start >= len(head) - 3:
+            return "utf-8"
+        return "windows-1252"
+
+
+def _send_attachment(full: str, name: str):
+    """Serve one declared attachment: a download (default), or with
+    ?inline=1 and a previewable type, shown in the browser tab."""
+    from flask import send_file
+    mimetype = _PREVIEW_TYPES.get(os.path.splitext(name)[1].lower())
+    if request.args.get("inline") in ("1", "true") and mimetype:
+        resp = send_file(full, mimetype=mimetype, as_attachment=False,
+                         download_name=name, max_age=0)
+        if mimetype == "text/plain":
+            # set AFTER send_file: werkzeug appends its own "; charset=utf-8"
+            # to any text/* mimetype it is handed
+            resp.headers["Content-Type"] = f"text/plain; charset={_text_charset(full)}"
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    return send_file(full, as_attachment=True, download_name=name)
+
+
+def _viewer_group_ids() -> list:
+    """The signed-in user's platform group ids ([] when unreadable — a
+    group-routed row then fails closed)."""
+    try:
+        conn = _get_manager()._db_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT group_id FROM [UserGroups] WHERE user_id = ?",
+                           int(current_user.id))
+            return [int(r[0]) for r in cursor.fetchall()]
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f"group lookup for attachment access failed: {e}")
+        return []
+
+
+def _viewer_may_see_row(row: Optional[Dict]) -> bool:
+    """The attachment rule = the list rule: only a viewer who can see the
+    approval row in My Work / My Approvals may open its files."""
+    from . import approval_store
+    at = str((row or {}).get("assigned_to_type") or "").strip().lower()
+    return approval_store.row_visible_to(
+        row, getattr(current_user, "id", None), getattr(current_user, "role", 0),
+        _viewer_group_ids() if at == "group" else [])
+
+
+_ATTACHMENT_DENIED = ("You don't have access to this attachment — it belongs to an "
+                      "approval routed to someone else.")
+
+
 @automations_bp.route("/api/runs/<run_id>/checkpoints/<checkpoint_id>/attachments/<name>",
                       methods=["GET"])
-@automations_gate
+@automations_signed_in
 def checkpoint_attachment(run_id, checkpoint_id, name):
-    """Download one gate attachment. Only names the checkpoint DECLARED are
-    servable (the stored relpath was traversal-validated at declaration), so
-    this can never read outside the run's working directory."""
+    """Download (or, with ?inline=1, preview) one gate attachment. Only names
+    the checkpoint DECLARED are servable (the stored relpath was traversal-
+    validated at declaration), so this can never read outside the run's
+    working directory. Access follows the gate's My Approvals row (routed
+    user / group members / Developer+ for an unrouted row); a gate that was
+    never bridged to a row falls back to that unrouted rule plus the run's
+    requesting user (a bridged row that can't be read denies)."""
     from .checkpoints import get_checkpoint
+    from . import approval_store
     run = _get_runner().get_run(run_id)
     if not run:
         return jsonify({"error": "run not found"}), 404
@@ -1411,6 +1522,18 @@ def checkpoint_attachment(run_id, checkpoint_id, name):
     checkpoint = get_checkpoint(workdir, checkpoint_id) if workdir else None
     if not checkpoint:
         return jsonify({"error": "checkpoint not found"}), 404
+    if checkpoint.get("approval_request_id"):
+        # Routed through a queue row: that row decides. A referenced row that
+        # is missing or unreadable fails CLOSED — never the unrouted fallback.
+        allowed = _viewer_may_see_row(approval_store.get_row(
+            _get_manager().base_path, checkpoint["approval_request_id"]))
+    else:
+        requester = run.get("requested_by")
+        allowed = (int(getattr(current_user, "role", 0) or 0) >= 2
+                   or (requester is not None
+                       and str(requester) == str(getattr(current_user, "id", ""))))
+    if not allowed:
+        return jsonify({"error": _ATTACHMENT_DENIED}), 403
     att = next((a for a in (checkpoint.get("attachments") or [])
                 if a.get("name") == name), None)
     if not att:
@@ -1418,8 +1541,7 @@ def checkpoint_attachment(run_id, checkpoint_id, name):
     full = os.path.join(workdir, att.get("relpath") or att["name"])
     if not os.path.isfile(full):
         return jsonify({"error": "attachment file no longer exists"}), 410
-    from flask import send_file
-    return send_file(full, as_attachment=True, download_name=att["name"])
+    return _send_attachment(full, att["name"])
 
 
 # --------------------------------------------- runtime checkpoint (SDK side)
@@ -1911,15 +2033,19 @@ def runtime_ai():
 
 
 @automations_bp.route("/api/approvals/<request_id>/attachments/<name>", methods=["GET"])
-@automations_gate
+@automations_signed_in
 def approval_row_attachment(request_id, name):
-    """Download an attachment of a bridged approval row (review items — gates
-    use the run/checkpoint route). Only names the row DECLARED are servable;
-    relpaths were traversal-validated against the run workdir at declaration."""
+    """Download (or, with ?inline=1, preview) an attachment of a bridged
+    approval row (review items — gates use the run/checkpoint route). Only
+    names the row DECLARED are servable; relpaths were traversal-validated
+    against the run workdir at declaration. Only a viewer who can see the row
+    (routed user / group members / Developer+ for an unrouted row) may."""
     from . import approval_store
     row = approval_store.get_row(_get_manager().base_path, request_id)
     if not row:
         return jsonify({"error": "approval row not found"}), 404
+    if not _viewer_may_see_row(row):
+        return jsonify({"error": _ATTACHMENT_DENIED}), 403
     try:
         meta = json.loads(row.get("approval_data") or "{}")
     except (ValueError, TypeError):
@@ -1934,8 +2060,7 @@ def approval_row_attachment(request_id, name):
     full = os.path.join(workdir, att.get("relpath") or att["name"])
     if not os.path.isfile(full):
         return jsonify({"error": "attachment file no longer exists"}), 410
-    from flask import send_file
-    return send_file(full, as_attachment=True, download_name=att["name"])
+    return _send_attachment(full, att["name"])
 
 
 def _validate_checkpoint_files(workdir: str, files) -> tuple:

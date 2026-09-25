@@ -8,8 +8,8 @@ gated download routes in automations/api.py:
   gate   : /automations/api/runs/<run_id>/checkpoints/<checkpoint_id>/attachments/<name>
   review : /automations/api/approvals/<request_id>/attachments/<name>
 Both routes serve ONLY names the row declared and sit behind the main app's
-login session + Developer/Admin role (automations_gate) — exactly the auth the
-classic page relies on. The Agent UI runs on its own port, so the links are
+login session — exactly the auth the classic page relies on — plus (since
+2026-09-24) a per-row check: whoever can see the approval row, any role. The Agent UI runs on its own port, so the links are
 built with platUrl() (main-app origin) and ride the browser's main-app session
 cookie like every other Platform link in index.html.
 
@@ -146,8 +146,12 @@ class TestMyWorkAttachmentLinks(unittest.TestCase):
         for route in ('"/api/runs/<run_id>/checkpoints/<checkpoint_id>/attachments/<name>"',
                       '"/api/approvals/<request_id>/attachments/<name>"'):
             i = api.index(route)
-            # the decorator right after the route line is the login + role gate
-            self.assertIn("@automations_gate", api[i:i + 200], route)
+            # 2026-09-24: login + feature flag, then a PER-ROW check (whoever can
+            # see the approval row, any role) instead of the Developer/Admin
+            # gate — behaviour pinned in test_automation_attachment_preview_access.py
+            self.assertIn("@automations_signed_in", api[i:i + 200], route)
+            body = api[i:api.index("\n@automations_bp.route", i + 10)]
+            self.assertIn("_ATTACHMENT_DENIED", body, route)
 
     def test_review_link_key_is_the_id_decide_settles(self):
         # /api/work/decide hands body.id straight to readthrough.decide_generic —

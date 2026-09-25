@@ -178,6 +178,8 @@
   a.attlink{display:inline-block;background:var(--accent-tint);border:1px solid var(--accent-line);
             border-radius:9px;padding:4px 11px;font-size:12px;color:var(--text);text-decoration:none}
   a.attlink:hover{background:var(--hover)}
+  .attrow{display:inline-flex;gap:4px;align-items:center}
+  a.attlink.attpreview{background:transparent;color:var(--accent)}
   .mailrow{display:flex;gap:10px;padding:2px 0;font-size:12.5px}
   .mailrow .k{font-family:var(--mono);font-size:10px;color:var(--text3);width:56px;flex:none;padding-top:2px}
   .actions{display:flex;gap:9px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line-soft);
@@ -3234,12 +3236,18 @@
       // run/checkpoint route, a review item through the approval-row route
       // (item.id IS that row's request_id — the same id /api/work/decide
       // settles). Both routes live on the MAIN app behind its login session +
-      // Developer/Admin role (automations_gate) and serve only names the row
-      // declared, so the links point at the main-app origin via platUrl and
-      // ride the browser's AI Hub session cookie like every Platform link here.
-      // The main app answers Content-Disposition: attachment, so the new tab
-      // just downloads; a 403/410 error shows there instead of replacing this
-      // page.
+      // a per-row check (only whoever can see the approval row, any role) and
+      // serve only names the row declared, so the links point at the main-app
+      // origin via platUrl and ride the browser's AI Hub session cookie like
+      // every Platform link here. The main app answers Content-Disposition:
+      // attachment, so the new tab just downloads; a 403/410 error shows there
+      // instead of replacing this page.
+      // Preview (james 2026-09-24): the same route with ?inline=1 opens the
+      // file IN the new tab (browser PDF viewer, image, text, media player);
+      // closing the tab closes it. Offered only for types a browser shows
+      // natively — the server keeps the same list (automations/api.py
+      // _PREVIEW_TYPES) and downloads anything else even if asked inline.
+      const PREVIEWABLE = /\.(pdf|png|jpe?g|gif|webp|bmp|txt|csv|tsv|json|log|md|mp3|wav|ogg|m4a|mp4|webm)$/i;
       if (item.source === "automation") {
         const atts = (Array.isArray(p.attachments) ? p.attachments : [])
           .filter(a => a && a.name);
@@ -3258,7 +3266,16 @@
             const link = el("a", "attlink", `${a.name}${kb} ↓`);
             link.href = platUrl(path); link.target = "_blank"; link.rel = "noopener";
             link.title = "Download from AI Hub (uses your AI Hub sign-in)";
-            wrap.appendChild(link);
+            if (PREVIEWABLE.test(String(a.name))) {
+              const row = el("div", "attrow");
+              const pv = el("a", "attlink attpreview", "Preview ↗");
+              pv.href = platUrl(path + "?inline=1"); pv.target = "_blank"; pv.rel = "noopener";
+              pv.title = "Open in a new browser tab — close the tab when you're done";
+              row.append(link, pv);
+              wrap.appendChild(row);
+            } else {
+              wrap.appendChild(link);
+            }
           });
           sec.appendChild(wrap);
         }
