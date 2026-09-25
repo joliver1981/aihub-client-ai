@@ -19,17 +19,23 @@ Two tables:
 Verbs (from the approved design): approve_deny, review, provide_input,
 edit_and_return, acknowledge, do_offline.
 
-A2 visibility (documented simplification): an item addressed to a user is
-visible to that user only; an item with no user address is a group/anyone item
-visible to all Developer+ users until claimed (claiming hides it from others
-until released). True Groups-membership scoping arrives with the envelope
-enrichment in A3.
+Visibility (one rule, the same one workflow and automation approvals use):
+  * addressed to a USER  -> that user only
+  * addressed to a GROUP -> members of that group only (addressed_group holds
+    the platform Groups.id as text; membership is read live, so leaving the
+    group removes access at once). Any member may claim it — claiming hides
+    it from the rest of the group until released.
+  * addressed to nobody  -> the shared pool: Developer+ only, until claimed.
+Role never widens a user- or group-addressed item: an admin outside the group
+does not see it (james 2026-09-24). Group routing was the A2 "documented
+simplification" deferred to A3; it was finished 2026-09-24.
 
-The Developer+ half of that rule is enforced HERE, in list_items (role is a
+The Developer+ floor on the pool is enforced HERE, in list_items (role is a
 required argument), not at the front door. It used to hold implicitly because
 The Agent itself was Developer+ only; AGENT_ALLOW_ALL_USERS=true removed that
 guarantee and regular users saw the shared pool (RU pack finding F-7,
-2026-09-07). A role < 2 caller sees only items addressed to them.
+2026-09-07). visible_to() is the same rule for ONE item — the routes that act
+on an item by id (claim / release / respond / thread) check it first.
 """
 
 import json
@@ -132,6 +138,16 @@ def create_item(verb: str, title: str, *, summary: str = "",
                 due_at: Optional[str] = None, created_by: str = "") -> dict:
     if verb not in VERBS:
         raise ValueError(f"unknown verb '{verb}' (valid: {sorted(VERBS)})")
+    if addressed_group not in (None, ""):
+        if addressed_user is not None:
+            raise ValueError("address an item to a user OR a group, not both")
+        try:
+            addressed_group = str(int(addressed_group))
+        except (TypeError, ValueError):
+            raise ValueError(f"addressed_group must be a platform group id, "
+                             f"got '{addressed_group}'")
+    else:
+        addressed_group = None
     item_id = str(uuid.uuid4())
     with _LOCK, _connect() as c:
         c.execute(
@@ -158,27 +174,59 @@ def get_item(item_id: str) -> Optional[dict]:
         return _row_to_dict(r) if r else None
 
 
-def list_items(user_id: int, *, role: int, include_closed: bool = False) -> list:
-    """Items this user can see (A2 visibility rules — see module docstring).
+def _group_keys(group_ids) -> list:
+    """Group ids as the text addressed_group stores ('7'); junk dropped."""
+    out = []
+    for g in group_ids or []:
+        try:
+            out.append(str(int(g)))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+# The shared pool = addressed to NOBODY: no user AND no group. A group item
+# also has addressed_user NULL, so "addressed_user IS NULL" alone would leak
+# every group's items to every Developer+.
+_POOL_SQL = ("(addressed_user IS NULL AND "
+             "(addressed_group IS NULL OR addressed_group = ''))")
+
+
+def list_items(user_id: int, *, role: int, group_ids=None,
+               include_closed: bool = False) -> list:
+    """Items this user can see (visibility rules — see module docstring).
 
     `role` is the caller's platform role (1 user, 2 developer, 3 admin) and is
     REQUIRED, not defaulted: the unaddressed "anyone" pool is a Developer+
     audience, and every caller (GET /api/work/list, the list_my_work tool)
     converges here, so this is the one place the rule cannot drift from.
-    role < 2 -> only items addressed to this user; no shared-pool items at all.
+    role < 2 -> no shared-pool items at all.
+    `group_ids` = the caller's platform group memberships; items addressed to
+    one of those groups are included for ANY role. Omitted -> no group items
+    (fails closed).
     """
+    gkeys = _group_keys(group_ids)
+    clauses, params = ["addressed_user = ?"], [int(user_id)]
+    # An item the caller HOLDS stays theirs until they release or answer it —
+    # even after leaving the group (or a role change): the claim hides it from
+    # everyone else, so without this it would be stranded with no one able to
+    # act on it.
+    clauses.append("(addressed_user IS NULL AND status = 'claimed' AND claimed_by = ?)")
+    params.append(int(user_id))
+    if gkeys:
+        clauses.append("(addressed_user IS NULL AND addressed_group IN ("
+                       + ",".join("?" * len(gkeys)) + "))")
+        params += gkeys
     if int(role or 0) >= 2:
-        q = ("SELECT * FROM work_items WHERE "
-             "(addressed_user IS NULL OR addressed_user = ?) ")
-    else:
-        q = "SELECT * FROM work_items WHERE addressed_user = ? "
+        clauses.append(_POOL_SQL)
+    q = "SELECT * FROM work_items WHERE (" + " OR ".join(clauses) + ") "
     q += "AND from_kind != 'readthrough' "  # shadow rows exist only for threads
     if not include_closed:
         q += "AND status IN ('open', 'claimed') "
     q += "ORDER BY priority DESC, created_at DESC LIMIT 200"
     with _connect() as c:
-        rows = [_row_to_dict(r) for r in c.execute(q, (int(user_id),)).fetchall()]
-    # Claimed group items are hidden from everyone but the claimant.
+        rows = [_row_to_dict(r) for r in c.execute(q, params).fetchall()]
+    # Claimed group / pool items are hidden from everyone but the claimant.
     out = []
     for r in rows:
         if (r["status"] == "claimed" and r.get("addressed_user") is None
@@ -186,6 +234,34 @@ def list_items(user_id: int, *, role: int, include_closed: bool = False) -> list
             continue
         out.append(r)
     return out
+
+
+def visible_to(item: Optional[dict], user_id, *, role, group_ids=None) -> bool:
+    """list_items' rule for ONE item: may this user see (and so act on) it?
+    Routes that take an item id (claim, release, respond, thread) check this
+    first, so an id alone never reaches another user's or group's item."""
+    if not item:
+        return False
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        return False
+    if item.get("addressed_user") is not None:
+        return int(item["addressed_user"]) == uid
+    # the claimant keeps what they hold (see list_items)
+    if item.get("status") == "claimed" and item.get("claimed_by") is not None:
+        try:
+            if int(item["claimed_by"]) == uid:
+                return True
+        except (TypeError, ValueError):
+            pass
+    group = str(item.get("addressed_group") or "").strip()
+    if group:
+        return group in _group_keys(group_ids)
+    try:
+        return int(role or 0) >= 2
+    except (TypeError, ValueError):
+        return False
 
 
 def claim(item_id: str, user_id: int) -> tuple:

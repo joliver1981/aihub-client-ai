@@ -491,7 +491,14 @@ async def chat(request: Request):
 # My Work API (A2)
 # ---------------------------------------------------------------------------
 
-def _agent_item_view(it: dict) -> dict:
+def _agent_item_view(it: dict, group_names: dict = None) -> dict:
+    group = str(it.get("addressed_group") or "").strip() or None
+    group_name = None
+    if group:
+        try:
+            group_name = (group_names or {}).get(int(group))
+        except ValueError:
+            pass
     return {"source": "agent", "id": it["work_item_id"], "verb": it["verb"],
             "title": it["title"], "summary": it.get("summary") or "",
             "status": it["status"], "priority": it.get("priority") or 0,
@@ -499,7 +506,20 @@ def _agent_item_view(it: dict) -> dict:
             "from": it.get("created_by") or "agent",
             "claimed_by": it.get("claimed_by"),
             "addressed_user": it.get("addressed_user"),
+            "addressed_group": group,
+            "group_name": group_name,
             "payload": it.get("payload") or {}}
+
+
+def _may_see_item(item, user: dict) -> bool:
+    """workitem_store.visible_to for the verified caller; group memberships
+    are looked up only when the item is actually group-routed."""
+    uid = int(user.get("user_id") or 0)
+    gids = (readthrough.user_group_ids(uid)
+            if item and item.get("addressed_user") is None
+            and str(item.get("addressed_group") or "").strip() else [])
+    return workitem_store.visible_to(item, uid, role=int(user.get("role") or 0),
+                                     group_ids=gids)
 
 
 def _parse_approval_data(raw):
@@ -516,12 +536,16 @@ async def work_list(request: Request):
     user = _verify_request(request)
     uid = int(user["user_id"] or 0)
     role = int(user.get("role") or 0)
-    items = [_agent_item_view(i) for i in workitem_store.list_items(uid, role=role)]
-
     # The verified role rides into every source: the shared "unassigned" pool
     # is Developer+ only on all three (F-7 df05578 for agent items, F-12 for
-    # the workflow + automation read-throughs, 2026-09-08).
+    # the workflow + automation read-throughs, 2026-09-08). Group memberships
+    # ride into all of them too: a group-routed item reaches members only.
     group_ids = readthrough.user_group_ids(uid)
+    agent_rows = workitem_store.list_items(uid, role=role, group_ids=group_ids)
+    names = (readthrough.group_names()
+             if any(i.get("addressed_group") for i in agent_rows) else {})
+    items = [_agent_item_view(i, names) for i in agent_rows]
+
     for row in readthrough.workflow_pending(uid, role=role):
         ad = _parse_approval_data(row.get("approval_data"))
         items.append({
@@ -587,6 +611,8 @@ async def work_list(request: Request):
 async def work_claim(request: Request):
     user = _verify_request(request)
     body = await request.json()
+    if not _may_see_item(workitem_store.get_item(str(body.get("id"))), user):
+        raise HTTPException(404, "work item not found")
     item, err = workitem_store.claim(str(body.get("id")), int(user["user_id"]))
     if err:
         raise HTTPException(409, err)
@@ -597,6 +623,8 @@ async def work_claim(request: Request):
 async def work_release(request: Request):
     user = _verify_request(request)
     body = await request.json()
+    if not _may_see_item(workitem_store.get_item(str(body.get("id"))), user):
+        raise HTTPException(404, "work item not found")
     item, err = workitem_store.release(str(body.get("id")), int(user["user_id"]))
     if err:
         raise HTTPException(409, err)
@@ -611,6 +639,11 @@ async def work_respond(request: Request):
     user = _verify_request(request)
     body = await request.json()
     before = workitem_store.get_item(str(body.get("id")))
+    # Only someone who can see the item may answer it (the routed user, a
+    # member of the routed group, or Developer+ for a shared-pool item) — an
+    # id alone must not close another user's or another group's item.
+    if not _may_see_item(before, user):
+        raise HTTPException(404, "work item not found")
     payload = (before or {}).get("payload") or {}
     decision = str((body.get("response") or {}).get("decision") or "")
     # Gate BEFORE closing the item: a non-admin approval of a promotion item
@@ -651,7 +684,9 @@ async def work_respond(request: Request):
         # SEND BEFORE CLOSE (v2 lesson): a failed send must leave the item
         # open and retryable — never a closed item whose audit says approved
         # with nothing sent. Only the address owner (it is THEIR from-
-        # address) or an admin may approve.
+        # address) may approve: the draft is addressed to them, so the
+        # visibility check above already turns everyone else away (404) —
+        # admins included since 2026-09-24. This 403 stays as the backstop.
         if (int(user.get("user_id") or 0) != int(payload.get("from_user") or -1)
                 and int(user.get("role") or 0) < 3):
             raise HTTPException(403, "Only the address owner (or an admin) "
@@ -883,7 +918,7 @@ async def work_thread(request: Request):
 
     if source == "agent":
         item = workitem_store.get_item(ref)
-        if not item:
+        if not item or not _may_see_item(item, user):
             raise HTTPException(404, "work item not found")
     else:
         item = workitem_store.shadow_item(source, ref,
@@ -912,11 +947,13 @@ async def work_thread(request: Request):
 
 @app.get("/api/work/thread")
 async def work_thread_get(request: Request):
-    _verify_request(request)
+    user = _verify_request(request)
     source = request.query_params.get("source", "agent")
     ref = request.query_params.get("id", "")
     if source == "agent":
         item = workitem_store.get_item(ref)
+        if not _may_see_item(item, user):
+            return {"thread": []}
     else:
         with_shadow = workitem_store.shadow_item(source, ref, source)
         item = with_shadow

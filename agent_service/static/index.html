@@ -3143,8 +3143,11 @@
       const from = el("div", "qfrom");
       from.textContent = "from " + (item.from || item.source);
       if (item.source === "agent" && !item.addressed_user) {
-        const s = el("span", "shared",
-          item.status === "claimed" ? " · claimed by you" : " · shared, unclaimed");
+        // group-routed: only that group's members see it (james 2026-09-24)
+        const grp = item.addressed_group
+          ? ` · ${item.group_name || "group " + item.addressed_group} group` : "";
+        const s = el("span", "shared", grp + (item.status === "claimed"
+          ? " · claimed by you" : (grp ? " · unclaimed" : " · shared, unclaimed")));
         from.appendChild(s);
       }
       b.appendChild(from);
@@ -3410,9 +3413,14 @@
         const bar = el("div", "claimbar" + (item.status === "claimed" ? " mine" : ""));
         bar.appendChild(el("span", "st",
           item.status === "claimed" ? "Claimed by you" : "Unclaimed"));
-        bar.appendChild(el("span", "kv",
-          item.status === "claimed" ? "hidden from others while you hold it"
-                                    : "shared — claim to work it"));
+        const grpName = item.addressed_group
+          ? (item.group_name || "group " + item.addressed_group) : "";
+        bar.appendChild(el("span", "kv", grpName
+          ? (item.status === "claimed"
+              ? `routed to the ${grpName} group — hidden from the rest of the group while you hold it`
+              : `routed to the ${grpName} group — claim to work it`)
+          : (item.status === "claimed" ? "hidden from others while you hold it"
+                                       : "shared — claim to work it")));
         const cb = el("button", "btn",
           item.status === "claimed" ? "Release claim" : "Claim this item");
         cb.onclick = () => post(

@@ -162,6 +162,31 @@ def user_group_ids(user_id: int) -> list:
         return []
 
 
+def all_groups() -> list:
+    """Every platform group as [{id, name}] (the main app's 'groups' op).
+    RAISES when the list cannot be read — a caller routing work to a group
+    must be able to tell "no such group" from "could not look"."""
+    def _sql():
+        conn = _db()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id, group_name FROM [dbo].[Groups] ORDER BY group_name")
+            return [{"id": int(r[0]), "name": str(r[1])} for r in cur.fetchall()]
+        finally:
+            conn.close()
+    return [{"id": int(g["id"]), "name": str(g["name"])}
+            for g in (fetch_or_sql("groups", _sql) or [])]
+
+
+def group_names() -> dict:
+    """{group_id: name} for labelling group-routed items; {} when unreadable."""
+    try:
+        return {g["id"]: g["name"] for g in all_groups()}
+    except Exception as e:
+        logger.warning(f"group names unavailable: {e}")
+        return {}
+
+
 # ---------------------------------------------------------------------------
 # The Developer+ floor on the shared "unassigned" pool (F-12, 2026-09-08)
 # ---------------------------------------------------------------------------

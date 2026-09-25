@@ -1119,9 +1119,12 @@ def main():
                                 headers={"Authorization": f"Bearer {tok77}"},
                                 timeout=60)
         closed = (workitem_store.get_item(iid) or {}).get("status") == "closed"
-        check("A6-3", "reply approval: non-owner 403 (item stays open); owner "
-                      "approval sends via the real cloud transport and closes",
-              r_other.status_code == 403 and still_open
+        # 404 since 2026-09-24: /api/work/respond first checks the caller can
+        # SEE the item (it is addressed to user 77 only), before the
+        # owner-only send guard's 403 is ever reached.
+        check("A6-3", "reply approval: non-owner refused 404 (item stays open); "
+                      "owner approval sends via the real cloud transport and closes",
+              r_other.status_code == 404 and still_open
               and r_owner.status_code == 200 and closed,
               f"other={r_other.status_code} open_after={still_open} "
               f"owner={r_owner.status_code} closed={closed}")

@@ -31,9 +31,12 @@ import workitem_store
     "human decision, review, input, or awareness that should be tracked — "
     "especially for someone OTHER than the current user, or work that must "
     "outlive this conversation. Verbs: approve_deny, review, provide_input, "
-    "edit_and_return, acknowledge, do_offline. Leave addressed_user_id at 0 "
-    "for a shared item anyone can claim. Never fabricate payload evidence — "
-    "only include facts from this conversation's tool results.",
+    "edit_and_return, acknowledge, do_offline. Route it to ONE person "
+    "(addressed_user_id) or to a TEAM (addressed_group: a platform group's "
+    "name or id — only that group's members see it, and any member can claim "
+    "it). Set neither ONLY for a shared item every Developer/Admin can see; "
+    "prefer a person or a group. Never fabricate payload evidence — only "
+    "include facts from this conversation's tool results.",
     {
         "type": "object",
         "properties": {
@@ -44,7 +47,13 @@ import workitem_store
             "summary": {"type": "string",
                         "description": "Everything needed to act, inline"},
             "addressed_user_id": {"type": "integer",
-                                  "description": "0 = shared (anyone claims)"},
+                                  "description": "The one user it is for "
+                                                 "(0 = not a single user)"},
+            "addressed_group": {"type": "string",
+                                "description": "A platform group's exact name "
+                                               "or numeric id — every member "
+                                               "sees it. Not with "
+                                               "addressed_user_id."},
             "priority": {"type": "integer", "description": "0 normal, 1 high"},
             "payload_json": {"type": "string",
                              "description": "Optional JSON evidence payload"},
@@ -70,12 +79,22 @@ async def raise_work_item(args: dict[str, Any]) -> dict[str, Any]:
                      "— use save_skill / save_view / draft_email_reply "
                      "instead.", is_error=True)
     addressed = int(args.get("addressed_user_id") or 0) or None
+    group_ref = str(args.get("addressed_group") or "").strip()
+    group = None
+    if group_ref:
+        if addressed:
+            return _text("Nothing was created: route the item to a user OR a "
+                         "group, not both.", is_error=True)
+        group, err = _resolve_group(group_ref)
+        if err:
+            return _text(f"Nothing was created: {err}", is_error=True)
     try:
         item = workitem_store.create_item(
             str(args["verb"]), str(args["title"]).strip(),
             summary=str(args.get("summary") or ""),
             payload=payload,
             addressed_user=addressed,
+            addressed_group=group["id"] if group else None,
             from_kind="agent_session",
             from_ref=str(user.get("username") or ""),
             priority=int(args.get("priority") or 0),
@@ -83,28 +102,67 @@ async def raise_work_item(args: dict[str, Any]) -> dict[str, Any]:
         )
     except ValueError as e:
         return _text(str(e), is_error=True)
-    who = f"user {addressed}" if addressed else "the shared queue (anyone can claim)"
+    if addressed:
+        who = f"user {addressed}"
+    elif group:
+        who = (f"the '{group['name']}' group (id {group['id']}) — only its "
+               "members see it, and any member can claim it")
+    else:
+        who = "the shared queue (any Developer/Admin can see and claim it)"
     return _text(f"Work item created: '{item['title']}' "
                  f"(id {item['work_item_id']}, {item['verb']}) — addressed to {who}. "
                  "It is now visible in My Work.")
 
 
+def _resolve_group(ref: str) -> tuple:
+    """({id, name}, None) for a platform group given its exact name (case-
+    insensitive) or numeric id; (None, reason) otherwise. Never guesses."""
+    import readthrough
+    try:
+        groups = readthrough.all_groups()
+    except Exception as e:
+        return None, f"the platform's group list could not be read ({e})."
+    ref = str(ref).strip()
+    if ref.isdigit():
+        hit = [g for g in groups if g["id"] == int(ref)]
+    else:
+        hit = [g for g in groups if g["name"].strip().lower() == ref.lower()]
+    if len(hit) == 1:
+        return hit[0], None
+    listing = ", ".join(f"{g['name']} (id {g['id']})" for g in groups) or "none defined"
+    if len(hit) > 1:
+        return None, (f"more than one group is named '{ref}' — pass its id. "
+                      f"Groups: {listing}.")
+    return None, f"there is no group '{ref}'. Groups: {listing}."
+
+
 @tool(
     "list_my_work",
     "List the open items in the current user's My Work queue (their personal "
-    "items plus, for Developer+ users, the unclaimed shared items).",
+    "items, items routed to their groups, plus, for Developer+ users, the "
+    "unclaimed shared items).",
     {},
 )
 async def list_my_work(args: dict[str, Any]) -> dict[str, Any]:
+    import readthrough
     user = CURRENT_USER.get()
-    items = workitem_store.list_items(int(user.get("user_id") or 0),
-                                      role=int(user.get("role") or 0))
+    uid = int(user.get("user_id") or 0)
+    items = workitem_store.list_items(uid, role=int(user.get("role") or 0),
+                                      group_ids=readthrough.user_group_ids(uid))
     if not items:
         return _text("The My Work queue is empty — nothing is waiting on you.")
+    names = (readthrough.group_names()
+             if any(it.get("addressed_group") for it in items) else {})
     lines = []
     for it in items[:30]:
-        who = "you" if it.get("addressed_user") else (
-            f"claimed by you" if it.get("claimed_by") else "unclaimed · shared")
+        if it.get("addressed_user"):
+            who = "you"
+        elif it.get("addressed_group"):
+            gid = int(it["addressed_group"])
+            who = (f"group {names.get(gid, gid)} · "
+                   + ("claimed by you" if it.get("claimed_by") else "unclaimed"))
+        else:
+            who = "claimed by you" if it.get("claimed_by") else "unclaimed · shared"
         lines.append(f"- [{it['verb']}] {it['title']} (id {it['work_item_id'][:8]}…, "
                      f"{it['status']}, {who}, raised {it['created_at']})")
     return _text(f"Open work items ({len(items)}):\n" + "\n".join(lines))
