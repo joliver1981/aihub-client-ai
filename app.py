@@ -11386,9 +11386,12 @@ def process_approval_request(request_id):
             # (and re-validated) by the polling automation run.
             corrections = data.get('corrections')
             if isinstance(corrections, dict):
-                corrections = {str(k)[:64]: str(v).strip()[:200]
-                               for k, v in list(corrections.items())[:8]
-                               if str(v).strip()}
+                # every non-empty field the reviewer changed; no count or
+                # length cap (the 8 x 200 of b95d5ca dropped a split scan's
+                # part types beyond the fourth — James 2026-09-25)
+                corrections = {str(k).strip(): str(v).strip()
+                               for k, v in corrections.items()
+                               if str(k).strip() and str(v).strip()}
                 corrections = corrections or None
             else:
                 corrections = None

@@ -1664,18 +1664,22 @@ def runtime_review_item():
     # BRD §10 fix-and-approve: the script may declare correctable fields
     # ({field: current value}); the approvals UI renders them as inputs and
     # the decision stores the reviewer's values on the row.
+    # No count or length caps (b95d5ca had <=8 fields, 64/200-character
+    # keys/values, sized for the four fields of 2026-08; a split scan's item
+    # carries one type field per part, and the cap dropped the rest
+    # silently — James 2026-09-25). Coerced to strings, nothing else.
     correctable = data.get("correctable")
     if isinstance(correctable, dict):
-        correctable = {str(k)[:64]: ("" if v is None else str(v))[:200]
-                       for k, v in list(correctable.items())[:8]}
+        correctable = {str(k).strip(): ("" if v is None else str(v))
+                       for k, v in correctable.items() if str(k).strip()}
     else:
         correctable = None
     # v11 (2026-09-23): optional dropdown choices per correctable field —
     # the approvals UIs render a <select> instead of free text.
     options = data.get("correctable_options")
     if isinstance(options, dict):
-        options = {str(k)[:64]: [str(x)[:80] for x in (v or []) if str(x).strip()][:40]
-                   for k, v in list(options.items())[:8] if isinstance(v, (list, tuple))}
+        options = {str(k).strip(): [str(x) for x in (v or []) if str(x).strip()]
+                   for k, v in options.items() if isinstance(v, (list, tuple)) and str(k).strip()}
         options = {k: v for k, v in options.items() if v} or None
     else:
         options = None
