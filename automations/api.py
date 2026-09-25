@@ -1653,12 +1653,13 @@ def runtime_review_item():
             pass
     auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
     auto_name = auto.get("name") or run.get("automation_id", "")
-    # No length cut (was 4000, before that 1000): the review message is a
-    # structured, multi-line text — why the document needs a human, how a
-    # split scan was read and cut, what each decision does — and every cut
+    # No built-in length cut (was 4000, before that 1000): the review message
+    # is a structured, multi-line text — why the document needs a human, how
+    # a split scan was read and cut, what each decision does — and every cut
     # here was silent and mid-sentence. The store is one JSON file per row,
-    # so nothing forces a limit (James 2026-09-25: no arbitrary caps).
-    message = (data.get("message") or "Review requested")
+    # so nothing forces a limit. An operator may set one
+    # (AUTOMATIONS_REVIEW_MESSAGE_MAX_CHARS); it is then applied loudly.
+    message = _bound_review_text(data.get("message") or "Review requested", "review item")
     title = (data.get("title") or f"Automation exception — {auto_name}")[:490]
     # BRD §10 fix-and-approve: the script may declare correctable fields
     # ({field: current value}); the approvals UI renders them as inputs and
@@ -1903,6 +1904,30 @@ def _load_ai_images(workdir: str, images) -> tuple:
                            "source": {"type": "base64", "media_type": media,
                                       "data": _b64.b64encode(fh.read()).decode()}})
     return blocks, None
+
+
+def _review_text_limit() -> int:
+    """AUTOMATIONS_REVIEW_MESSAGE_MAX_CHARS: 0 / unset = no limit (default).
+    The review-item text lived in a 4000-character SQL column once; the
+    store is a JSON file per row now, so nothing forces a limit, and a
+    reviewer's item should never lose its tail silently."""
+    try:
+        return max(0, int(os.getenv("AUTOMATIONS_REVIEW_MESSAGE_MAX_CHARS", "0") or "0"))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _bound_review_text(text: str, what: str) -> str:
+    """Apply the operator's limit, if any, LOUDLY: a visible marker on the
+    text and a warning in the app log naming the setting."""
+    limit = _review_text_limit()
+    text = text or ""
+    if limit and len(text) > limit:
+        marker = f"\n[cut at {limit} characters by AUTOMATIONS_REVIEW_MESSAGE_MAX_CHARS; {len(text)} written]"
+        logger.warning(f"{what}: text of {len(text)} characters cut at {limit} "
+                       "(AUTOMATIONS_REVIEW_MESSAGE_MAX_CHARS)")
+        return text[:max(0, limit - len(marker))] + marker
+    return text
 
 
 def _automations_ai_model(requested: Optional[str]) -> str:
@@ -2206,7 +2231,7 @@ def _create_checkpoint_approval_row(run: Dict, checkpoint: Dict,
     row = approval_store.add_row(
         _get_manager().base_path,
         title=f"Automation checkpoint — {auto_name}",
-        description=(checkpoint.get("message") or "")[:1000],
+        description=_bound_review_text(checkpoint.get("message") or "", "checkpoint"),
         assigned_to_id=group_id if group_id is not None else assignee_id,
         assigned_to_type="group" if group_id is not None else None,
         approval_data=approval_data,
