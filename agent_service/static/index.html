@@ -156,6 +156,10 @@
   .t-provide_input{color:var(--accent);background:var(--accent-tint)}
   .t-review{color:var(--green);background:var(--green-tint)}
   .t-acknowledge{color:var(--text3);background:var(--raised)}
+  .worksearch{display:flex;align-items:center;gap:10px;padding:0 22px 8px}
+  .worksearch input{flex:1;max-width:640px;font:inherit;font-size:13px;padding:7px 10px;border-radius:8px;
+    border:1px solid var(--line, rgba(128,128,128,.35));background:var(--raised);color:var(--text)}
+  .worksearch .n{font-size:12px;color:var(--text3)}
   .t-approved{color:var(--green);background:var(--green-tint)}
   .t-rejected{color:#b3261e;background:rgba(179,38,30,.12)}
   .t-other{color:var(--text3);background:var(--raised)}
@@ -434,6 +438,7 @@
     <button id="work-mode" title="Your approval and rejection history">🕘 History</button>
   </div>
   <div class="chips" id="work-chips"></div>
+  <div class="worksearch"><input type="search" id="work-search" placeholder="Search these items: any word on the item (e.g. clean, rejected, a name, a number)…" autocomplete="off"><span class="n" id="work-search-n"></span></div>
   <div id="work-body">
     <div id="work-queue"></div>
     <div id="work-detail"><div id="work-empty">Select an item — or enjoy the empty queue.</div></div>
@@ -3080,6 +3085,26 @@
   const chipsEl = document.getElementById("work-chips");
   let workItems = [], workFilter = "all", selected = null, me = null;
   let workMode = "open";   // "open" = waiting on you; "decided" = your history
+  let workSearch = "";     // free-text filter over every field of the loaded items
+
+  // Everything on an item, flattened, so one word finds it wherever it sits
+  function itemText(i) {
+    const parts = [i.title, i.summary, i.source, i.verb, i.from, i.status, i.decision,
+                   i.decided_by, i.comments, i.group_name];
+    const walk = (v, depth) => {
+      if (v == null || depth > 4) return;
+      if (typeof v === "object") Object.values(v).forEach(x => walk(x, depth + 1));
+      else parts.push(String(v));
+    };
+    walk(i.payload, 0); walk(i.corrections, 0); walk(i.outcome, 0);
+    return parts.filter(Boolean).join(" \n ").toLowerCase();
+  }
+  function searchMatch(i) {
+    const words = workSearch.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return true;
+    const t = i._text || (i._text = itemText(i));
+    return words.every(w => t.includes(w));
+  }
 
   const VERB_LABEL = { approve_deny: "✓ Approval", edit_and_return: "✎ Email / Edit",
                        provide_input: "? Question", review: "◇ Review",
@@ -3105,6 +3130,7 @@
                             { headers: H() });
       const d = await r.json();
       workItems = d.items || [];
+      workItems.forEach(i => { i._text = null; });
       if (!decided) {
         const c = document.getElementById("work-count");
         c.textContent = d.total; c.style.display = d.total ? "" : "none";
@@ -3124,6 +3150,9 @@
     }
   }
   document.getElementById("work-refresh").onclick = loadWork;
+  document.getElementById("work-search").oninput = (e) => {
+    workSearch = e.target.value || ""; renderQueue();
+  };
   document.getElementById("work-mode").onclick = () => {
     workMode = workMode === "open" ? "decided" : "open";
     workFilter = "all"; selected = null; loadWork();
@@ -3167,9 +3196,13 @@
 
   function renderQueue() {
     queueEl.innerHTML = "";
-    const list = workItems.filter(i => workFilter === "all"
-      || (workMode === "decided" ? decisionKey(i) === workFilter : i.verb === workFilter));
-    if (!list.length) queueEl.appendChild(el("div", "qfrom", "No items in this filter."));
+    const list = workItems.filter(i => (workFilter === "all"
+      || (workMode === "decided" ? decisionKey(i) === workFilter : i.verb === workFilter))
+      && searchMatch(i));
+    const sn = document.getElementById("work-search-n");
+    if (sn) sn.textContent = workSearch.trim() ? `${list.length} of ${workItems.length}` : "";
+    if (!list.length) queueEl.appendChild(el("div", "qfrom",
+      workSearch.trim() ? "No items match the search." : "No items in this filter."));
     list.forEach(item => {
       const b = el("button", "qitem" + (selected === item ? " on" : ""));
       const row = el("div", "qrow");
