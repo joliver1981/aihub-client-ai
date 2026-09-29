@@ -160,6 +160,14 @@
   .worksearch input{flex:1;max-width:640px;font:inherit;font-size:13px;padding:7px 10px;border-radius:8px;
     border:1px solid var(--line, rgba(128,128,128,.35));background:var(--raised);color:var(--text)}
   .worksearch .n{font-size:12px;color:var(--text3)}
+  .workbulk{display:flex;align-items:center;gap:10px;padding:0 22px 8px;flex-wrap:wrap}
+  .workbulk .bulkall{font-size:13px;display:flex;align-items:center;gap:6px;white-space:nowrap}
+  .workbulk .n{font-size:12px;color:var(--text3);white-space:nowrap}
+  .workbulk input[type=text]{flex:1;min-width:220px;font:inherit;font-size:13px;padding:6px 10px;border-radius:8px;
+    border:1px solid var(--line, rgba(128,128,128,.35));background:var(--raised);color:var(--text)}
+  .qwrap{display:flex;align-items:flex-start;gap:6px}
+  .qwrap .qitem{flex:1;min-width:0}
+  .qwrap .qsel{margin-top:14px;flex:none}
   .t-approved{color:var(--green);background:var(--green-tint)}
   .t-rejected{color:#b3261e;background:rgba(179,38,30,.12)}
   .t-other{color:var(--text3);background:var(--raised)}
@@ -439,6 +447,13 @@
   </div>
   <div class="chips" id="work-chips"></div>
   <div class="worksearch"><input type="search" id="work-search" placeholder="Search these items: any word on the item (e.g. clean, rejected, a name, a number)…" autocomplete="off"><span class="n" id="work-search-n"></span></div>
+  <div class="workbulk" id="work-bulk" style="display:none">
+    <label class="bulkall"><input type="checkbox" id="bulk-all"> Select all shown</label>
+    <span class="n" id="bulk-n">0 selected</span>
+    <input type="text" id="bulk-comment" placeholder="Comment for every selected item (optional)" autocomplete="off">
+    <button class="btn primary" id="bulk-approve">Approve selected</button>
+    <button class="btn danger" id="bulk-reject">Reject selected</button>
+  </div>
   <div id="work-body">
     <div id="work-queue"></div>
     <div id="work-detail"><div id="work-empty">Select an item — or enjoy the empty queue.</div></div>
@@ -3086,6 +3101,110 @@
   let workItems = [], workFilter = "all", selected = null, me = null;
   let workMode = "open";   // "open" = waiting on you; "decided" = your history
   let workSearch = "";     // free-text filter over every field of the loaded items
+  const bulkSel = new Set();   // selected items (source:id) for Approve / Reject selected
+  let lastShown = [];          // the items currently listed (chips + search applied)
+  const bulkKey = i => `${i.source}:${i.id}`;
+
+  // The request the single button would send for this item, or why it is skipped.
+  // Approve as it stands: no corrections, no edits — the server guards still apply.
+  function bulkPlan(item, kind, comment) {
+    const p = item.payload || {};
+    const title = item.title;
+    if (item.source === "email") {
+      return kind === "approve"
+        ? { route: "/api/work/decide", label: "email draft sent as drafted", sends: true,
+            body: { source: "email", id: item.id, decision: "approve", final_body: p.body || "",
+                    comments: comment, title } }
+        : { route: "/api/work/decide", label: "email draft rejected (not sent)",
+            body: { source: "email", id: item.id, decision: "reject", comments: comment, title } };
+    }
+    if (item.source === "workflow" || item.source === "automation") {
+      const isReview = item.source === "automation" && item.verb === "review";
+      const label = kind === "approve"
+        ? (isReview ? "review item approved as it stands" : item.source === "automation" ? "checkpoint approved, run resumes" : "workflow approval approved")
+        : (isReview ? "review item rejected" : item.source === "automation" ? "checkpoint rejected, run aborts" : "workflow approval rejected");
+      return { route: "/api/work/decide", label,
+               body: { source: item.source, id: item.id, decision: kind === "approve" ? "approved" : "rejected",
+                       comments: comment, title } };
+    }
+    // agent items
+    const resp = (decision, text) => ({ route: "/api/work/respond",
+      body: { id: item.id, response: { decision, text: text || "", comments: comment } } });
+    if (p.kind === "agent_email_reply") {
+      return kind === "approve"
+        ? Object.assign(resp("answered", p.body || ""), { label: "agent email reply sent as drafted", sends: true })
+        : Object.assign(resp("denied"), { label: "agent email reply denied (not sent)" });
+    }
+    if (item.verb === "approve_deny")
+      return kind === "approve" ? Object.assign(resp("approved"), { label: "agent approval approved" })
+                                : Object.assign(resp("denied"), { label: "agent approval denied" });
+    if (item.verb === "do_offline")
+      return kind === "approve" ? Object.assign(resp("done"), { label: "task marked done" }) : { skip: "a task has no reject action" };
+    if (item.verb === "acknowledge")
+      return kind === "approve" ? Object.assign(resp("acknowledged"), { label: "FYI acknowledged" }) : { skip: "an FYI has no reject action" };
+    if (item.verb === "provide_input" || item.verb === "edit_and_return")
+      return { skip: "needs a typed answer" };
+    return { skip: "no bulk action for this item type" };
+  }
+
+  function updateBulkBar() {
+    const bar = document.getElementById("work-bulk");
+    if (!bar) return;
+    const show = workMode === "open" && lastShown.length > 0;
+    bar.style.display = show ? "" : "none";
+    if (!show) return;
+    const n = workItems.filter(i => bulkSel.has(bulkKey(i))).length;
+    document.getElementById("bulk-n").textContent = `${n} selected`;
+    const all = document.getElementById("bulk-all");
+    all.checked = lastShown.length > 0 && lastShown.every(i => bulkSel.has(bulkKey(i)));
+    document.getElementById("bulk-approve").disabled = !n;
+    document.getElementById("bulk-reject").disabled = !n;
+  }
+
+  async function bulkRun(kind) {
+    const comment = (document.getElementById("bulk-comment").value || "").trim();
+    const items = workItems.filter(i => bulkSel.has(bulkKey(i)));
+    if (!items.length) return;
+    const plans = items.map(i => ({ item: i, plan: bulkPlan(i, kind, comment) }));
+    const todo = plans.filter(p => !p.plan.skip), skipped = plans.filter(p => p.plan.skip);
+    const counts = {}; todo.forEach(p => { counts[p.plan.label] = (counts[p.plan.label] || 0) + 1; });
+    const why = {}; skipped.forEach(p => { why[p.plan.skip] = (why[p.plan.skip] || 0) + 1; });
+    const sends = todo.filter(p => p.plan.sends).length;
+    const verb = kind === "approve" ? "Approve" : "Reject";
+    let msg = todo.length
+      ? `${verb} ${todo.length} item(s):\n` + Object.entries(counts).map(([k, n]) => `  ${n} × ${k}`).join("\n")
+      : `Nothing to ${verb.toLowerCase()} in this selection.`;
+    if (skipped.length) msg += `\n\nSkipped ${skipped.length}:\n` + Object.entries(why).map(([k, n]) => `  ${n} × ${k}`).join("\n");
+    if (kind === "approve" && counts["review item approved as it stands"])
+      msg += "\n\nA review item approved as it stands is still checked by its process: one whose number does not validate comes straight back as a 'try 2' item.";
+    if (!todo.length) { alert(msg); return; }
+    if (!confirm(msg)) return;
+    if (sends && !confirm(`This will SEND ${sends} email(s) exactly as drafted. Continue?`)) return;
+    const btnA = document.getElementById("bulk-approve"), btnR = document.getElementById("bulk-reject");
+    btnA.disabled = btnR.disabled = true;
+    let ok = 0; const failed = [];
+    for (const p of todo) {
+      try {
+        const r = await fetch(p.plan.route, { method: "POST", headers: H(), body: JSON.stringify(p.plan.body) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) failed.push(`${p.item.title}: ${d.detail || d.error || ("HTTP " + r.status)}`);
+        else ok++;
+      } catch (e) { failed.push(`${p.item.title}: ${e.message}`); }
+      document.getElementById("bulk-n").textContent = `${ok + failed.length} of ${todo.length} done…`;
+    }
+    bulkSel.clear();
+    document.getElementById("bulk-comment").value = "";
+    await loadWork();
+    detailEl.innerHTML = "";
+    const res = el("div", "dsection");
+    res.appendChild(el("div", "dlabel", `${verb} selected: finished`));
+    res.appendChild(el("div", "dsummary",
+      `${ok} ${kind === "approve" ? "approved" : "rejected"}, ${failed.length} failed, ${skipped.length} skipped.`
+      + (sends && ok ? ` ${Math.min(sends, ok)} email(s) sent.` : "")));
+    failed.forEach(f => res.appendChild(el("div", "dsummary", "Failed: " + f)));
+    skipped.forEach(p => res.appendChild(el("div", "dsummary", `Skipped: ${p.item.title} (${p.plan.skip})`)));
+    detailEl.appendChild(res);
+  }
 
   // Everything on an item, flattened, so one word finds it wherever it sits
   function itemText(i) {
@@ -3153,9 +3272,15 @@
   document.getElementById("work-search").oninput = (e) => {
     workSearch = e.target.value || ""; renderQueue();
   };
+  document.getElementById("bulk-all").onchange = (e) => {
+    lastShown.forEach(i => { if (e.target.checked) bulkSel.add(bulkKey(i)); else bulkSel.delete(bulkKey(i)); });
+    renderQueue();
+  };
+  document.getElementById("bulk-approve").onclick = () => bulkRun("approve");
+  document.getElementById("bulk-reject").onclick = () => bulkRun("reject");
   document.getElementById("work-mode").onclick = () => {
     workMode = workMode === "open" ? "decided" : "open";
-    workFilter = "all"; selected = null; loadWork();
+    workFilter = "all"; selected = null; bulkSel.clear(); loadWork();
   };
 
   function renderChips() {
@@ -3228,8 +3353,24 @@
       }
       b.appendChild(from);
       b.onclick = () => { selected = item; renderQueue(); renderDetail(item); };
-      queueEl.appendChild(b);
+      if (workMode === "open") {
+        const wrap = el("div", "qwrap");
+        const cb = el("input"); cb.type = "checkbox"; cb.className = "qsel";
+        cb.title = "Select for Approve / Reject selected";
+        cb.checked = bulkSel.has(bulkKey(item));
+        cb.onclick = (ev) => {
+          ev.stopPropagation();
+          if (cb.checked) bulkSel.add(bulkKey(item)); else bulkSel.delete(bulkKey(item));
+          updateBulkBar();
+        };
+        wrap.append(cb, b);
+        queueEl.appendChild(wrap);
+      } else {
+        queueEl.appendChild(b);
+      }
     });
+    lastShown = list;
+    updateBulkBar();
   }
 
   function note(parent, cls, text) {
