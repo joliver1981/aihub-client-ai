@@ -38,6 +38,15 @@
         }).join('') + '</ul>';
     }
 
+    // Display-only: "Oct 2, 2026 · 4:41 PM" in the viewer's local time.
+    // Falls back to the raw value when it isn't a parseable timestamp.
+    function formatDraftDate(iso) {
+        var d = new Date(iso || '');
+        if (!iso || isNaN(d.getTime())) return String(iso || '').slice(0, 19);
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
+            ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    }
+
     function readFileAsBase64(file) {
         return new Promise(function (resolve, reject) {
             var r = new FileReader();
@@ -78,7 +87,7 @@
                         '<td>' + escapeHtml(d.name || '(unnamed)') + '</td>' +
                         '<td><code>' + escapeHtml(d.id) + '</code></td>' +
                         '<td>' + escapeHtml(d.version) + '</td>' +
-                        '<td><small class="text-muted">' + escapeHtml((d.updated_at || '').slice(0, 19)) + '</small></td>' +
+                        '<td><small class="text-muted" title="' + escapeHtml(d.updated_at || '') + '">' + escapeHtml(formatDraftDate(d.updated_at)) + '</small></td>' +
                         '<td class="text-right">' +
                             '<a href="/solutions/author/edit/' + encodeURIComponent(d.draft_id) + '" class="btn btn-sm btn-outline-primary">Edit</a> ' +
                             '<button class="btn btn-sm btn-outline-danger" data-draft-id="' + escapeHtml(d.draft_id) + '">Delete</button>' +
@@ -202,6 +211,17 @@
             this.renderPicker('pickEnvironments', this.state.assets.environments || [], 'id',   'environment_ids');
             this.renderPicker('pickKnowledge',    this.state.assets.knowledge    || [], 'id',   'knowledge_document_ids');
             this.bindPickerCascades();
+            this.updatePickerCounts();
+        },
+
+        // Display-only: "N selected" next to each picker's heading.
+        updatePickerCounts: function () {
+            document.querySelectorAll('.picker-count[data-for]').forEach(function (el) {
+                var n = document.querySelectorAll(
+                    '#' + el.getAttribute('data-for') + ' input[data-selkey]:checked'
+                ).length;
+                el.textContent = n ? n + ' selected' : '';
+            });
         },
 
         renderPicker: function (containerId, items, keyField, selectionKey) {
@@ -257,7 +277,10 @@
         bindPickerCascades: function () {
             var self = this;
             document.querySelectorAll('.asset-picker input[type="checkbox"]').forEach(function (cb) {
-                cb.addEventListener('change', function () { self.onPickerChange(cb); });
+                cb.addEventListener('change', function () {
+                    self.onPickerChange(cb);
+                    self.updatePickerCounts();
+                });
             });
         },
 
@@ -821,6 +844,7 @@
                         });
                     });
                 });
+                self.updatePickerCounts();
             });
         },
 

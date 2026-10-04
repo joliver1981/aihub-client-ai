@@ -4,19 +4,33 @@
 
 {% block content %}
 <link rel="stylesheet" href="/static/css/dashboard-theme.css">
-<link rel="stylesheet" href="/static/css/solutions.css">
+<link rel="stylesheet" href="/static/css/solutions.css?v=2">
 
-<div class="solutions-page dashboard-page">
-    <div class="solutions-container" style="max-width: 960px;">
-        <a href="/solutions/author" class="btn btn-link pl-0 mb-3">
-            <i class="fas fa-arrow-left mr-1"></i> Back to authoring
+<div class="solutions-page dashboard-page sa-author">
+    <div class="solutions-container">
+        <a href="/solutions/author" class="sa-back">
+            <i class="fas fa-arrow-left"></i> Back to authoring
         </a>
 
-        <h1 id="wizardTitle">Create solution</h1>
+        <div class="sa-head">
+            <div class="sa-head-title">
+                <div class="sa-head-icon"><i class="fas fa-tools"></i></div>
+                <div>
+                    <h1 id="wizardTitle">Create solution</h1>
+                    <p>Pick what goes in the bundle, declare the credentials it needs, then build or publish it.</p>
+                </div>
+            </div>
+        </div>
 
         <!-- Step 1: Metadata -->
         <div class="author-step">
-            <h3>1. Metadata</h3>
+            <div class="step-head">
+                <span class="step-num">1</span>
+                <div class="step-head-text">
+                    <h3>Metadata</h3>
+                    <p class="step-hint">Name, version and description shown in the gallery.</p>
+                </div>
+            </div>
             <div class="form-row">
                 <div class="col-md-6 form-group">
                     <label>Id <span class="text-danger">*</span></label>
@@ -38,7 +52,7 @@
                     <input type="text" id="mVertical" class="form-control" placeholder="general">
                 </div>
                 <div class="col-md-4 form-group">
-                    <label>Tags (comma-separated)</label>
+                    <label>Tags <small>(comma-separated)</small></label>
                     <input type="text" id="mTags" class="form-control" placeholder="sample, demo">
                 </div>
             </div>
@@ -47,11 +61,11 @@
                 <textarea id="mDescription" class="form-control" rows="2"></textarea>
             </div>
             <div class="form-row">
-                <div class="col-md-6 form-group">
+                <div class="col-md-6 form-group mb-0">
                     <label>Author</label>
                     <input type="text" id="mAuthor" class="form-control">
                 </div>
-                <div class="col-md-6 form-group">
+                <div class="col-md-6 form-group mb-0">
                     <label>Homepage URL</label>
                     <input type="text" id="mHomepage" class="form-control">
                 </div>
@@ -60,41 +74,89 @@
 
         <!-- Step 2: Pick assets -->
         <div class="author-step">
-            <h3>2. Pick assets</h3>
-            <div class="form-row">
-                <div class="col-md-6"><label>Custom agents</label><div id="pickAgents" class="asset-picker"></div></div>
-                <div class="col-md-6"><label>Data agents</label><div id="pickDataAgents" class="asset-picker"></div></div>
+            <div class="step-head">
+                <span class="step-num">2</span>
+                <div class="step-head-text">
+                    <h3>Pick assets</h3>
+                    <p class="step-hint">Choose what the bundle carries. Picking a workflow also picks what it depends on; those items are marked AUTO.</p>
+                </div>
             </div>
-            <div class="form-row">
-                <div class="col-md-6"><label>Custom tools</label><div id="pickTools" class="asset-picker"></div></div>
-                <div class="col-md-6"><label>Workflows</label><div id="pickWorkflows" class="asset-picker"></div></div>
-            </div>
-            <div class="form-row">
-                <div class="col-md-6"><label>Automations <small class="text-muted">(exports the promoted version; installs unpromoted)</small></label><div id="pickAutomations" class="asset-picker"></div></div>
-                <div class="col-md-6"></div>
-            </div>
-            <div class="form-row">
-                <div class="col-md-6"><label>Integrations <small class="text-muted">(configured instances)</small></label><div id="pickIntegrations" class="asset-picker"></div></div>
-                <div class="col-md-6"><label>Connections <small class="text-muted">(credentials become placeholders)</small></label><div id="pickConnections" class="asset-picker"></div></div>
-            </div>
-            <div class="form-row">
-                <div class="col-md-6"><label>Environments</label><div id="pickEnvironments" class="asset-picker"></div></div>
-                <div class="col-md-6"><label>Knowledge documents</label><div id="pickKnowledge" class="asset-picker"></div></div>
+            <div class="picker-grid">
+                <div class="picker-cell">
+                    <div class="picker-head"><label>Custom agents</label><span class="picker-count" data-for="pickAgents"></span></div>
+                    <div id="pickAgents" class="asset-picker"></div>
+                </div>
+                <div class="picker-cell">
+                    <div class="picker-head"><label>Data agents</label><span class="picker-count" data-for="pickDataAgents"></span></div>
+                    <div id="pickDataAgents" class="asset-picker"></div>
+                </div>
+                <div class="picker-cell">
+                    <div class="picker-head"><label>Custom tools</label><span class="picker-count" data-for="pickTools"></span></div>
+                    <div id="pickTools" class="asset-picker"></div>
+                </div>
+                <div class="picker-cell">
+                    <div class="picker-head"><label>Workflows</label><span class="picker-count" data-for="pickWorkflows"></span></div>
+                    <div id="pickWorkflows" class="asset-picker"></div>
+                </div>
+                <div class="picker-cell">
+                    <div class="picker-head"><label>Automations</label><span class="picker-count" data-for="pickAutomations"></span></div>
+                    <div class="picker-note">Exports the promoted version; installs unpromoted.</div>
+                    <div id="pickAutomations" class="asset-picker"></div>
+                </div>
+                <div class="picker-cell">
+                    <div class="picker-head"><label>Integrations</label><span class="picker-count" data-for="pickIntegrations"></span></div>
+                    <div class="picker-note">Configured instances.</div>
+                    <div id="pickIntegrations" class="asset-picker"></div>
+                </div>
+                <div class="picker-cell">
+                    <div class="picker-head"><label>Connections</label><span class="picker-count" data-for="pickConnections"></span></div>
+                    <div class="picker-note">Credentials become placeholders.</div>
+                    <div id="pickConnections" class="asset-picker"></div>
+                </div>
+                <div class="picker-cell">
+                    <div class="picker-head"><label>Environments</label><span class="picker-count" data-for="pickEnvironments"></span></div>
+                    <div id="pickEnvironments" class="asset-picker"></div>
+                </div>
+                <div class="picker-cell">
+                    <div class="picker-head"><label>Knowledge documents</label><span class="picker-count" data-for="pickKnowledge"></span></div>
+                    <div id="pickKnowledge" class="asset-picker"></div>
+                </div>
             </div>
         </div>
 
         <!-- Step 3: Credentials -->
         <div class="author-step">
-            <h3>3. Credentials</h3>
-            <p class="text-muted">Click <em>Rescan selections</em> to auto-declare the credential prompts your selected integrations and connections will need at install time. You can add/edit rows to refine the install prompt.</p>
+            <div class="step-head">
+                <span class="step-num">3</span>
+                <div class="step-head-text">
+                    <h3>Credentials</h3>
+                    <p class="step-hint">Click <em>Rescan selections</em> to auto-declare the credential prompts your selected integrations and connections will need at install time. You can add or edit rows to refine the install prompt.</p>
+                </div>
+            </div>
+            <div class="form-row row-head">
+                <div class="col-md-3">Placeholder</div>
+                <div class="col-md-3">Label at install</div>
+                <div class="col-md-2">Sample value</div>
+                <div class="col-md-3">Help text</div>
+                <div class="col-md-1"></div>
+            </div>
             <div id="credentialRows"></div>
-            <button class="btn btn-sm btn-outline-secondary" id="addCredBtn"><i class="fas fa-plus mr-1"></i>Add credential</button>
-            <button class="btn btn-sm btn-outline-secondary ml-2" id="rescanBtn"><i class="fas fa-sync-alt mr-1"></i>Rescan selections</button>
+            <div class="step-actions">
+                <button class="sa-btn sa-btn-sm" id="addCredBtn"><i class="fas fa-plus"></i>Add credential</button>
+                <button class="sa-btn sa-btn-sm" id="rescanBtn"><i class="fas fa-sync-alt"></i>Rescan selections</button>
+            </div>
         </div>
 
         <!-- Step 4: Branding -->
         <div class="author-step">
-            <h3>4. Branding <small class="text-muted">(optional — for consultant rebranding)</small></h3>
+            <div class="step-head">
+                <span class="step-num">4</span>
+                <div class="step-head-text">
+                    <h3>Branding</h3>
+                    <p class="step-hint">For consultant rebranding.</p>
+                </div>
+                <span class="step-tag">Optional</span>
+            </div>
             <div class="form-row">
                 <div class="col-md-6 form-group">
                     <label>Display name</label>
@@ -106,12 +168,12 @@
                 </div>
             </div>
             <div class="form-row">
-                <div class="col-md-6 form-group">
+                <div class="col-md-6 form-group mb-0">
                     <label>Primary color</label>
                     <input type="text" id="brColor" class="form-control" placeholder="#667eea">
                 </div>
-                <div class="col-md-6 form-group">
-                    <label>Logo <small class="text-muted">(optional — for consultant rebrand)</small></label>
+                <div class="col-md-6 form-group mb-0">
+                    <label>Logo</label>
                     <input type="file" id="brLogoFile" accept=".png,.jpg,.jpeg,.svg" class="form-control-file">
                     <input type="hidden" id="brLogoPath">
                     <small id="brLogoHint" class="form-text text-muted">
@@ -123,58 +185,90 @@
 
         <!-- Step 5: Post-install actions -->
         <div class="author-step">
-            <h3>5. Post-install actions</h3>
-            <p class="text-muted">"Try it now" buttons shown after install.</p>
+            <div class="step-head">
+                <span class="step-num">5</span>
+                <div class="step-head-text">
+                    <h3>Post-install actions</h3>
+                    <p class="step-hint">"Try it now" buttons shown after install.</p>
+                </div>
+                <span class="step-tag">Optional</span>
+            </div>
+            <div class="form-row row-head">
+                <div class="col-md-3">Action</div>
+                <div class="col-md-4">Target</div>
+                <div class="col-md-4">Button label</div>
+                <div class="col-md-1"></div>
+            </div>
             <div id="postInstallRows"></div>
-            <button class="btn btn-sm btn-outline-secondary" id="addActionBtn"><i class="fas fa-plus mr-1"></i>Add action</button>
-            <button class="btn btn-sm btn-outline-primary ml-2" id="suggestActionsBtn" type="button">
-                <i class="fas fa-magic mr-1"></i>Suggest from my selections
-            </button>
+            <div class="step-actions">
+                <button class="sa-btn sa-btn-sm" id="addActionBtn"><i class="fas fa-plus"></i>Add action</button>
+                <button class="sa-btn sa-btn-sm sa-btn-accent" id="suggestActionsBtn" type="button">
+                    <i class="fas fa-magic"></i>Suggest from my selections
+                </button>
+            </div>
         </div>
 
         <!-- Step 6: README + preview -->
         <div class="author-step">
-            <h3>6. README + preview</h3>
+            <div class="step-head">
+                <span class="step-num">6</span>
+                <div class="step-head-text">
+                    <h3>README + preview</h3>
+                    <p class="step-hint">Shown to whoever installs the bundle.</p>
+                </div>
+            </div>
             <div class="form-group">
                 <label>README.md</label>
                 <textarea id="readmeBody" class="form-control" rows="6" placeholder="# My Solution&#10;&#10;What it does, who it's for, how to try it..."></textarea>
             </div>
-            <div class="form-group">
-                <label>Icon (png/jpg/svg)</label>
-                <input type="file" id="iconFile" accept=".png,.jpg,.jpeg,.svg" class="form-control-file">
-            </div>
-            <div class="form-group">
-                <label>Screenshots (optional)</label>
-                <input type="file" id="screenshotFiles" accept=".png,.jpg,.jpeg" multiple class="form-control-file">
+            <div class="form-row">
+                <div class="col-md-6 form-group mb-0">
+                    <label>Icon <small>(png, jpg or svg)</small></label>
+                    <input type="file" id="iconFile" accept=".png,.jpg,.jpeg,.svg" class="form-control-file">
+                </div>
+                <div class="col-md-6 form-group mb-0">
+                    <label>Screenshots <small>(optional)</small></label>
+                    <input type="file" id="screenshotFiles" accept=".png,.jpg,.jpeg" multiple class="form-control-file">
+                </div>
             </div>
         </div>
 
         <!-- Step 7: Build / Publish -->
         <div class="author-step">
-            <h3>7. Build</h3>
-            <div class="d-flex" style="gap:8px; flex-wrap: wrap;">
-                <button id="saveDraftBtn" class="btn btn-outline-secondary">
-                    <i class="fas fa-save mr-1"></i>Save draft
-                </button>
-                <button id="validateBtn" class="btn btn-outline-info">
-                    <i class="fas fa-check mr-1"></i>Validate
-                </button>
-                <button id="downloadBtn" class="btn btn-primary">
-                    <i class="fas fa-download mr-1"></i>Build &amp; download .zip
-                </button>
-                <button id="publishBtn" class="btn btn-success">
-                    <i class="fas fa-upload mr-1"></i>Publish to local gallery
-                </button>
-                <button id="testInstallBtn" class="btn btn-warning">
-                    <i class="fas fa-flask mr-1"></i>Test install (with _test suffix)
-                </button>
+            <div class="step-head">
+                <span class="step-num">7</span>
+                <div class="step-head-text">
+                    <h3>Build</h3>
+                    <p class="step-hint">Validate first, then download the .zip or publish it to this AI Hub's gallery.</p>
+                </div>
             </div>
-            <div id="buildResult" class="mt-3"></div>
+            <div class="build-bar">
+                <div class="build-group">
+                    <button id="saveDraftBtn" class="sa-btn">
+                        <i class="fas fa-save"></i>Save draft
+                    </button>
+                    <button id="validateBtn" class="sa-btn">
+                        <i class="fas fa-check ic-info"></i>Validate
+                    </button>
+                    <button id="testInstallBtn" class="sa-btn">
+                        <i class="fas fa-flask ic-warn"></i>Test install (with _test suffix)
+                    </button>
+                </div>
+                <div class="build-group">
+                    <button id="publishBtn" class="sa-btn">
+                        <i class="fas fa-upload ic-ok"></i>Publish to local gallery
+                    </button>
+                    <button id="downloadBtn" class="sa-btn sa-btn-primary">
+                        <i class="fas fa-download"></i>Build &amp; download .zip
+                    </button>
+                </div>
+            </div>
+            <div id="buildResult"></div>
         </div>
     </div>
 </div>
 
-<script src="/static/js/solutions_author.js?v=2"></script>
+<script src="/static/js/solutions_author.js?v=3"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         SolutionsAuthorWizard.init({{ draft_id | tojson }});
