@@ -74,12 +74,16 @@ ANTHROPIC_PRIMARY_MODELS = [
     'claude-opus-4-6',
     'claude-sonnet-5',
     'claude-sonnet-4-6',
+    'claude-haiku-5-5',
 ]
 
 # Anthropic mini/fast Claude model.
+# (claude-haiku-5-5 rejects temperature/top_p like Sonnet 5 — covered by the
+# 'haiku-5' marker in config.ANTHROPIC_NO_SAMPLING_MARKERS.)
 ANTHROPIC_MINI_MODELS = [
     'claude-sonnet-5',
     'claude-sonnet-4-6',
+    'claude-haiku-5-5',
     'claude-haiku-4-5',
 ]
 

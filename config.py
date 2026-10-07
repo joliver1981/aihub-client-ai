@@ -160,13 +160,15 @@ ANTHROPIC_API_THROTTLE_DELAY = os.getenv('ANTHROPIC_API_THROTTLE_DELAY')
 ANTHROPIC_ADVANCED = os.getenv('ANTHROPIC_ADVANCED', 'claude-opus-4-8')
 ANTHROPIC_MINI = os.getenv('ANTHROPIC_MINI', 'claude-sonnet-5')
 
-# Newer Claude models (Opus 4.7+, Sonnet 5+, Fable/Mythos 5) reject the
-# temperature/top_p/top_k sampling params with HTTP 400 (Sonnet 5 rejects any
-# non-default value). Every Anthropic call site must therefore gate sampling
+# Newer Claude models (Opus 4.7+, Sonnet 5+, Haiku 5+, Fable/Mythos 5) reject
+# the temperature/top_p/top_k sampling params with HTTP 400 (Sonnet 5 rejects
+# any non-default value; Haiku 5.5 rejects even temperature=0 — live-verified
+# 2026-10-07). Every Anthropic call site must therefore gate sampling
 # params on the EFFECTIVE model via anthropic_sampling_kwargs() below.
-# NOTE: browser_use_service/portal_runner.py and training/llm.py keep local
-# copies of this marker list — they run standalone without this module.
-ANTHROPIC_NO_SAMPLING_MARKERS = ('opus-4-7', 'opus-4-8', 'sonnet-5', 'fable-5', 'mythos-5', 'mythos-preview')
+# NOTE: browser_use_service/portal_runner.py, training/llm.py and the
+# claudeQuickPrompt.py fallback keep local copies of this marker list — they
+# run standalone without this module.
+ANTHROPIC_NO_SAMPLING_MARKERS = ('opus-4-7', 'opus-4-8', 'sonnet-5', 'haiku-5', 'fable-5', 'mythos-5', 'mythos-preview')
 
 
 def anthropic_supports_sampling(model) -> bool:
