@@ -101,7 +101,7 @@ def _ensure_initialized():
 
 def _sampling_kwargs(model, temp):
     """{'temperature': t} when the Claude model accepts it, else {} — newer
-    models (Opus 4.7+, Sonnet 5+, Haiku 5+, Fable 5) reject the param with a 400.
+    models (Opus 4.7+, Opus/Sonnet/Haiku 5.x, Fable 5) reject the param with a 400.
     Delegates to config.anthropic_sampling_kwargs; keeps a local fallback so
     this module still works without config.py (matching the module's design)."""
     try:
@@ -109,7 +109,7 @@ def _sampling_kwargs(model, temp):
         return anthropic_sampling_kwargs(model, temp)
     except ImportError:
         m = (model or '').lower()
-        no_sampling = ('opus-4-7', 'opus-4-8', 'sonnet-5', 'haiku-5', 'fable-5', 'mythos-5', 'mythos-preview')
+        no_sampling = ('opus-4-7', 'opus-4-8', 'opus-5', 'sonnet-5', 'haiku-5', 'fable-5', 'mythos-5', 'mythos-preview')
         if temp is None or any(marker in m for marker in no_sampling):
             return {}
         return {'temperature': temp}

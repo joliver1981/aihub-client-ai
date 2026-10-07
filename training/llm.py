@@ -162,10 +162,10 @@ def _complete_azure(
     return resp.choices[0].message.content or ""
 
 
-# Newer Claude models (Opus 4.7+, Sonnet 5+, Haiku 5+, Fable 5) reject
+# Newer Claude models (Opus 4.7+, Opus/Sonnet/Haiku 5.x, Fable 5) reject
 # `temperature` with a 400. Local copy of config.anthropic_sampling_kwargs —
 # this module is deliberately stand-alone (no repo config imports).
-_ANTHROPIC_NO_SAMPLING = ("opus-4-7", "opus-4-8", "sonnet-5", "haiku-5", "fable-5", "mythos-5", "mythos-preview")
+_ANTHROPIC_NO_SAMPLING = ("opus-4-7", "opus-4-8", "opus-5", "sonnet-5", "haiku-5", "fable-5", "mythos-5", "mythos-preview")
 
 
 def _anthropic_sampling_kwargs(model: str, temperature: float) -> Dict:

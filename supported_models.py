@@ -68,19 +68,23 @@ OPENAI_IMAGE_MODELS = [
 
 # Anthropic primary/advanced Claude model.
 # (claude-3-x models are retired; claude-opus-4-1 retires 2026-08-05.)
+# Every Claude 5.x model (opus-5/5-5, sonnet-5/5-5, haiku-5-5) rejects
+# non-default temperature, top_p, top_k and budget-style thinking — covered by
+# the opus-5/sonnet-5/haiku-5 markers in config.ANTHROPIC_NO_SAMPLING_MARKERS.
 ANTHROPIC_PRIMARY_MODELS = [
+    'claude-opus-5-5',
     'claude-opus-4-8',
     'claude-opus-4-7',
     'claude-opus-4-6',
+    'claude-sonnet-5-5',
     'claude-sonnet-5',
     'claude-sonnet-4-6',
     'claude-haiku-5-5',
 ]
 
 # Anthropic mini/fast Claude model.
-# (claude-haiku-5-5 rejects temperature/top_p like Sonnet 5 — covered by the
-# 'haiku-5' marker in config.ANTHROPIC_NO_SAMPLING_MARKERS.)
 ANTHROPIC_MINI_MODELS = [
+    'claude-sonnet-5-5',
     'claude-sonnet-5',
     'claude-sonnet-4-6',
     'claude-haiku-5-5',
