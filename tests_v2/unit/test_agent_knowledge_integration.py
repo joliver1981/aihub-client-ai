@@ -261,6 +261,11 @@ def test_search_knowledge_vectors_builds_isolation_filter(monkeypatch):
         {"text": "hit", "metadata": {"agent_id": "5"}, "score": 0.1}
     ]
     monkeypatch.setattr(aki, "_get_knowledge_vector_engine", lambda: vec)
+    # Inactive-knowledge gate: stub its AgentKnowledge lookup so the test never
+    # reaches a real DB (where agent 5 has no active docs -> early []).
+    monkeypatch.setattr(aki.cfg, "KNOWLEDGE_FILTER_INACTIVE_VECTORS", True, raising=False)
+    monkeypatch.setattr(aki, "_get_active_knowledge_document_ids",
+                        lambda agent_id: {"doc-b", "doc-a"})
 
     out = aki.search_knowledge_vectors("query", agent_id=5, user_id="u-9",
                                         top_k=3)
@@ -275,6 +280,35 @@ def test_search_knowledge_vectors_builds_isolation_filter(monkeypatch):
     ors = or_clause["$or"]
     assert {"user_id": "u-9"} in ors
     assert {"user_id": "SHARED"} in ors
+    # ...AND only this agent's ACTIVE documents.
+    assert {"document_id": {"$in": ["doc-a", "doc-b"]}} in parts
+
+
+def test_search_knowledge_vectors_no_active_documents_returns_empty(monkeypatch):
+    """Every document deleted/deactivated -> no results; vector store untouched."""
+    vec = MagicMock()
+    monkeypatch.setattr(aki, "_get_knowledge_vector_engine", lambda: vec)
+    monkeypatch.setattr(aki.cfg, "KNOWLEDGE_FILTER_INACTIVE_VECTORS", True, raising=False)
+    monkeypatch.setattr(aki, "_get_active_knowledge_document_ids", lambda agent_id: set())
+
+    assert aki.search_knowledge_vectors("q", agent_id=5, user_id="u-9") == []
+    vec.search.assert_not_called()
+
+
+def test_search_knowledge_vectors_gate_unavailable_keeps_isolation(monkeypatch):
+    """A failed active-doc lookup fails OPEN for the inactive gate only — the
+    agent/user isolation clauses must still be applied."""
+    vec = MagicMock()
+    vec.search.return_value = []
+    monkeypatch.setattr(aki, "_get_knowledge_vector_engine", lambda: vec)
+    monkeypatch.setattr(aki.cfg, "KNOWLEDGE_FILTER_INACTIVE_VECTORS", True, raising=False)
+    monkeypatch.setattr(aki, "_get_active_knowledge_document_ids", lambda agent_id: None)
+
+    aki.search_knowledge_vectors("q", agent_id=5, user_id="u-9")
+    parts = vec.search.call_args.kwargs["filters"]["$and"]
+    assert {"agent_id": "5"} in parts
+    assert {"$or": [{"user_id": "u-9"}, {"user_id": "SHARED"}]} in parts
+    assert not any("document_id" in p for p in parts)
 
 
 def test_search_knowledge_vectors_returns_empty_on_engine_failure(monkeypatch):
