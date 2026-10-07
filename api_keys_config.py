@@ -468,13 +468,108 @@ def create_anthropic_client():
             # Use AnthropicProxyClient instead
     """
     config = get_anthropic_config()
-    
+
     if config['use_direct_api'] and config['api_key']:
-        import anthropic
+        try:
+            import anthropic
+        except ImportError:
+            # This process deliberately has no anthropic package (main app,
+            # executor, agent/knowledge APIs, vector API) — run the call on
+            # the Documents API instead of failing. See ByokRelayClient.
+            if not byok_route_via_doc_api_enabled():
+                raise
+            logger.info("Direct Anthropic mode (%s) without the anthropic package in this "
+                        "process - routing via the Documents API", config.get('source'))
+            return ByokRelayClient(), config
         client = anthropic.Anthropic(api_key=config['api_key'])
         return client, config
-    
+
     return None, config
+
+
+# ---------------------------------------------------------------------------
+# Direct-mode (BYOK) Claude calls from processes WITHOUT the anthropic package
+# ---------------------------------------------------------------------------
+# The main app, executor, agent/knowledge APIs (aihub2.1 env) and the vector
+# API (aihubvector2) deliberately carry no `anthropic` package (james
+# 2026-10-07: Claude work goes through the other services). In direct mode
+# (BYOK, or AI_HUB_BYPASS_DOCUMENT_PROXY) create_anthropic_client() and
+# claudeQuickPrompt used to build an SDK client in the CALLING process, so
+# there `import anthropic` failed and knowledge summaries, the knowledge
+# router, LLM chunking, the re-ranker and fan-out extraction quietly degraded.
+# Those processes now hand the call to the Documents API (aihubant env: has
+# the package, reads the same key) through a loopback-only endpoint guarded
+# by the machine-bound internal key. Processes that have the package, and the
+# default proxy mode, are untouched. Kill switch: BYOK_ROUTE_VIA_DOC_API=false.
+
+_INTERNAL_KEY_SALT = b'aihub_internal_api_v1_2026'   # same as role_decorators
+
+
+def byok_route_via_doc_api_enabled() -> bool:
+    """BYOK_ROUTE_VIA_DOC_API (default true): route direct-mode Claude calls from
+    package-less processes through the Documents API instead of failing."""
+    return os.getenv('BYOK_ROUTE_VIA_DOC_API', 'true').strip().lower() != 'false'
+
+
+def internal_service_key() -> str:
+    """The machine-bound internal service key — the same derivation as
+    role_decorators.get_internal_api_key(), without its flask_login import so
+    the Documents API (aihubant env) can verify callers. READ-ONLY: never
+    creates the machine-id file (role_decorators / local_secrets own that);
+    returns '' if it does not exist yet."""
+    import hashlib
+    if os.getenv('AIHUB_DATA_DIR'):
+        data_dir = Path(os.getenv('AIHUB_DATA_DIR'))
+    elif os.getenv('APP_ROOT'):
+        data_dir = Path(os.getenv('APP_ROOT')) / 'data'
+    else:
+        data_dir = Path(__file__).parent / 'data'
+    machine_id_file = data_dir / 'secrets' / '.machine_id'
+    if not machine_id_file.exists():
+        return ''
+    machine_id = machine_id_file.read_text().strip()
+    key_material = f"{machine_id}:{os.getenv('API_KEY', '')}".encode()
+    return hashlib.pbkdf2_hmac('sha256', key_material, _INTERNAL_KEY_SALT,
+                               iterations=10000).hex()
+
+
+class _ByokRelayMessages:
+    def create(self, **kwargs):
+        """Same keyword arguments as anthropic.Anthropic().messages.create().
+        Returns the Messages API JSON as a dict — read the text with
+        config.anthropic_response_text(). Raises RuntimeError on failure."""
+        import requests
+        import config as cfg
+        if kwargs.get('stream'):
+            raise ValueError("Claude calls routed via the Documents API do not stream")
+        key = internal_service_key()
+        if not key:
+            raise RuntimeError("Cannot route the Claude call via the Documents API: the "
+                               "machine-bound internal service key is unavailable "
+                               "(data/secrets/.machine_id missing)")
+        try:
+            from CommonUtils import get_document_api_base_url
+            base = get_document_api_base_url()
+        except Exception:
+            base = f"http://127.0.0.1:{int(os.getenv('HOST_PORT', '5001')) + 10}"
+        response = requests.post(
+            base.rstrip('/') + '/internal/anthropic/messages',
+            json=kwargs,
+            headers={'X-Internal-API-Key': key},
+            timeout=getattr(cfg, 'DOC_API_REQUESTS_TIMEOUT', 300))
+        if response.status_code != 200:
+            raise RuntimeError(f"Claude call via the Documents API failed: HTTP "
+                               f"{response.status_code} {response.text[:300]}")
+        return response.json()
+
+
+class ByokRelayClient:
+    """Stands in for anthropic.Anthropic(api_key=...) in processes without the
+    anthropic package: client.messages.create(**kwargs) runs on the Documents
+    API (same machine, same key) and returns the Messages API JSON dict."""
+
+    def __init__(self):
+        self.messages = _ByokRelayMessages()
 
 
 def create_pandasai_llm(use_alternate_api=True):

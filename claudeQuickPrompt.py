@@ -82,8 +82,21 @@ def _ensure_initialized():
             _CLIENT = anthropic.Anthropic(api_key=_ANTHROPIC_CONFIG['api_key'])
             logger.info(f"Claude direct client initialized (source: {_ANTHROPIC_CONFIG.get('source', 'unknown')})")
         except ImportError:
-            logger.error("anthropic package not installed — pip install anthropic")
-            raise
+            # By design this process has no anthropic package (main app, vector
+            # API, ...): run direct-mode calls on the Documents API instead of
+            # failing — api_keys_config.ByokRelayClient returns the Messages JSON.
+            try:
+                from api_keys_config import ByokRelayClient, byok_route_via_doc_api_enabled
+                relay_ok = byok_route_via_doc_api_enabled()
+            except ImportError:
+                relay_ok = False
+            if not relay_ok:
+                logger.error("anthropic package not installed in this process and the "
+                             "Documents API route is off (BYOK_ROUTE_VIA_DOC_API=false)")
+                raise
+            _CLIENT = ByokRelayClient()
+            logger.info(f"Claude direct mode (source: {_ANTHROPIC_CONFIG.get('source', 'unknown')}) "
+                        f"routed via the Documents API (no anthropic package in this process)")
     else:
         try:
             from CommonUtils import AnthropicProxyClient

@@ -1175,6 +1175,75 @@ def health_check():
     })
 
 
+# ---- Direct-mode (BYOK) Claude calls for services without the package ------
+# The main app, executor, agent/knowledge APIs (aihub2.1) and the vector API
+# (aihubvector2) deliberately carry no `anthropic` package. In direct mode
+# (BYOK) their Claude calls — knowledge summaries + router, LLM chunking, the
+# re-ranker, fan-out extraction — run HERE, where the package lives and the
+# same key is configured (api_keys_config.ByokRelayClient is the caller side).
+# Internal only: this server binds to loopback and every call must carry the
+# machine-bound internal key. No CORS: browsers never call this.
+_byok_relay_clients = {}
+
+
+@app.route('/internal/anthropic/messages', methods=['POST'])
+def internal_anthropic_messages():
+    import hashlib
+    import hmac
+    from api_keys_config import internal_service_key
+
+    expected = internal_service_key()
+    supplied = request.headers.get('X-Internal-API-Key', '')
+    if not expected:
+        return jsonify({"error": "internal service key unavailable on this machine"}), 503
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        logger.warning("internal/anthropic/messages: rejected a call without a valid internal key")
+        return jsonify({"error": "internal API key required"}), 401
+
+    conf = get_anthropic_config()
+    if not (conf.get('use_direct_api') and conf.get('api_key')):
+        return jsonify({"error": "direct Anthropic mode (BYOK) is not configured on the Documents API"}), 409
+
+    params = request.get_json(silent=True)
+    if not isinstance(params, dict) or not params.get('model') or not params.get('messages'):
+        return jsonify({"error": "model and messages are required"}), 400
+    if params.pop('stream', False):
+        return jsonify({"error": "streaming is not supported on this endpoint"}), 400
+    params.pop('api_key', None)
+
+    key_id = hashlib.sha256(conf['api_key'].encode()).hexdigest()
+    client = _byok_relay_clients.get(key_id)
+    if client is None:
+        client = _byok_relay_clients.setdefault(key_id, anthropic.Anthropic(api_key=conf['api_key']))
+
+    model = params.pop('model')
+    try:
+        # Same helper the document engine uses: streams under the hood (the SDK
+        # refuses large non-streaming max_tokens) and gates temperature on the
+        # model. temperature=None keeps "not sent" when the caller omitted it.
+        response = anthropic_messages_create(
+            client=client,
+            model=model,
+            max_tokens=int(params.pop('max_tokens', cfg.ANTHROPIC_MAX_TOKENS)),
+            messages=params.pop('messages'),
+            system=params.pop('system', None),
+            temperature=params.pop('temperature', None),
+            **params)
+    except anthropic.APIStatusError as e:
+        logger.warning(f"internal/anthropic/messages: Anthropic returned {e.status_code} for {model}")
+        return jsonify({"error": "anthropic_error", "status": e.status_code,
+                        "message": str(e)[:1000]}), e.status_code
+    except Exception as e:
+        logger.error(f"internal/anthropic/messages: {type(e).__name__}: {e}")
+        return jsonify({"error": f"{type(e).__name__}: {str(e)[:500]}"}), 502
+
+    body = response.model_dump()
+    usage = body.get('usage') or {}
+    logger.info(f"internal/anthropic/messages: {model} ({conf.get('source')}) "
+                f"in={usage.get('input_tokens')} out={usage.get('output_tokens')}")
+    return jsonify(body)
+
+
 _records_backfill_inflight = set()
 
 
