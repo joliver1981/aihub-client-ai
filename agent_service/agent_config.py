@@ -100,11 +100,15 @@ DEBUG = os.getenv("AGENT_SERVICE_DEBUG", "false").lower() == "true"
 # Who may use The Agent: Developer+ (role >= 2) unless the all-users flag is on
 AGENT_ALLOW_ALL_USERS = os.getenv("AGENT_ALLOW_ALL_USERS", "false").lower() == "true"
 
-# Brain model (James, plan §8: Claude, default opus, env-overridable)
-AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-sonnet-5")
-# Regular users (role < 2) run their own — typically cheaper — model (james
-# 2026-08-24, all-users rollout): admin-settable at runtime, haiku by default.
-AGENT_MODEL_ROLE1 = os.getenv("AGENT_MODEL_ROLE1", "claude-haiku-4-5")
+# Brain model (James, plan §8: Claude, env-overridable). Default is
+# claude-haiku-5-5 for every role since 2026-10-07 (james): it beat
+# claude-haiku-4-5 on pack 20 and the 48-question data battery at ~1/7 the
+# cost, and the production relay serves it. Admins can still pick another
+# model per install at runtime (data/agent/settings.json, no restart).
+AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-haiku-5-5")
+# Regular users (role < 2) run their own model chain (james 2026-08-24,
+# all-users rollout), admin-settable at runtime; same default today.
+AGENT_MODEL_ROLE1 = os.getenv("AGENT_MODEL_ROLE1", "claude-haiku-5-5")
 AGENT_MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "40"))
 
 

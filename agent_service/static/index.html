@@ -3876,8 +3876,9 @@
         "font-family:var(--mono);font-size:10.5px";
       const dl = document.createElement("datalist");
       dl.id = "model-suggestions-" + key;
-      ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001",
-       d[defKey]].forEach(m => {
+      [...new Set([d[defKey], "claude-haiku-5-5", "claude-sonnet-5-5",
+       "claude-opus-5-5", "claude-sonnet-5", "claude-opus-5",
+       "claude-haiku-4-5"])].forEach(m => {
         const o = document.createElement("option"); o.value = m;
         dl.appendChild(o);
       });

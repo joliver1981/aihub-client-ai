@@ -2858,7 +2858,7 @@ def main():
                      "chain untouched",
               h14.get("model_role1") == eff1
               and h14.get("model") == _ac14.get_effective_model()
-              and (has_override or eff1 == "claude-haiku-4-5-20251001"),
+              and (has_override or eff1 == _ac14.AGENT_MODEL_ROLE1),
               f"health_role1={h14.get('model_role1')} local={eff1} "
               f"override={has_override} model={h14.get('model')}")
     except Exception as e:

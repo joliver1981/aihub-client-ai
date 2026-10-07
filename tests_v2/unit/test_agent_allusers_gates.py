@@ -209,7 +209,8 @@ def test_model_pick_by_role_and_overrides():
         assert agent_config.get_effective_model(role=2) == agent_config.AGENT_MODEL
         assert agent_config.get_effective_model(role=3) == agent_config.AGENT_MODEL
         assert agent_config.get_effective_model(role=1) == agent_config.AGENT_MODEL_ROLE1
-        assert agent_config.AGENT_MODEL_ROLE1 == "claude-haiku-4-5-20251001"
+        if not os.getenv("AGENT_MODEL_ROLE1"):   # shipped default, not a box pin
+            assert agent_config.AGENT_MODEL_ROLE1 == "claude-haiku-5-5"
         eff = agent_config.set_role1_model_override("claude-sonnet-5")
         assert eff == "claude-sonnet-5"
         assert agent_config.get_effective_model(role=1) == "claude-sonnet-5"

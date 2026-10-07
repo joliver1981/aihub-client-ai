@@ -55,7 +55,7 @@ WORKFLOW_TIMEOUT_SECONDS = int(os.getenv("AGENT_PORTAL_WORKFLOW_TIMEOUT", "600")
 # naming can never block or fail a save. Routes through whatever Anthropic
 # endpoint the service uses (the relay in relay mode, direct otherwise).
 NAMING_ENABLED = os.getenv("AGENT_WORKFLOW_NAMING", "true").lower() == "true"
-NAMING_MODEL = os.getenv("AGENT_WORKFLOW_NAMING_MODEL", "claude-haiku-4-5-20251001")
+NAMING_MODEL = os.getenv("AGENT_WORKFLOW_NAMING_MODEL", "claude-haiku-5-5")
 NAMING_TIMEOUT = float(os.getenv("AGENT_WORKFLOW_NAMING_TIMEOUT", "8"))
 
 _ALLOW_ALL = os.getenv("BROWSER_USE_ALLOW_ALL_USERS", "false").lower() == "true"

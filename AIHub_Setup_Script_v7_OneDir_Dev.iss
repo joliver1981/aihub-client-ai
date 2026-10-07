@@ -1382,6 +1382,21 @@ begin
                mbError, MB_OK);
       end;
 
+      // --- AGENT_MODEL (2026-10-07: claude-haiku-5-5) ---
+      // The Agent's default brain model. dist\.env pinned claude-sonnet-5 (and
+      // claude-opus-5 before that), and an upgrade keeps the client's own .env,
+      // so without a FORCE every upgraded install would stay on the old model
+      // forever while fresh installs got Haiku 5.5. Forcing is safe here: an
+      // admin's deliberate model choice is stored by The Agent's own model
+      // setting (data\agent\settings.json, set from the brain line in the UI),
+      // which overrides this key and survives upgrades untouched.
+      if not ForceEnvKeyValue(EnvConfigFile, 'AGENT_MODEL', 'claude-haiku-5-5') then
+      begin
+        MsgBox('Warning: Failed to write AGENT_MODEL to .env.' + #13#10 +
+               'You may need to set it manually: AGENT_MODEL=claude-haiku-5-5',
+               mbError, MB_OK);
+      end;
+
       // --- NLQ_ENGINE_DEFAULT (v2.0) ---
       // Code default is 'legacy'. Without this key an UPGRADED install keeps
       // running the old NL->SQL engine while fresh installs get the agentic
