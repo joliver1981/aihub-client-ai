@@ -92,10 +92,10 @@ def _anthropic_quick_prompt(prompt, system="You are an assistant.", temp=0.0, mo
     if isinstance(response, dict):
         if "error" in response:
             raise RuntimeError(f"Anthropic proxy error: {response['error']}")
-        response_text = response["content"][0]["text"]
+        response_text = cfg.anthropic_response_text(response)
     else:
         # Direct anthropic response object (unlikely in proxy mode, but safe)
-        response_text = response.content[0].text
+        response_text = cfg.anthropic_response_text(response)
 
     response_text = str(response_text)
     response_text = response_text.replace('```json', '').replace('```sql', '').replace('python```', '').replace('```', '')

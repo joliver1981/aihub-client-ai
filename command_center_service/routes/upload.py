@@ -254,7 +254,7 @@ def _analyze_image(file_bytes: bytes, filename: str, user_message: str = "") -> 
                     }
                 ],
             )
-            analysis = response.content[0].text
+            analysis = cfg.anthropic_response_text(response)
             logger.info(f"[upload] Image analyzed via Claude Vision (source: {anthropic_config['source']}): {filename} ({len(analysis)} chars)")
             return analysis
 

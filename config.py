@@ -185,6 +185,43 @@ def anthropic_sampling_kwargs(model, temperature=None) -> dict:
         return {}
     return {'temperature': temperature} if anthropic_supports_sampling(model) else {}
 
+
+def anthropic_response_text(response) -> str:
+    """The assistant's text from a Messages response, whatever block order.
+
+    Claude 5.x models (sonnet-5, haiku-5-5, opus-5/5-5 ...) think by default and
+    return a ``thinking`` block BEFORE the text, so ``content[0]['text']`` /
+    ``content[0].text`` raises (live-verified 2026-10-07 on realistic prompts,
+    including the platform's own claude-sonnet-5). Joins every ``text`` block,
+    so citation-split answers stay whole. Works on both transports: the Cloud
+    API proxy returns dicts, the direct SDK returns objects. Raises ValueError
+    for a proxy error dict, an empty response, or a response with no text.
+    """
+    content = getattr(response, 'content', None)
+    if content is None and isinstance(response, dict):
+        if 'content' not in response:
+            # Proxy error shape: {"error": ..., "details": ...}
+            raise ValueError(f"LLM call failed: {str(response)[:300]}")
+        content = response['content']
+    if not content:
+        raise ValueError("LLM returned no content")
+
+    def _field(block, name):
+        return block.get(name) if isinstance(block, dict) else getattr(block, name, None)
+
+    def _text(block):
+        value = _field(block, 'text')
+        return value if isinstance(value, str) and value else None
+
+    parts = [_text(b) for b in content if _field(b, 'type') == 'text' and _text(b)]
+    if not parts:
+        # Nothing typed as text — accept any block exposing a text string
+        # (untyped shapes, test doubles). Thinking blocks carry no 'text'.
+        parts = [_text(b) for b in content if _text(b)]
+    if not parts:
+        raise ValueError("LLM returned no text block")
+    return ''.join(parts)
+
 # NLQ (Natural Language Query) LLM Provider: "openai" or "anthropic"
 NLQ_PROVIDER = os.getenv('NLQ_PROVIDER', 'anthropic')
 

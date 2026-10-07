@@ -405,7 +405,7 @@ def generate_knowledge_summary(document_id: str, filename: str, document_type: s
                 system=summary_system,
                 messages=[{"role": "user", "content": summary_user}]
             )
-            summary = response.content[0].text.strip()
+            summary = cfg.anthropic_response_text(response).strip()
         else:
             # Use proxy client
             from CommonUtils import AnthropicProxyClient
@@ -418,7 +418,7 @@ def generate_knowledge_summary(document_id: str, filename: str, document_type: s
                 messages=[{"role": "user", "content": summary_user}]
             )
             if isinstance(response, dict) and 'content' in response:
-                summary = response['content'][0]['text'].strip()
+                summary = cfg.anthropic_response_text(response).strip()
             else:
                 raise ValueError(f"Proxy summary error: {str(response)[:200]}")
         
@@ -1414,7 +1414,7 @@ def route_knowledge_query(query: str, doc_count: int, total_chars: int) -> str:
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_msg}]
             )
-            result = response.content[0].text
+            result = cfg.anthropic_response_text(response)
         else:
             # Use proxy client (standard path when BYOK is not configured)
             from CommonUtils import AnthropicProxyClient
@@ -1428,7 +1428,7 @@ def route_knowledge_query(query: str, doc_count: int, total_chars: int) -> str:
             )
             # Proxy returns JSON dict, not SDK object
             if isinstance(response, dict) and 'content' in response:
-                result = response['content'][0]['text']
+                result = cfg.anthropic_response_text(response)
             elif isinstance(response, dict) and 'error' in response:
                 raise ValueError(f"Proxy error: {response['error']}")
             else:

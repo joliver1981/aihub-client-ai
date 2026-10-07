@@ -345,7 +345,7 @@ class MultiPagePDFHandler:
                 )
 
                 # Extract the text from Claude's response
-                extracted_text = response.content[0].text.strip()
+                extracted_text = cfg.anthropic_response_text(response).strip()
             else:
                 # Encode the PDF for the API
                 base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
@@ -382,7 +382,7 @@ class MultiPagePDFHandler:
                 )
 
                 # Extract the text from Claude's response
-                extracted_text = response['content'][0]['text']
+                extracted_text = cfg.anthropic_response_text(response)
             
             # Add page number prefix if requested
             if include_page_numbers:
@@ -473,7 +473,7 @@ class MultiPagePDFHandler:
                 )
                 # print('Raw response:', response)
                 # Extract and process the response
-                extracted_text = response.content[0].text
+                extracted_text = cfg.anthropic_response_text(response)
             else:
                 if not self.anthropic_proxy_client:
                     client = AnthropicProxyClient()
@@ -487,7 +487,7 @@ class MultiPagePDFHandler:
                 )
                 #print('Raw response content:', response['content'])
                 # Extract and process the response
-                extracted_text = response['content'][0]['text']
+                extracted_text = cfg.anthropic_response_text(response)
 
             # print('Raw response:', response)
             print(86 * '#')
@@ -1343,7 +1343,7 @@ class LLMDocumentProcessor:
                         ]
                     )
                     # Parse and clean the response
-                    document_type = response.content[0].text.strip().lower()
+                    document_type = cfg.anthropic_response_text(response).strip().lower()
                 else:
                     # Get text from document
                     file_extension = os.path.splitext(filename)[1].lower()
@@ -1376,7 +1376,7 @@ class LLMDocumentProcessor:
                     )
                     
                     # Parse and clean the response
-                    document_type = response.content[0].text.strip().lower()
+                    document_type = cfg.anthropic_response_text(response).strip().lower()
             else:
                 #client = AnthropicProxyClient()
                 client = self.anthropic_proxy_client
@@ -1439,7 +1439,7 @@ class LLMDocumentProcessor:
                     document_type = 'unknown'
                 else:
                     # Parse and clean the response
-                    document_type = response['content'][0]['text'].strip().lower()
+                    document_type = cfg.anthropic_response_text(response).strip().lower()
 
             # Clean up temporary PDF file if it was created
             if temp_pdf_file and os.path.exists(temp_pdf_file):
@@ -1561,7 +1561,7 @@ class LLMDocumentProcessor:
             
             # Parse response - in a real implementation, would need to handle multi-page PDFs
             # For simplicity, treating as a single page for now
-            extracted_text = response.content[0].text
+            extracted_text = cfg.anthropic_response_text(response)
 
             # For now, we'll simulate page extraction as a single page
             # In production, you'd need to process multi-page PDFs properly
@@ -1732,30 +1732,11 @@ class LLMDocumentProcessor:
 
         ``response['content'][0]['text']`` is wrong for reasoning models: they can emit
         a ``thinking`` block first, so index 0 has no ``text`` key at all and the caller
-        dies with a KeyError. Scan for the first text block instead.
-        Handles both transports — the proxy returns dicts, the direct SDK returns objects.
+        dies with a KeyError. Handles both transports — the proxy returns dicts, the
+        direct SDK returns objects. Now the shared config.anthropic_response_text,
+        which every Anthropic call site in the platform uses.
         """
-        content = getattr(response, 'content', None)
-        if content is None and isinstance(response, dict):
-            if 'content' not in response:
-                # Proxy error shape: {"error": ..., "details": ...}
-                raise ValueError(f"LLM call failed: {str(response)[:300]}")
-            content = response['content']
-        if not content:
-            raise ValueError("LLM returned no content")
-
-        for block in content:
-            if isinstance(block, dict):
-                if block.get('type') == 'text' and block.get('text'):
-                    return block['text']
-            elif getattr(block, 'type', None) == 'text' and getattr(block, 'text', None):
-                return block.text
-        # Nothing typed as text — fall back to any block exposing a text value.
-        for block in content:
-            text = block.get('text') if isinstance(block, dict) else getattr(block, 'text', None)
-            if text:
-                return text
-        raise ValueError("LLM returned no text block")
+        return cfg.anthropic_response_text(response)
 
     @staticmethod
     def _doc_level_char_budget() -> int:
@@ -2724,7 +2705,7 @@ class LLMDocumentProcessor:
                     messages=messages
                 )
                 # Extract and parse the JSON from the response
-                ai_response = response.content[0].text
+                ai_response = cfg.anthropic_response_text(response)
             else:
                 if not self.anthropic_proxy_client:
                     client = AnthropicProxyClient()
@@ -2737,7 +2718,7 @@ class LLMDocumentProcessor:
                     system=system_prompt
                 )
                 # Extract and parse the JSON from the response
-                ai_response = response['content'][0]['text']
+                ai_response = cfg.anthropic_response_text(response)
 
             # print('RAW RESPONSE:', response)
             print(86 * '$')
@@ -4210,7 +4191,7 @@ class LLMDocumentProcessor:
                 )
                 
                 # Extract the text from Claude's response
-                extracted_text = response.content[0].text.strip()
+                extracted_text = cfg.anthropic_response_text(response).strip()
             else:
                 print('Calling document proxy...')
                 client = AnthropicProxyClient()
@@ -4223,7 +4204,7 @@ class LLMDocumentProcessor:
                 )
                 
                 # Extract the text from response
-                extracted_text = response['content'][0]['text'].strip()
+                extracted_text = cfg.anthropic_response_text(response).strip()
                 
             # Apply API throttling if configured
             if cfg.ANTHROPIC_API_THROTTLE_CALLS:
@@ -4712,7 +4693,7 @@ class LLMDocumentProcessor:
                         "content": [{"type": "text", "text": user_text}]
                     }]
                 )
-                response_text = response.content[0].text.strip()
+                response_text = cfg.anthropic_response_text(response).strip()
             else:
                 response = self.anthropic_proxy_client.messages_create(
                     model=cfg.ANTHROPIC_MODEL,
@@ -4726,7 +4707,7 @@ class LLMDocumentProcessor:
                 if "error" in response:
                     self.logger.warning(f"AI structure detection proxy error: {response['error']}")
                     return default_result
-                response_text = response['content'][0]['text'].strip()
+                response_text = cfg.anthropic_response_text(response).strip()
 
             # Apply API throttling if configured
             if cfg.ANTHROPIC_API_THROTTLE_CALLS:
@@ -5333,9 +5314,9 @@ class LLMDocumentProcessor:
             
             # Extract the text from response
             if isinstance(response, dict) and 'content' in response:
-                extracted_text = response['content'][0]['text'].strip()
+                extracted_text = cfg.anthropic_response_text(response).strip()
             else:
-                extracted_text = response.content[0].text.strip()
+                extracted_text = cfg.anthropic_response_text(response).strip()
                 
             # Return as a single page
             return [{

@@ -989,7 +989,7 @@ def analyze_document_route():
                         }
                     ]
                 )
-                analysis_text = response.content[0].text
+                analysis_text = cfg.anthropic_response_text(response)
             else:
                 # Use proxy
                 proxy_client = AnthropicProxyClient()
@@ -1017,7 +1017,7 @@ def analyze_document_route():
                         }
                     ]
                 )
-                analysis_text = response['content'][0]['text']
+                analysis_text = cfg.anthropic_response_text(response)
             
             # Clean up temporary file
             #os.remove(temp_file_path)

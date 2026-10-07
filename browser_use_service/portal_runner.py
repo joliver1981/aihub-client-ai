@@ -77,7 +77,9 @@ def _classify_blocking_gate(url, page_text):
             **_anthropic_sampling_kwargs(_MINI_MODEL, 0.0),
             system=_GATE_SYSTEM,
             messages=[{"role": "user", "content": content}])
-        verdict = (getattr(msg, "content", None) and msg.content[0].text or "").strip().upper()
+        # Join text blocks: Claude 5.x models put a thinking block first.
+        verdict = "".join(getattr(b, "text", "") or "" for b in (getattr(msg, "content", None) or [])
+                          if getattr(b, "type", None) == "text").strip().upper()
         return "BLOCKED" in verdict and "OK" not in verdict
     except Exception as e:
         log.debug("gate classifier unavailable: %s", e)

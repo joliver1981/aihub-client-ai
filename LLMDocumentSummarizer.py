@@ -160,7 +160,7 @@ class DocumentPageSummarizer:
                     messages=messages,
                     temperature=0.1  # Low temperature for consistent summaries
                 )
-                ai_response = response.content[0].text
+                ai_response = cfg.anthropic_response_text(response)
             else:
                 print('Calling Anthropic model via proxy...')
                 if self.anthropic_proxy_client:
@@ -174,7 +174,7 @@ class DocumentPageSummarizer:
                     system=system_prompt,
                     temperature=0.1
                 )
-                ai_response = response['content'][0]['text']
+                ai_response = cfg.anthropic_response_text(response)
             
             print('Parsing AI response...')
             # Parse the AI response

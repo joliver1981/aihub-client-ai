@@ -115,6 +115,30 @@ def _sampling_kwargs(model, temp):
         return {'temperature': temp}
 
 
+def _text_of(response):
+    """The reply text, wherever it sits — Claude 5.x models put a thinking block
+    first, so content[0] has no text. Same contract as
+    config.anthropic_response_text, kept local (no config import) so this
+    module stays standalone, like _sampling_kwargs' marker fallback above."""
+    content = response.get('content') if isinstance(response, dict) else getattr(response, 'content', None)
+    if not content:
+        raise ValueError(f"LLM returned no content: {str(response)[:300]}")
+
+    def _field(block, name):
+        return block.get(name) if isinstance(block, dict) else getattr(block, name, None)
+
+    def _text(block):
+        value = _field(block, 'text')
+        return value if isinstance(value, str) and value else None
+
+    parts = [_text(b) for b in content if _field(b, 'type') == 'text' and _text(b)]
+    if not parts:
+        parts = [_text(b) for b in content if _text(b)]   # untyped shapes / test doubles
+    if not parts:
+        raise ValueError("LLM returned no text block")
+    return ''.join(parts)
+
+
 def claudeQuickPrompt(prompt, system="You are an assistant.", temp=0.0, model=None):
     """
     Drop-in replacement for azureMiniQuickPrompt / azureQuickPrompt.
@@ -154,7 +178,7 @@ def claudeQuickPrompt(prompt, system="You are an assistant.", temp=0.0, model=No
                 messages=messages,
                 **_sampling_kwargs(selected_model, temp)
             )
-            response_text = response.content[0].text
+            response_text = _text_of(response)
 
         elif _PROXY_CLIENT:
             # ── Proxy mode ──────────────────────────────────────────
@@ -170,9 +194,9 @@ def claudeQuickPrompt(prompt, system="You are an assistant.", temp=0.0, model=No
             if isinstance(response, dict):
                 if 'error' in response:
                     raise RuntimeError(f"Proxy error: {response['error']}")
-                response_text = response['content'][0]['text']
+                response_text = _text_of(response)
             else:
-                response_text = response.content[0].text
+                response_text = _text_of(response)
         else:
             raise RuntimeError("No Claude client available (neither direct nor proxy)")
 
