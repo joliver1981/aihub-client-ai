@@ -433,10 +433,14 @@ def main():
           f"events={evs3} hidden={hidden} visible_again={visible_again}")
     workitem_store.respond(sh["work_item_id"], 1, {"decision": "done"})  # tidy
 
-    # A2-4 email seam reachable (list contract; queue may legitimately be empty)
+    # A2-4 email seam reachable (list contract; queue may legitimately be empty).
+    # email_pending is per-user since the My Work email-leak fix — pass the
+    # runner's own principal (same identity mint_token() signs).
     import asyncio as _aio
     import readthrough as _rt
-    emails = _aio.run(_rt.email_pending())
+    emails = _aio.run(_rt.email_pending({
+        "user_id": 1, "role": 3, "tenant_id": os.getenv("TENANT_ID", ""),
+        "username": "pack20-runner"}))
     check("A2-4", "email-approvals seam reachable via X-API-Key (list contract)",
           isinstance(emails, list), f"pending={len(emails)}")
 

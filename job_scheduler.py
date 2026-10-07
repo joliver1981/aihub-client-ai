@@ -51,6 +51,13 @@ try:
 except Exception:  # pragma: no cover
     _normalize_cron_dow = lambda expr: expr
 
+
+def _as_utc_aware(dt):
+    """ScheduleDefinitions StartDate/EndDate arrive NAIVE, in UTC
+    (JOB_SCHEDULER_TIMEZONE). APScheduler compares trigger bounds with
+    tz-aware fire times, so a naive bound raises TypeError at add_job."""
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
 rotate_logs_on_startup(log_file=os.getenv('JOB_SCHEDULER_SERVICE_LOG', get_log_path('job_scheduler_service_log.txt')))
 
 # Configure logging — reconfigure stdout for UTF-8 on Windows
@@ -124,6 +131,9 @@ class JobSchedulerService:
         # misfire warnings. Keyed by apscheduler_job_id -> fingerprint, so
         # EDITING the schedule (new date) changes the fingerprint and re-adds.
         self._expired_onetime = {}
+        # apscheduler_job_id -> last registration error, so a schedule that
+        # keeps failing is logged once (not every 60s poll) and skipped.
+        self._sync_row_errors = {}
         self.scheduler = None
         self.job_types = {
             'document': self._execute_document_job,
@@ -371,158 +381,173 @@ class JobSchedulerService:
 
             # Process each schedule
             for row in cursor.fetchall():
-                job_id = row[0]
-                job_name = row[1]
-                job_type = row[2]
-                target_id = row[3]
-                description = row[4]
-                schedule_id = row[5]
-                schedule_type = row[6]
-                interval_seconds = row[7]
-                interval_minutes = row[8]
-                interval_hours = row[9]
-                interval_days = row[10]
-                interval_weeks = row[11]
-                cron_expression = row[12]
-                start_date = row[13]
-                end_date = row[14]
-                next_run_time = row[15]
-                max_runs = row[16]
-                current_runs = row[17]
-                is_active = row[18]
+                try:
+                    job_id = row[0]
+                    job_name = row[1]
+                    job_type = row[2]
+                    target_id = row[3]
+                    description = row[4]
+                    schedule_id = row[5]
+                    schedule_type = row[6]
+                    interval_seconds = row[7]
+                    interval_minutes = row[8]
+                    interval_hours = row[9]
+                    interval_days = row[10]
+                    interval_weeks = row[11]
+                    cron_expression = row[12]
+                    start_date = row[13]
+                    end_date = row[14]
+                    next_run_time = row[15]
+                    max_runs = row[16]
+                    current_runs = row[17]
+                    is_active = row[18]
                 
-                # Create a unique ID for this schedule in APScheduler
-                apscheduler_job_id = f"{job_type}_{job_id}_{schedule_id}"
+                    # Create a unique ID for this schedule in APScheduler
+                    apscheduler_job_id = f"{job_type}_{job_id}_{schedule_id}"
                 
-                # Check if this job already exists in the scheduler
-                existing_job = self.scheduler.get_job(apscheduler_job_id)
+                    # Check if this job already exists in the scheduler
+                    existing_job = self.scheduler.get_job(apscheduler_job_id)
                 
-                # If the job exists and is not active, remove it
-                if existing_job and not is_active:
-                    self.scheduler.remove_job(apscheduler_job_id)
-                    self._forget_job(apscheduler_job_id, schedule_id)
-                    logger.info(f"Removed inactive job: {apscheduler_job_id}")
-                    continue
-
-                # If the job has reached its maximum runs, mark it as inactive
-                if max_runs is not None and current_runs >= max_runs:
-                    self._update_schedule_status(schedule_id, is_active=False)
-                    if existing_job:
+                    # If the job exists and is not active, remove it
+                    if existing_job and not is_active:
                         self.scheduler.remove_job(apscheduler_job_id)
-                    self._forget_job(apscheduler_job_id, schedule_id)
-                    logger.info(f"Job {apscheduler_job_id} has reached maximum runs ({max_runs}), marked as inactive")
-                    continue
-
-                # ── Delta-reload skip ──────────────────────────────────────
-                # Unchanged definition + already registered = nothing to do.
-                # Persist next-run only if it moved (it does after each fire).
-                # This is the line that turns 67 reschedules/minute into zero
-                # on a quiet fleet.
-                _params_for_fp = all_params.get(job_id, {})
-                _fp = self._definition_fingerprint(
-                    job_name, job_type, target_id, description, schedule_type,
-                    interval_seconds, interval_minutes, interval_hours,
-                    interval_days, interval_weeks, cron_expression,
-                    start_date, end_date, _params_for_fp)
-                if existing_job and self._job_fingerprints.get(apscheduler_job_id) == _fp:
-                    self._persist_next_run_if_changed(schedule_id, apscheduler_job_id)
-                    continue
-
-                # Stale one-time schedule: run time >1h past means APScheduler
-                # would drop it unrun anyway (grace is 60s) — adding it again
-                # every poll is pure thrash + misfire noise. Cached by
-                # fingerprint: editing the schedule to a new date re-adds.
-                if schedule_type == 'date' and not existing_job:
-                    if self._expired_onetime.get(apscheduler_job_id) == _fp:
+                        self._forget_job(apscheduler_job_id, schedule_id)
+                        logger.info(f"Removed inactive job: {apscheduler_job_id}")
                         continue
-                    try:
-                        if start_date is not None and \
-                                start_date < datetime.utcnow() - timedelta(hours=1):
-                            self._expired_onetime[apscheduler_job_id] = _fp
-                            logger.info(
-                                f"One-time schedule {apscheduler_job_id} run time "
-                                f"{start_date} is long past — parking (edit the "
-                                f"schedule to reactivate).")
+
+                    # If the job has reached its maximum runs, mark it as inactive
+                    if max_runs is not None and current_runs >= max_runs:
+                        self._update_schedule_status(schedule_id, is_active=False)
+                        if existing_job:
+                            self.scheduler.remove_job(apscheduler_job_id)
+                        self._forget_job(apscheduler_job_id, schedule_id)
+                        logger.info(f"Job {apscheduler_job_id} has reached maximum runs ({max_runs}), marked as inactive")
+                        continue
+
+                    # ── Delta-reload skip ──────────────────────────────────────
+                    # Unchanged definition + already registered = nothing to do.
+                    # Persist next-run only if it moved (it does after each fire).
+                    # This is the line that turns 67 reschedules/minute into zero
+                    # on a quiet fleet.
+                    _params_for_fp = all_params.get(job_id, {})
+                    _fp = self._definition_fingerprint(
+                        job_name, job_type, target_id, description, schedule_type,
+                        interval_seconds, interval_minutes, interval_hours,
+                        interval_days, interval_weeks, cron_expression,
+                        start_date, end_date, _params_for_fp)
+                    if existing_job and self._job_fingerprints.get(apscheduler_job_id) == _fp:
+                        self._persist_next_run_if_changed(schedule_id, apscheduler_job_id)
+                        continue
+
+                    # Stale one-time schedule: run time >1h past means APScheduler
+                    # would drop it unrun anyway (grace is 60s) — adding it again
+                    # every poll is pure thrash + misfire noise. Cached by
+                    # fingerprint: editing the schedule to a new date re-adds.
+                    if schedule_type == 'date' and not existing_job:
+                        if self._expired_onetime.get(apscheduler_job_id) == _fp:
                             continue
-                    except TypeError:
-                        pass   # tz-aware/naive mismatch: fall through, add as before
+                        try:
+                            if start_date is not None and \
+                                    start_date < datetime.utcnow() - timedelta(hours=1):
+                                self._expired_onetime[apscheduler_job_id] = _fp
+                                logger.info(
+                                    f"One-time schedule {apscheduler_job_id} run time "
+                                    f"{start_date} is long past — parking (edit the "
+                                    f"schedule to reactivate).")
+                                continue
+                        except TypeError:
+                            pass   # tz-aware/naive mismatch: fall through, add as before
 
-                # For one-time jobs, check if there's already a pending execution
-                if schedule_type == 'date':
-                    cursor.execute("""
-                    SELECT COUNT(*) 
-                    FROM ScheduleExecutionHistory 
-                    WHERE ScheduleId = ? 
-                    AND Status = 'pending'
-                    """, schedule_id)
-                    pending_count = cursor.fetchone()[0]
-                    if pending_count > 0:
-                        logger.info(f"One-time job {apscheduler_job_id} already has a pending execution, skipping")
+                    # For one-time jobs, check if there's already a pending execution
+                    if schedule_type == 'date':
+                        cursor.execute("""
+                        SELECT COUNT(*) 
+                        FROM ScheduleExecutionHistory 
+                        WHERE ScheduleId = ? 
+                        AND Status = 'pending'
+                        """, schedule_id)
+                        pending_count = cursor.fetchone()[0]
+                        if pending_count > 0:
+                            logger.info(f"One-time job {apscheduler_job_id} already has a pending execution, skipping")
+                            continue
+                
+                    # Skip if job type is not supported
+                    if job_type not in self.job_types:
+                        logger.warning(f"Unsupported job type: {job_type}")
                         continue
                 
-                # Skip if job type is not supported
-                if job_type not in self.job_types:
-                    logger.warning(f"Unsupported job type: {job_type}")
-                    continue
-                
-                # Get job parameters first - they carry the optional per-schedule "timezone"
-                # (canonical IANA name or 'UTC+HH:MM' offset) the cron trigger should fire in.
-                params = self._get_job_parameters(job_id)
-                tz_name = (params.get("timezone") or "").strip() if isinstance(params, dict) else ""
+                    # Get job parameters first - they carry the optional per-schedule "timezone"
+                    # (canonical IANA name or 'UTC+HH:MM' offset) the cron trigger should fire in.
+                    params = self._get_job_parameters(job_id)
+                    tz_name = (params.get("timezone") or "").strip() if isinstance(params, dict) else ""
 
-                # Create or update the job in the scheduler
-                trigger = self._create_trigger(
-                    schedule_type,
-                    interval_seconds, interval_minutes, interval_hours, interval_days, interval_weeks,
-                    cron_expression, start_date, end_date,
-                    tz_name=tz_name
-                )
+                    # Create or update the job in the scheduler
+                    trigger = self._create_trigger(
+                        schedule_type,
+                        interval_seconds, interval_minutes, interval_hours, interval_days, interval_weeks,
+                        cron_expression, start_date, end_date,
+                        tz_name=tz_name
+                    )
 
-                if trigger:
-                    job_func = self.job_types[job_type]
+                    if trigger:
+                        job_func = self.job_types[job_type]
 
-                    # Job data to pass to the executor
-                    job_data = {
-                        'scheduled_job_id': job_id,
-                        'schedule_id': schedule_id,
-                        'job_name': job_name,
-                        'job_type': job_type,
-                        'target_id': target_id,
-                        'description': description,
-                        'parameters': params
-                    }
+                        # Job data to pass to the executor
+                        job_data = {
+                            'scheduled_job_id': job_id,
+                            'schedule_id': schedule_id,
+                            'job_name': job_name,
+                            'job_type': job_type,
+                            'target_id': target_id,
+                            'description': description,
+                            'parameters': params
+                        }
                     
-                    # Add or update the job in the scheduler
-                    if existing_job:
-                        # Update existing job — reached ONLY when the
-                        # definition fingerprint changed (delta-reload skip
-                        # above), so this log line now means a real change.
-                        self.scheduler.reschedule_job(
-                            apscheduler_job_id,
-                            trigger=trigger
-                        )
-                        self.scheduler.modify_job(
-                            apscheduler_job_id,
-                            args=[job_data]
-                        )
-                        logger.info(f"Updated job in scheduler: {apscheduler_job_id}")
-                    else:
-                        # Add new job
-                        self.scheduler.add_job(
-                            job_func,
-                            trigger=trigger,
-                            id=apscheduler_job_id,
-                            args=[job_data],
-                            replace_existing=True
-                        )
-                        logger.info(f"Added new job to scheduler: {apscheduler_job_id}")
+                        # Add or update the job in the scheduler
+                        if existing_job:
+                            # Update existing job — reached ONLY when the
+                            # definition fingerprint changed (delta-reload skip
+                            # above), so this log line now means a real change.
+                            self.scheduler.reschedule_job(
+                                apscheduler_job_id,
+                                trigger=trigger
+                            )
+                            self.scheduler.modify_job(
+                                apscheduler_job_id,
+                                args=[job_data]
+                            )
+                            logger.info(f"Updated job in scheduler: {apscheduler_job_id}")
+                        else:
+                            # Add new job
+                            self.scheduler.add_job(
+                                job_func,
+                                trigger=trigger,
+                                id=apscheduler_job_id,
+                                args=[job_data],
+                                replace_existing=True
+                            )
+                            logger.info(f"Added new job to scheduler: {apscheduler_job_id}")
 
-                    self._job_fingerprints[apscheduler_job_id] = _fp
+                        self._job_fingerprints[apscheduler_job_id] = _fp
+                        self._sync_row_errors.pop(apscheduler_job_id, None)
 
-                    # Persist the engine's computed next fire time so the panel/API can show
-                    # "next run" (the DB NextRunTime is otherwise only its initial value).
-                    # Write-through cache: only lands a SQL UPDATE when the value moved.
-                    self._persist_next_run_if_changed(schedule_id, apscheduler_job_id)
+                        # Persist the engine's computed next fire time so the panel/API can show
+                        # "next run" (the DB NextRunTime is otherwise only its initial value).
+                        # Write-through cache: only lands a SQL UPDATE when the value moved.
+                        self._persist_next_run_if_changed(schedule_id, apscheduler_job_id)
+                except Exception as row_err:
+                    # One bad schedule must never block the rest. Before this,
+                    # an exception here aborted the whole poll: every schedule
+                    # after it never registered, and the inactive/orphan
+                    # removal passes below never ran. Logged once per distinct
+                    # error, not every 60s.
+                    _sid = f"{row[2]}_{row[0]}_{row[5]}"
+                    _msg = f"{type(row_err).__name__}: {row_err}"
+                    if self._sync_row_errors.get(_sid) != _msg:
+                        self._sync_row_errors[_sid] = _msg
+                        logger.error(f"Schedule {_sid} could not be registered - "
+                                     f"skipped, other schedules continue: {_msg}")
+                        logger.error(traceback.format_exc())
 
             # Get deactivated schedules to remove
             inactive_query = """
@@ -677,10 +702,16 @@ class JobSchedulerService:
                     _cron_norm,
                     timezone=_cron_tz
                 )
+                # Assigning bounds AFTER construction skips CronTrigger's own
+                # convert_to_datetime(), so the DB's naive-UTC dates must be made
+                # aware here. Left naive, add_job raised "can't compare
+                # offset-naive and offset-aware datetimes" and aborted the whole
+                # sync poll: from 2026-09-06 one bounded cron (end date) kept
+                # every later schedule from ever registering.
                 if start_date:
-                    trigger.start_date = start_date
+                    trigger.start_date = _as_utc_aware(start_date)
                 if end_date:
-                    trigger.end_date = end_date
+                    trigger.end_date = _as_utc_aware(end_date)
                 
             elif schedule_type == 'date':
                 # Create date trigger (one-time execution)
