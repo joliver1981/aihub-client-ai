@@ -114,6 +114,7 @@
   .send:disabled{opacity:.4;cursor:default}
   .gate{margin:12vh auto 0;max-width:420px;text-align:center;color:var(--text2)}
   .gate h1{font-size:18px;color:var(--text);margin-bottom:8px}
+  .gate-action{display:inline-block;margin-top:16px;text-decoration:none}
   .newchat{border:1px solid var(--line);border-radius:8px;padding:4px 11px;color:var(--text2);font-size:11.5px}
   .newchat:hover{border-color:var(--accent-line);color:var(--text)}
   .attach-chips{max-width:800px;margin:0 auto 6px;display:flex;gap:6px;flex-wrap:wrap}
@@ -697,9 +698,36 @@
   // the post-login home redirect leads straight back. The 45s guard keeps a
   // genuinely broken auth state (role denied, clock skew) from looping the
   // browser: second failure inside the window falls through to the gate.
+  //
+  // EXPIRED tokens no longer bounce (james 2026-10-07): they end in a plain
+  // "sign in again" screen whose button goes through AI Hub's /logout, so the
+  // user re-enters credentials (role + account re-checked at sign-in) instead
+  // of a stale browser session minting a new token. /login alone would not do
+  // it: an already-signed-in visitor is sent home and back in here; and bare
+  // /logout lands on the public page, so ?then=agent asks for the sign-in
+  // form with a way back into The Agent afterwards. The
+  // match is the verifier's own "(token expired" reason — the old /expired/
+  // also caught "Invalid or expired token (bad signature)", sending signing
+  // misconfigurations round the bounce instead of to the admin message.
+  function isExpired(detail) {
+    return /\(token expired/i.test(String(detail || ""));
+  }
+  function sessionExpired() {
+    try { localStorage.removeItem("agent_token"); } catch (e) {}
+    try {
+      const draft = document.getElementById("input");
+      if (draft && draft.value) localStorage.setItem("agent_draft", draft.value);
+    } catch (e) {}
+    const mp = localStorage.getItem("agent_main_port") || mainPort;
+    gate("For your security you've been signed out. Sign in to AI Hub again to keep working — anything you'd typed will be waiting for you.",
+         "Your session has expired",
+         { label: "Sign in again",
+           href: `${location.protocol}//${location.hostname}:${mp}/logout?then=agent` });
+  }
   function reauth(detail) {
     const why = String(detail || "");
-    if (!/expired|no access token/i.test(why)) return false;
+    if (isExpired(why)) { sessionExpired(); return true; }
+    if (!/no access token/i.test(why)) return false;
     const last = +(sessionStorage.getItem("agent_reauth_at") || 0);
     if (Date.now() - last < 45000) return false;
     sessionStorage.setItem("agent_reauth_at", String(Date.now()));
@@ -2696,11 +2724,16 @@
   let busy = false;
   const scroll = () => { chatMain.scrollTop = chatMain.scrollHeight; };
 
-  function gate(msg) {
+  function gate(msg, title, action) {
     thread.innerHTML = "";
     const g = el("div", "gate");
-    g.appendChild(el("h1", "", "Open The Agent from AI Hub"));
+    g.appendChild(el("h1", "", title || "Open The Agent from AI Hub"));
     g.appendChild(el("p", "", msg));
+    if (action) {
+      const a = el("a", "send gate-action", action.label);
+      a.href = action.href;
+      g.appendChild(a);
+    }
     thread.appendChild(g);
     input.disabled = true; send.disabled = true;
   }

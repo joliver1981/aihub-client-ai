@@ -1553,6 +1553,12 @@ def logout():
     # routed into The Agent again, even after signing back in (james,
     # 2026-09-03). Logging out ends that choice; the next sign-in starts clean.
     session.pop('classic_mode', None)
+    # The Agent's "session expired" screen (james, 2026-10-07) sends users
+    # here with ?then=agent: land on the sign-in FORM (home would show the
+    # public landing page) and come back into The Agent after signing in.
+    # A fixed keyword, not a URL, so this cannot be used as an open redirect.
+    if request.args.get('then') == 'agent':
+        return redirect(url_for('login', next=url_for('the_agent_redirect')))
     return redirect(url_for('home'))
 #####################
 # END AUTH ROUTES
