@@ -281,8 +281,15 @@ class JobSchedulerService:
     # portal_workflow targets a slug carried in its parameters and automation
     # resolves a GUID from its parameters, so neither can be existence-checked
     # by TargetId. Unlisted types are NEVER reaped (fail-open).
+    # document: TargetId is DocumentJobs.JobID — the exact row
+    # /api/scheduler/execute_document_job/<TargetId> looks up (404 when it is
+    # missing). The legacy /api/scheduler/jobs/<id>/schedules route mints a
+    # 'Document Job <id>' row for ANY id, so callers passing a workflow id or a
+    # ScheduledJobId left phantom document jobs 404-ing every interval.
+    # Soft-deleted document jobs (IsActive=0) keep their row: never reaped.
     REAPABLE_TARGET_TABLES = {
         'workflow': ('[dbo].[Workflows]', 'id'),
+        'document': ('[dbo].[DocumentJobs]', 'JobID'),
     }
 
     def _reap_orphaned_target_jobs(self, conn):

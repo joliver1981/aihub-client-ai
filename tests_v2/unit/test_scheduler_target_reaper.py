@@ -42,16 +42,21 @@ def _import_job_scheduler():
 
 class _FakeCursor:
     def __init__(self, select_rows):
+        # {job_type: rows} answers each per-type orphan SELECT; a bare list
+        # is the workflow pass's rows (every other type finds no orphans).
+        if not isinstance(select_rows, dict):
+            select_rows = {"workflow": select_rows}
         self._select_rows = select_rows
         self.executed = []          # (sql, params) tuples
-        self._last_was_select = False
+        self._last_select_type = None
 
     def execute(self, sql, *params):
         self.executed.append((" ".join(sql.split()), params))
-        self._last_was_select = sql.lstrip().upper().startswith("SELECT")
+        is_select = sql.lstrip().upper().startswith("SELECT")
+        self._last_select_type = params[0] if is_select and params else None
 
     def fetchall(self):
-        return self._select_rows if self._last_was_select else []
+        return self._select_rows.get(self._last_select_type, [])
 
     def close(self):
         pass
@@ -143,19 +148,53 @@ class TestTargetReaper:
         svc, conn = _svc([])
         svc._reap_orphaned_target_jobs(conn)
 
-        selects = [e for e in conn.cursor_obj.executed if e[0].startswith("SELECT")]
-        assert len(selects) == 1
-        sql, params = selects[0]
-        assert "LEFT JOIN [dbo].[Workflows]" in sql
-        assert "IS NULL" in sql
-        assert params == ("workflow",)
+        selects = {e[1]: e[0] for e in conn.cursor_obj.executed if e[0].startswith("SELECT")}
+        assert set(selects) == {("workflow",), ("document",)}
+        assert "LEFT JOIN [dbo].[Workflows] t ON t.id = j.TargetId" in selects[("workflow",)]
+        assert "LEFT JOIN [dbo].[DocumentJobs] t ON t.JobID = j.TargetId" in selects[("document",)]
+        assert all("IS NULL" in sql for sql in selects.values())
+
+    def test_reaps_phantom_document_job(self):
+        # Observed 2026-10-07: 'Document Job 603' (job 604, schedule 590) was
+        # minted by the legacy /jobs/<id>/schedules route for an id that was
+        # never a DocumentJobs row, and 404'd every 15 minutes for 6 weeks.
+        rows = {"document": [(604, "Document Job 603", 603, 590)]}
+        svc, conn = _svc(rows)
+        svc._reap_orphaned_target_jobs(conn)
+
+        deletes = [e for e in conn.cursor_obj.executed if e[0].startswith("DELETE FROM ScheduledJobs")]
+        assert [d[1] for d in deletes] == [(604,)]
+        removed = [c.args[0] for c in svc.scheduler.remove_job.call_args_list]
+        assert removed == ["document_604_590"]
+        assert conn.commits == 1
+
+    def test_one_type_failing_does_not_stop_the_other(self):
+        # Each type's pass is isolated: a SELECT failure on one target table
+        # must not keep the other type's orphans firing.
+        rows = {"workflow": [(179, "Pricing Download Process", 1217, 279)],
+                "document": [(604, "Document Job 603", 603, 590)]}
+        svc, conn = _svc(rows)
+        real_execute = conn.cursor_obj.execute
+
+        def execute(sql, *params):
+            if params == ("workflow",):
+                raise RuntimeError("Invalid object name")
+            return real_execute(sql, *params)
+
+        conn.cursor_obj.execute = execute
+        svc._reap_orphaned_target_jobs(conn)
+
+        deletes = [e for e in conn.cursor_obj.executed if e[0].startswith("DELETE FROM ScheduledJobs")]
+        assert [d[1] for d in deletes] == [(604,)]
 
     def test_mapping_stays_fail_open(self):
         # Only types whose TargetId provably keys a table may be listed.
         # portal_workflow (slug in parameters) and automation (GUID in
         # parameters) must never appear; add a type ONLY with a verified
-        # TargetId -> table mapping.
+        # TargetId -> table mapping. document: the executor endpoint itself
+        # resolves TargetId as DocumentJobs.JobID.
         js = _import_job_scheduler()
         mapping = js.JobSchedulerService.REAPABLE_TARGET_TABLES
-        assert set(mapping) == {"workflow"}
+        assert set(mapping) == {"workflow", "document"}
         assert mapping["workflow"] == ("[dbo].[Workflows]", "id")
+        assert mapping["document"] == ("[dbo].[DocumentJobs]", "JobID")
