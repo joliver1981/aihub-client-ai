@@ -791,6 +791,15 @@ IMPORTANT:
 - Describe changes in plain language - the command generator will create the proper commands
 - Be specific about which nodes to modify, add, or remove
 
+TEST RUN REPORTS (a message starting with "TEST RUN REPORT" is the result of actually running
+the current workflow — evidence, not a request to redesign):
+- Read the ATTENTION lines, the ERROR lines and the warnings first; they name the step and
+  usually the cause (e.g. "found 0 files", "could not be resolved", "could not be evaluated").
+- Find the root cause in the configuration of the named node(s) and change only that. Prefer
+  removing a broken check over adding new ones; route failures through FAIL connections.
+- Use only the documented config keys of each node type (an unknown key is ignored by the engine).
+- If the report shows the workflow did what the user asked, say so and change nothing.
+
 Current Workflow State:
 {self._format_workflow_state()}
 """

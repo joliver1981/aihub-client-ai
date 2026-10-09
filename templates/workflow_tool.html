@@ -1600,7 +1600,7 @@ textarea[name="approvalData"].is-invalid {
         // Inject config value for training capture feature
         window.WORKFLOW_TRAINING_CAPTURE_ENABLED = {{ WORKFLOW_TRAINING_CAPTURE_ENABLED|tojson }};
     </script>
-    <script src="{{ url_for('static', filename='js/workflow_builder_guide.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/workflow_builder_guide.js', v=2) }}"></script>
 
     <!-- AI Extract Node -->
     <script src="{{ url_for('static', filename='js/ai_extract_node.js', v=2) }}"></script>

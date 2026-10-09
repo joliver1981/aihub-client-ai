@@ -74,6 +74,9 @@ class WorkflowBuilderGuide {
                             <span class="phase-badge" id="phaseBadge">Discovery</span>
                         </div>
                         <div class="header-actions">
+                            <button type="button" class="btn btn-sm btn-success" id="builderTestRunBtn" onclick="workflowBuilder.testRun()" title="Save the workflow, run it for real, and let the AI read the results and fix what went wrong">
+                                <i class="bi bi-play-fill"></i> Test run
+                            </button>
                             <button type="button" class="btn btn-sm btn-outline-light export-training-btn" id="exportTrainingBtn" onclick="workflowBuilder.exportTrainingData()" style="display: none;" title="Export this conversation to training dataset">
                                 <i class="bi bi-database-add"></i> Export Training
                             </button>
@@ -2257,11 +2260,93 @@ class WorkflowBuilderGuide {
         return stats;
     }
     
+    /**
+     * Test run (2026-10-09): save the workflow, run it for real, read the run
+     * report and hand it to the AI so it can diagnose and fix what went wrong —
+     * the user no longer relays the Debug Panel. The run is polled until it ends
+     * (no time limit: a run over many files takes as long as it takes).
+     */
+    async testRun() {
+        if (this.testRunActive) return;
+        if (!document.querySelector('#workflow-canvas .workflow-node')) {
+            this.addMessage('There is no workflow on the canvas yet. Build it first, then use Test run.', 'assistant');
+            return;
+        }
+        const ok = confirm('Test run executes this workflow for real: it reads and moves files, writes outputs and can send emails or approval requests.\n\nSave it and run it now?');
+        if (!ok) return;
+        this.testRunActive = true;
+        const btn = document.getElementById('builderTestRunBtn');
+        if (btn) btn.disabled = true;
+        try {
+            const workflowId = await saveWorkflowBeforeExecution();
+            if (!workflowId) {
+                this.addMessage('Test run cancelled: the workflow needs a name before it can be saved and run.', 'assistant');
+                return;
+            }
+            const runResp = await fetch('/api/workflow/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workflow_id: workflowId, initiator: 'ai-builder-test-run' })
+            });
+            const run = await runResp.json().catch(() => ({}));
+            if (!runResp.ok || run.status !== 'success' || !run.execution_id) {
+                throw new Error(run.message || run.error || `HTTP ${runResp.status}`);
+            }
+            const executionId = run.execution_id;
+            this.addMessage(`Test run started (execution ${executionId}). I will read the results as soon as it finishes; with many files this can take a while.`, 'assistant');
+
+            let status = '';
+            let misses = 0;
+            for (;;) {
+                await new Promise(r => setTimeout(r, 4000));
+                try {
+                    const er = await fetch(`/api/workflow/executions/${executionId}`);
+                    if (!er.ok) throw new Error(`HTTP ${er.status}`);
+                    const ed = await er.json();
+                    status = String((ed.execution || ed).status || '').toLowerCase();
+                    misses = 0;
+                } catch (pollError) {
+                    // The run keeps going server-side; stop waiting only when the
+                    // status cannot be read several times in a row.
+                    if (++misses >= 5) throw new Error(`could not read the run status (${pollError.message})`);
+                    continue;
+                }
+                if (['completed', 'failed', 'cancelled', 'error', 'paused'].includes(status)) break;
+            }
+
+            const rr = await fetch(`/api/workflow/builder/run-report?execution_id=${encodeURIComponent(executionId)}`);
+            const report = await rr.json().catch(() => ({}));
+            if (!rr.ok || report.status === 'error') {
+                throw new Error(report.error || `HTTP ${rr.status}`);
+            }
+            const pausedNote = status === 'paused'
+                ? '\n\n(The run is paused waiting for a Human Approval; this report covers what ran so far.)'
+                : '';
+            const message = `TEST RUN REPORT — I ran the workflow for real.${pausedNote}\n\n${report.text}\n\n` +
+                'Compare this with what I asked for. If anything is wrong (nothing processed, items going down a ' +
+                'failure path, missing rows, warnings, errors), explain the cause in a sentence or two and generate ' +
+                'the commands that fix it. Route failures through the nodes\' FAIL connections rather than adding ' +
+                '"did it succeed?" Conditionals. If it worked as intended, say so.';
+            await this.sendMessage(message);
+        } catch (e) {
+            this.addMessage(`Test run could not finish: ${e.message}`, 'error');
+        } finally {
+            this.testRunActive = false;
+            if (btn) btn.disabled = false;
+        }
+    }
+
     async sendMessage(overrideMessage) {
         const input = document.getElementById('builderInput');
         const message = overrideMessage || input.value.trim();
 
         if (!message) return;
+
+        // "test it" / "run it" / "test run" typed in the chat = the Test run button.
+        if (!overrideMessage && /^\s*(test|run)(\s+(it|this|the workflow))?(\s+run)?\s*[.!]?\s*$/i.test(message)) {
+            input.value = '';
+            return this.testRun();
+        }
 
         // Add user message to chat
         this.addMessage(message, 'user');
@@ -2835,7 +2920,7 @@ class WorkflowBuilderGuide {
                         
                         // Show success notification
                         setTimeout(() => {
-                            this.showNotification('Workflow created successfully! Check the canvas for your new workflow.');
+                            this.showNotification('Workflow created! Check the canvas, then reopen the AI Builder and click ▶ Test run (or type "test it") so it can run the workflow and check the results.');
                         }, 500);
                     });
             } catch (error) {

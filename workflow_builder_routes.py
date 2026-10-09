@@ -662,3 +662,58 @@ def get_training_statistics():
         }), 500
 ### TRAINING CAPTURE - END ###
 
+
+
+### TEST RUN REPORT + NODE REFERENCE (2026-10-09) ###
+# The AI Workflow Builder (and The Agent) read a run's outcome themselves
+# instead of the user relaying the Debug Panel: build -> test run -> report ->
+# fix. See workflow_run_report.py.
+from role_decorators import api_key_or_session_required  # noqa: E402
+
+
+@workflow_builder_bp.route('/api/workflow/builder/run-report', methods=['GET'])
+@api_key_or_session_required(min_role=2)
+def workflow_run_report_endpoint():
+    """Digest of one execution for an authoring AI: per-node outcomes, real
+    errors, run-log warnings, loop item counts and silent-success flags.
+    Query: execution_id (required), examples (distinct error/warning texts
+    quoted per node in the text, default 3; every one is counted)."""
+    execution_id = (request.args.get('execution_id') or '').strip()
+    if not execution_id:
+        return jsonify({'status': 'error', 'error': 'execution_id is required'}), 400
+    try:
+        examples = max(1, int(request.args.get('examples', 3)))
+    except (TypeError, ValueError):
+        examples = 3
+    try:
+        from workflow_run_report import fetch_run_report
+        from CommonUtils import get_db_connection
+        report = fetch_run_report(execution_id, get_db_connection, os.getenv('API_KEY'),
+                                  max_examples=examples)
+        if report is None:
+            return jsonify({'status': 'error', 'error': f'execution {execution_id} not found'}), 404
+        return jsonify({'status': 'success', 'execution_id': execution_id, **report})
+    except Exception as e:
+        logger.error(f"run-report failed for {execution_id}: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@workflow_builder_bp.route('/api/workflow/builder/node-reference', methods=['GET'])
+@api_key_or_session_required(min_role=2)
+def workflow_node_reference_endpoint():
+    """The node reference the AI Workflow Builder plans from (with each node's
+    exact config keys), for other authoring agents. Query: types = "all"
+    (default) or a comma-separated list of node types."""
+    try:
+        from CommonUtils import get_node_details
+        from system_prompts import WORKFLOW_NODE_TYPES, VALID_WORKFLOW_NODE_TYPES
+        types = (request.args.get('types') or 'all').strip() or 'all'
+        payload = {'status': 'success', 'node_types': list(VALID_WORKFLOW_NODE_TYPES),
+                   'details': get_node_details(types)}
+        if types.lower() == 'all':
+            payload['overview'] = WORKFLOW_NODE_TYPES
+        return jsonify(payload)
+    except Exception as e:
+        logger.error(f"node-reference failed: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+### TEST RUN REPORT + NODE REFERENCE - END ###
