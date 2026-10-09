@@ -1125,7 +1125,25 @@ class WorkflowExecutionEngine:
             self.log_execution(
                 execution_id, node_id, "error",
                 f"AI Extract error: {error_message}")
-            
+
+            # continueOnError (2026-10-09): same contract as the Database / File /
+            # Automation nodes — log, record the failure in the output variable so a
+            # later node can branch on it, and follow the 'pass' path. Default false
+            # = the behaviour every existing workflow already has.
+            if node_config.get('continueOnError', False):
+                self.log_execution(
+                    execution_id, node_id, "warning",
+                    "Continuing workflow despite AI Extract error")
+                if node_config.get('outputVariable'):
+                    err_var = self._extract_variable_name(node_config.get('outputVariable'))
+                    err_value = {'status': 'failed', 'error': error_message}
+                    self._update_workflow_variable(execution_id, err_var, 'object', err_value)
+                    variables[err_var] = err_value
+                return {
+                    'success': True,
+                    'data': {'error': error_message, 'continued': True}
+                }
+
             return {
                 'success': False,
                 'error': error_message,
@@ -2070,14 +2088,16 @@ Guidelines:
         # Check for UPDATE operation
         excel_operation = node_config.get('excelOperation', 'append')
         if excel_operation == 'update':
-            return self._execute_excel_update_node(
-                execution_id=execution_id,
-                node=node,
-                variables=variables,
-                log_execution_func=self.log_execution,
-                replace_variable_references_func=self._replace_variable_references
-            )
-        
+            return self._finish_excel_export(
+                execution_id, node_id, node_config, variables,
+                self._execute_excel_update_node(
+                    execution_id=execution_id,
+                    node=node,
+                    variables=variables,
+                    log_execution_func=self.log_execution,
+                    replace_variable_references_func=self._replace_variable_references
+                ))
+
         try:
             # Get input data from variable
             input_variable = node_config.get('inputVariable', '')
@@ -2277,15 +2297,15 @@ Guidelines:
                 self.log_execution(
                     execution_id, node_id, "info",
                     f"Excel export complete: {total_rows_written} row(s) written to {excel_output_path}")
-                
-                return {
+
+                return self._finish_excel_export(execution_id, node_id, node_config, variables, {
                     'success': True,
                     'data': {
                         'file_path': excel_output_path,
                         'rows_written': total_rows_written,
                         'sheet_name': sheet_name or 'default'
                     }
-                }
+                })
             else:
                 # Honest failure reporting (2026-07-31): the generic "No data to
                 # write" used to MASK the real per-row error (it lived only in a
@@ -2307,11 +2327,43 @@ Guidelines:
             error_msg = f"Excel Export failed: {str(e)}"
             self.log_execution(execution_id, node_id, "error", error_msg)
             logger.error(error_msg, exc_info=True)
-            return {
+            return self._finish_excel_export(execution_id, node_id, node_config, variables, {
                 'success': False,
                 'error': error_msg,
                 'data': {}
+            })
+
+    def _finish_excel_export(self, execution_id: str, node_id: str, node_config: Dict,
+                             variables: Dict, result: Dict) -> Dict:
+        """outputVariable + continueOnError for the Excel Export node (2026-10-09).
+
+        Both keys are optional and absent on every workflow saved before this, in
+        which case the result passes through untouched. outputVariable receives
+        {'status': 'success'|'failed', 'file_path', 'rows_written', 'sheet_name'
+        | 'error'} so a later node can check it; continueOnError follows the
+        'pass' path on failure, the same contract as the Database and File nodes."""
+        result = result if isinstance(result, dict) else {'success': False, 'error': str(result)}
+        ok = bool(result.get('success'))
+        data = result.get('data') if isinstance(result.get('data'), dict) else {}
+        if node_config.get('outputVariable'):
+            var_name = self._extract_variable_name(node_config.get('outputVariable'))
+            value = {'status': 'success' if ok else 'failed'}
+            if ok:
+                value.update({k: data.get(k) for k in ('file_path', 'rows_written', 'sheet_name') if k in data})
+            else:
+                value['error'] = result.get('error') or 'Excel Export failed'
+                value['rows_written'] = 0
+            self._update_workflow_variable(execution_id, var_name, 'object', value)
+            variables[var_name] = value
+        if not ok and node_config.get('continueOnError', False):
+            self.log_execution(
+                execution_id, node_id, "warning",
+                "Continuing workflow despite Excel Export error")
+            return {
+                'success': True,
+                'data': {'error': result.get('error'), 'continued': True}
             }
+        return result
 
     def _convert_dict_to_extraction_format(self, data: Dict) -> Dict:
         """Convert a simple dictionary to the extraction_result format expected by write_extraction_to_excel
@@ -5202,6 +5254,10 @@ Guidelines:
             
             # Handle case where no files are found
             if not selected_file:
+                self.log_execution(
+                    execution_id, node_id, "warning",
+                    f"No files in {folder_path} match the pattern "
+                    f"'{file_pattern or '*.*'}' (several patterns are separated by | , or ;)")
                 if node_config.get('failIfEmpty', True):
                     # Fail if configured to do so
                     raise ValueError(f"No files found in folder: {folder_path}")
@@ -5307,11 +5363,16 @@ Guidelines:
         if not os.path.isdir(folder_path):
             raise ValueError(f"Path is not a directory: {folder_path}")
         
-        # Support pipe-delimited or comma-delimited patterns
-        if '|' in file_pattern or ',' in file_pattern:
-            # Determine delimiter
-            delimiter = '|' if '|' in file_pattern else ','
-            patterns = [p.strip() for p in file_pattern.split(delimiter)]
+        # An empty pattern used to glob the folder path itself (a directory, so
+        # nothing matched and the step "found no files"). Empty means "no filter"
+        # — the Designer's own default is *.* (2026-10-09).
+        if not (file_pattern or '').strip():
+            file_pattern = '*.*'
+
+        # Several patterns: separated by |, comma or ; (';' added 2026-10-09 —
+        # "*.pdf;*.xlsx" used to be one literal pattern that matched nothing).
+        if any(sep in file_pattern for sep in ('|', ',', ';')):
+            patterns = [p.strip() for p in re.split(r'[|,;]', file_pattern) if p.strip()]
             files = []
             for pattern in patterns:
                 glob_pattern = os.path.join(folder_path, pattern)
@@ -7132,15 +7193,27 @@ Guidelines:
             condition_type = processed_config.get('conditionType', 'comparison')
             
             if condition_type == 'comparison':
+                # A ${...} reference that could not be resolved stays in the text
+                # and is then compared as a literal string — always unequal, so the
+                # condition silently goes one way. Say so in the run log (2026-10-09).
+                for side in ('leftValue', 'rightValue'):
+                    leftover = re.findall(r'\$\{[^}]+\}', str(processed_config.get(side, '') or ''))
+                    if leftover:
+                        self.log_execution(
+                            execution_id, node_id, "warning",
+                            f"Conditional {side}: {', '.join(leftover)} could not be resolved "
+                            f"(no such variable or field at this point) — it is compared as "
+                            f"literal text, so this check cannot pass as intended")
                 left_val = self._evaluate_value(processed_config.get('leftValue', ''))
                 right_val = self._evaluate_value(processed_config.get('rightValue', ''))
                 operator = processed_config.get('operator', '==')
-                
+
                 condition_result = self._evaluate_comparison(left_val, operator, right_val)
-                
+
             elif condition_type == 'expression':
                 expression = processed_config.get('expression', '')
-                condition_result = self._evaluate_expression(expression, variables)
+                condition_result = self._evaluate_expression(
+                    expression, variables, execution_id=execution_id, node_id=node_id)
                 
             elif condition_type == 'contains':
                 text = str(self._evaluate_value(processed_config.get('containsText', '')) or '')
@@ -7251,7 +7324,9 @@ Guidelines:
             # If comparison fails (e.g., incompatible types), return False
             return False
 
-    def _evaluate_expression(self, expression: str, variables: Dict) -> bool:
+    def _evaluate_expression(self, expression: str, variables: Dict,
+                             execution_id: Optional[str] = None,
+                             node_id: Optional[str] = None) -> bool:
         """Safely evaluate a Python expression with a whitelisted set of builtins.
 
         Available functions: len, str, int, float, bool, list, dict, tuple,
@@ -7280,6 +7355,11 @@ Guidelines:
                 'range': range, 'zip': zip, 'map': map, 'filter': filter,
                 'isinstance': isinstance, 'type': type,
                 'True': True, 'False': False, 'None': None,
+                # JSON spellings (2026-10-09): a ${var} holding a dict/list is
+                # rendered as JSON text before evaluation, so any null/true/false
+                # inside it used to raise NameError and the condition silently
+                # went FALSE. Expressions that worked before are unaffected.
+                'null': None, 'true': True, 'false': False,
             }
             safe_dict = {
                 '__builtins__': safe_builtins,
@@ -7316,6 +7396,7 @@ Guidelines:
                     'range': range, 'zip': zip, 'map': map, 'filter': filter,
                     'isinstance': isinstance, 'type': type,
                     'True': True, 'False': False, 'None': None,
+                    'null': None, 'true': True, 'false': False,
                 }
                 safe_dict_fb = {'__builtins__': safe_builtins_fb}
                 safe_dict_fb.update(variables)
@@ -7323,6 +7404,14 @@ Guidelines:
                 return bool(result)
             except Exception as e2:
                 logger.error(f"Expression evaluation fallback also failed: {str(e2)}")
+                # Say WHY in the run log the user sees (2026-10-09) — a bare
+                # "Conditional evaluation: FALSE" hid every one of these.
+                if execution_id:
+                    self.log_execution(
+                        execution_id, node_id, "warning",
+                        f"Expression could not be evaluated ({type(e2).__name__}: {e2}) — "
+                        f"treated as FALSE. Expression after variable substitution: "
+                        f"{str(expression)[:300]}")
                 return False
         
     def _execute_loop_node(self, execution_id: str, node: Dict, variables: Dict) -> Dict:
