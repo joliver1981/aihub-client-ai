@@ -195,6 +195,33 @@ def test_workflow_agent_prompt_lists_real_node_types(wf):
     assert not missing, f"prompt is missing canonical node types: {missing}"
 
 
+def test_system_prompt_is_a_valid_template_in_every_phase(wf):
+    # 2026-10-09 regression: "{status: ...}" added to the node reference became a
+    # ChatPromptTemplate variable and EVERY AI Builder request failed with
+    # "Input to ChatPromptTemplate is missing variables". The real template must
+    # only ever ask for the three inputs the executor supplies.
+    import WorkflowAgent as WA
+    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+    wf.workflow_state = {"nodes": [{"id": "node-0", "type": "Excel Export", "label": "Append {x}",
+                                    "config": {"fieldMapping": {"currentFile": "SourceFile"}}}],
+                         "connections": []}
+    for delegation in (False, True):
+        wf.is_builder_delegation = delegation
+        for phase in WA.BuilderPhase:
+            wf.phase = phase
+            wf._set_system_prompt()
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", wf.SYSTEM),
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("user", "{input}"),
+                MessagesPlaceholder(variable_name="agent_scratchpad"),
+            ])
+            assert set(prompt.input_variables) == {"input", "chat_history", "agent_scratchpad"}, \
+                (phase, delegation, prompt.input_variables)
+            rendered = prompt.format_messages(input="x", chat_history=[], agent_scratchpad=[])
+            assert "NODE TYPES" in rendered[0].content
+
+
 def test_command_generator_prompt_lists_real_node_types():
     import CommandGenerator as CG
     from system_prompts import VALID_WORKFLOW_NODE_TYPES

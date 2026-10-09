@@ -829,7 +829,13 @@ BUILDER DELEGATION RULES:
 """
 
         # NOTE: This now uses a shortened node types doc since it only plans workflows now and does not generate build commands
-        workflow_command_docs = workflow_command_docs.format(command_types_doc=sysprompts.WORKFLOW_COMMAND_TYPES, node_types_doc=sysprompts.WORKFLOW_NODE_TYPES)
+        # self.SYSTEM becomes a ChatPromptTemplate, which reads every {...} as a
+        # template variable — escape the reference docs here so a brace in their
+        # text (e.g. an example JSON value) can never break the builder (2026-10-09:
+        # "{status: ...}" in the node reference made every AI Builder request fail).
+        workflow_command_docs = workflow_command_docs.format(
+            command_types_doc=self._escape_curly(sysprompts.WORKFLOW_COMMAND_TYPES),
+            node_types_doc=self._escape_curly(sysprompts.WORKFLOW_NODE_TYPES))
 
         # AIHUB-0024 F2: for a direct user conversation, do NOT build until the
         # user explicitly confirms the plan — this stops a premature first-turn
