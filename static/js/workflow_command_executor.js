@@ -212,6 +212,8 @@ class WorkflowCommandExecutor {
             throw error;
         } finally {
             window.aiBuilderActive = false;
+            // Keep AI-placed nodes reachable (e.g. negative positions) — once, after the whole build
+            if (typeof ensureCanvasCoversNodes === 'function') ensureCanvasCoversNodes();
         }
     }
 

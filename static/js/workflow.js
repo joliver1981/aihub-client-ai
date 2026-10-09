@@ -314,7 +314,7 @@ function setupToolbarDragAndDrop() {
         const documentScrollTop = document.documentElement.scrollTop || document.body.scrollTop || 0;
         
         // Calculate position relative to canvas, including scroll offsets
-        const x = e.clientX - canvasRect.left;
+        const x = e.clientX - canvasRect.left + (canvas.scrollLeft || 0);
         // For y-position, explicitly account for both canvas and document scroll
         const y = e.clientY - canvasRect.top + canvasScrollTop;
         
@@ -11995,52 +11995,88 @@ function getNodesBoundingBox() {
     return { minX, minY, maxX, maxY };
 }
 
+// Room kept between the canvas's top/left edge and the outermost nodes. The canvas can't scroll
+// to negative coordinates, so a node dragged/placed past that edge — or a connector looping back
+// around the leftmost node (Flowchart stub 30 + gap 5) — would be cut off and unreachable.
+// A multiple of the 20px drag grid so shifted nodes stay on the grid.
+const CANVAS_EDGE_MARGIN = 60;
+const CANVAS_GRID = 20;
+
 /**
- * Expands the canvas min-width/min-height so that every node is reachable via
- * scrolling, with 200px of padding beyond the outermost nodes.
+ * Keeps every node reachable by scrolling the canvas:
+ *  - if any node is closer than CANVAS_EDGE_MARGIN to the top/left edge (or past it), ALL nodes
+ *    shift right/down together, so the layout is unchanged;
+ *  - an invisible marker 200px beyond the right/bottom-most node leaves room to drag outward.
+ *
+ * The canvas itself stays viewport-sized and scrolls internally. (It used to get a min-width /
+ * min-height equal to its content, so it never scrolled: the overflow spilled onto the page and
+ * Fit to View / Scroll to Start had nothing to scroll.)
  */
 function ensureCanvasCoversNodes() {
     const canvas = document.getElementById('workflow-canvas');
     if (!canvas) return;
 
+    canvas.style.minWidth = '';
+    canvas.style.minHeight = '';
+
+    let extent = document.getElementById('workflow-canvas-extent');
     const box = getNodesBoundingBox();
-    if (!box) return;
+    if (!box) {
+        if (extent) extent.remove();
+        return;
+    }
+
+    const shiftNeeded = (min) => min < CANVAS_EDGE_MARGIN
+        ? Math.ceil((CANVAS_EDGE_MARGIN - min) / CANVAS_GRID) * CANVAS_GRID
+        : 0;
+    const shiftX = shiftNeeded(box.minX);
+    const shiftY = shiftNeeded(box.minY);
+    if (shiftX || shiftY) {
+        document.querySelectorAll('#workflow-canvas .workflow-node').forEach(node => {
+            node.style.left = ((parseInt(node.style.left, 10) || 0) + shiftX) + 'px';
+            node.style.top = ((parseInt(node.style.top, 10) || 0) + shiftY) + 'px';
+        });
+        jsPlumbInstance.repaintEverything();
+        box.maxX += shiftX;
+        box.maxY += shiftY;
+    }
 
     const padding = 200;
-    const neededWidth = box.maxX + padding;
-    const neededHeight = box.maxY + padding;
-
-    // Only grow — never shrink below the viewport size (CSS height handles baseline)
-    canvas.style.minWidth = neededWidth + 'px';
-    canvas.style.minHeight = neededHeight + 'px';
+    if (!extent) {
+        extent = document.createElement('div');
+        extent.id = 'workflow-canvas-extent';
+        extent.setAttribute('aria-hidden', 'true');
+        extent.style.cssText = 'position:absolute;width:1px;height:1px;pointer-events:none;visibility:hidden;';
+        canvas.appendChild(extent);
+    }
+    extent.style.left = (box.maxX + padding) + 'px';
+    extent.style.top = (box.maxY + padding) + 'px';
 }
 
 /**
- * Scrolls the canvas so the center of all nodes is in the center of the viewport.
- * No scaling — pure scroll.
+ * Scrolls the canvas to show the workflow. Per axis: centers it when it fits in the viewport,
+ * otherwise brings its top/left edge into view. No scaling — pure scroll.
  */
 function fitToView() {
     const canvas = document.getElementById('workflow-canvas');
     if (!canvas) return;
 
-    const box = getNodesBoundingBox();
-    if (!box) {
+    if (!getNodesBoundingBox()) {
         showToast('No nodes on the canvas', 'info');
         return;
     }
 
-    // Ensure canvas is large enough first
+    // Ensure every node is reachable first (may shift nodes, so measure afterwards)
     ensureCanvasCoversNodes();
-
-    const centerX = (box.minX + box.maxX) / 2;
-    const centerY = (box.minY + box.maxY) / 2;
+    const box = getNodesBoundingBox();
 
     const viewportW = canvas.clientWidth;
     const viewportH = canvas.clientHeight;
+    const margin = 40;
 
     canvas.scrollTo({
-        left: centerX - viewportW / 2,
-        top: centerY - viewportH / 2,
+        left: (box.maxX - box.minX) <= viewportW ? (box.minX + box.maxX - viewportW) / 2 : box.minX - margin,
+        top: (box.maxY - box.minY) <= viewportH ? (box.minY + box.maxY - viewportH) / 2 : box.minY - margin,
         behavior: 'smooth'
     });
 }
