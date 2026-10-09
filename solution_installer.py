@@ -953,8 +953,8 @@ class SolutionInstaller:
         elif prev_pinned >= 1:
             detail = (f"updated in place: saved as v{version}, NOT promoted — workflows keep "
                       f"running the promoted v{prev_pinned} until you dry-run and promote "
-                      f"v{version} (v{prev_pinned} was not installed by this solution "
-                      f"unchanged, so it is not replaced automatically){pkg_note}")
+                      f"v{version} (v{prev_pinned} is not on record as this solution's "
+                      f"unchanged install, so it is not replaced automatically){pkg_note}")
         else:
             detail = (f"updated in place: saved as v{version}, NOT promoted — dry-run and "
                       f"promote it on this system before running/scheduling{pkg_note}")
