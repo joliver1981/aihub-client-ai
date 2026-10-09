@@ -181,6 +181,11 @@ class StubManager(AutomationManager):
     def _db_update_automation(self, automation_id, fields):
         self._rows[automation_id].update(fields)
 
+    def resolve_owner_user_id(self, candidate):
+        # The real one proves the id against [dbo].[User] (FK_Automations_Owner,
+        # 2026-08-08); the stub has no User table: a positive candidate, else 1.
+        return int(candidate) if candidate and int(candidate) > 0 else 1
+
 
 @pytest.fixture
 def mgr(tmp_path):
@@ -1083,6 +1088,7 @@ class TestSolutionRoundTrip:
             p.write_bytes(data)
 
         installer = SolutionInstaller.__new__(SolutionInstaller)
+        installer._installed_automations = {}   # install() sets this before _install_automations
         result = InstallResult(solution_id="t", solution_name="t")
         options = InstallOptions(name_suffix="_installed")
         installer._install_automations(None, tmp_path / "bundle", {}, options, result)
@@ -1777,7 +1783,7 @@ class TestAutomationNodeInDesigner:
             encoding="utf-8", errors="replace")
         assert "data-type=\"Automation\"" in page
         assert "filename='js/workflow.js', v=" in page  # >= threshold, exact pins broke on every bump
-        assert "filename='css/workflow_node_colors.css', v=3" in page
+        assert "filename='css/workflow_node_colors.css', v=" in page  # same: was pinned to v=3, now v=5
 
     def test_css_shades_portal_and_automation(self):
         css = self._root().joinpath("static", "css", "workflow_node_colors.css").read_text(
@@ -2194,16 +2200,19 @@ class TestPlatformAiSeam:
         import aihub_runtime
         importlib.reload(aihub_runtime)
         seen = []
+        # AI calls pass their own longer timeout (2026-09-25: vision calls with
+        # several images outran the default runtime timeout).
         monkeypatch.setattr(aihub_runtime, "_runtime_post",
-                            lambda p, b: (seen.append((p, b)), {"text": "T", "json": {"k": 1}})[1])
+                            lambda p, b, **kw: (seen.append((p, b, kw)), {"text": "T", "json": {"k": 1}})[1])
         monkeypatch.setenv("AIHUB_RUN_TOKEN", "tok")
         assert aihub_runtime.llm("hello", system="be brief") == "T"
-        p, b = seen[-1]
+        p, b, kw = seen[-1]
+        assert kw.get("timeout") == aihub_runtime._AI_TIMEOUT
         assert p.endswith("/runtime/ai") and b["prompt"] == "hello"
         assert b["system"] == "be brief" and "json" not in b and "schema" not in b
         assert aihub_runtime.ai_extract("extract", images=["a.png"],
                                         schema={"k": "number"}) == {"k": 1}
-        p2, b2 = seen[-1]
+        p2, b2, _kw2 = seen[-1]
         assert b2["json"] is True and b2["schema"] == {"k": "number"}
         assert b2["images"] == ["a.png"]
 
