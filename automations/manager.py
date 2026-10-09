@@ -43,6 +43,9 @@ DEFAULT_TIMEOUT_SECONDS = 600
 LIFECYCLE_KEEP = "keep"            # default — the row is a keeper
 LIFECYCLE_EPHEMERAL = "ephemeral"  # one-off; pre-approved for deletion, swept when abandoned
 
+# Per-version provenance sidecar (see set_version_source).
+VERSION_SOURCE_FILENAME = "source.json"
+
 VALID_OUTPUT_KINDS = {"file", "sftp_upload", "ftp_upload", "http_upload"}
 VALID_INPUT_TYPES = {"string", "int", "float", "bool", "path"}
 VALID_TRIGGERS = {"manual", "api", "dry_run", "schedule", "workflow", "email", "webhook"}
@@ -558,6 +561,34 @@ END
         with open(os.path.join(sdir, safe), "wb") as f:
             f.write(content)
         return True, None
+
+    def set_version_source(self, automation_id: str, version: int, source: Dict) -> bool:
+        """Record where a version came from (e.g. the Solutions installer:
+        solution id + version). A sidecar next to the version's code — not a
+        manifest key — so it never changes what runs. Versions are immutable,
+        so a local edit becomes a NEW version without a sidecar: a pinned
+        version that still has one is exactly what was delivered."""
+        vdir = self.version_dir(automation_id, version)
+        if not os.path.isdir(vdir):
+            return False
+        try:
+            with open(os.path.join(vdir, VERSION_SOURCE_FILENAME), "w", encoding="utf-8") as f:
+                json.dump(source or {}, f, indent=2)
+            return True
+        except OSError as e:
+            logger.warning(f"set_version_source({automation_id}, v{version}) failed: {e}")
+            return False
+
+    def get_version_source(self, automation_id: str, version: int) -> Optional[Dict]:
+        if not version:
+            return None
+        path = os.path.join(self.version_dir(automation_id, version), VERSION_SOURCE_FILENAME)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else None
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
 
     # ---------------------------------------------------------------- promote
 

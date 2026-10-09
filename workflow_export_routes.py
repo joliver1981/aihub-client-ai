@@ -17,7 +17,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, abort, jsonify, request
 from flask_login import login_required
@@ -62,6 +62,75 @@ def _safe_workflow_path(name: str) -> Optional[Path]:
                 return p
         except ValueError:
             return None
+    return None
+
+
+def _workflow_body(doc: Any) -> Optional[Dict[str, Any]]:
+    """The dict that holds nodes/variables: either the doc itself or a
+    {"workflow": {...}} wrapper (both shapes occur in bundles)."""
+    if not isinstance(doc, dict):
+        return None
+    inner = doc.get("workflow")
+    return inner if isinstance(inner, dict) else doc
+
+
+def merge_preserved_variables(new_doc: Any, old_doc: Any) -> List[str]:
+    """Overwrite-as-upgrade: keep THIS system's value for every workflow
+    variable that still exists (same name, same type) in the incoming
+    version, so re-installing a solution doesn't wipe settings the client
+    made (folder paths, recipients…). New variables get the bundle's
+    default; removed ones go. Mutates new_doc; returns the names whose
+    value was kept (i.e. differed from the bundle's default)."""
+    new_body, old_body = _workflow_body(new_doc), _workflow_body(old_doc)
+    new_vars = (new_body or {}).get("variables")
+    old_vars = (old_body or {}).get("variables")
+    if not isinstance(new_vars, dict) or not isinstance(old_vars, dict):
+        return []
+    kept: List[str] = []
+    for var_name, nv in new_vars.items():
+        ov = old_vars.get(var_name)
+        if not isinstance(nv, dict) or not isinstance(ov, dict) or "defaultValue" not in ov:
+            continue
+        if (ov.get("type") or "string") != (nv.get("type") or "string"):
+            continue  # the variable changed meaning — the old value may not fit
+        if ov["defaultValue"] != nv.get("defaultValue"):
+            nv["defaultValue"] = ov["defaultValue"]
+            kept.append(var_name)
+    return kept
+
+
+def _load_existing_workflow_db(name: str) -> Optional[Dict[str, Any]]:
+    """The Designer's copy (the [Workflows] row) — what the client edits."""
+    import os
+    from CommonUtils import get_db_connection  # type: ignore
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("EXEC tenant.sp_setTenantContext ?", os.getenv("API_KEY"))
+        cur.execute("SELECT workflow_data FROM Workflows WHERE workflow_name = ?", (name,))
+        row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row or not row[0]:
+        return None
+    data = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+    return data if isinstance(data, dict) else None
+
+
+def _load_existing_workflow(name: str, path: Path) -> Optional[Dict[str, Any]]:
+    """Existing workflow by name: the DB row first, else the file."""
+    try:
+        doc = _load_existing_workflow_db(name)
+        if doc is not None:
+            return doc
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Solution import: could not read existing workflow %r from DB: %s", name, e)
+    try:
+        if path.is_file():
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            return doc if isinstance(doc, dict) else None
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("Solution import: could not read existing workflow file %s: %s", path, e)
     return None
 
 
@@ -150,6 +219,24 @@ def import_workflow():
                     break
                 i += 1
 
+    # Overwrite = upgrade: carry over the values this system set for
+    # variables the new version still has (the client's folder paths etc.).
+    overwritten = False
+    preserved_variables: List[str] = []
+    if conflict_mode == "overwrite":
+        existing_doc = _load_existing_workflow(final_target.stem, final_target)
+        if existing_doc is not None:
+            overwritten = True
+            preserved_variables = merge_preserved_variables(workflow, existing_doc)
+    # Overwrite replaces a file the client already has — keep its bytes so a
+    # failed DB save restores it instead of deleting it.
+    previous_file_bytes = None
+    if conflict_mode == "overwrite" and final_target.is_file():
+        try:
+            previous_file_bytes = final_target.read_bytes()
+        except OSError:
+            previous_file_bytes = None
+
     try:
         final_target.write_text(
             json.dumps(workflow, indent=2),
@@ -186,7 +273,10 @@ def import_workflow():
             # than a half-imported workflow that's invisible in the Designer
             # and blocks the next import attempt with a name conflict.
             try:
-                final_target.unlink()
+                if previous_file_bytes is not None:
+                    final_target.write_bytes(previous_file_bytes)
+                else:
+                    final_target.unlink()
             except OSError:
                 pass
             return jsonify({
@@ -211,4 +301,6 @@ def import_workflow():
         "name": final_target.stem,
         "filename": final_target.name,
         "workflow_id": db_workflow_id,
+        "overwritten": overwritten,
+        "preserved_variables": preserved_variables,
     }), 201

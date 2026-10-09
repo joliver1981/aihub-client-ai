@@ -23,6 +23,7 @@ import logging
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -180,6 +181,14 @@ def _detect_conflicts(
         if isinstance(i, dict):
             existing_integrations.add((i.get("integration_name") or "").lower())
 
+    # Automations: by name (bundle folder name). Overwrite upgrades these in
+    # place as a new version; rename/skip report "already exists".
+    existing_automations = set()
+    a_data = _get("/automations/api/list")
+    for a in (a_data if isinstance(a_data, list) else ((a_data or {}).get("automations") or [])):
+        if isinstance(a, dict):
+            existing_automations.add((a.get("name") or "").lower())
+
     def _conflicts_in(candidates: List[str], existing: set) -> List[str]:
         out: List[str] = []
         for c in candidates or []:
@@ -193,6 +202,9 @@ def _detect_conflicts(
         "agents":       _conflicts_in(manifest.assets.agents, existing_agents),
         "connections":  _conflicts_in(manifest.assets.connections, existing_conns),
         "integrations": _conflicts_in(manifest.assets.integrations, existing_integrations),
+        # Automation entries are bare folder names (no extension to strip).
+        "automations":  [a for a in (manifest.assets.automations or [])
+                         if (a or "").lower() in existing_automations],
     }
 
 
@@ -491,7 +503,16 @@ class SolutionInstaller:
                     },
                     headers=auth,
                 )
-                if resp.status_code in (200, 201):
+                body = resp.get_json(silent=True) if resp.status_code in (200, 201) else None
+                if isinstance(body, dict) and body.get("overwritten"):
+                    kept = body.get("preserved_variables") or []
+                    result.assets.append(AssetResult(
+                        kind="workflow", name=final_name, status="updated",
+                        resource_id=body.get("workflow_id"),
+                        detail=("replaced the existing workflow" + (
+                            "; kept this system's values for variables: " + ", ".join(kept)
+                            if kept else ""))))
+                elif resp.status_code in (200, 201):
                     result.assets.append(
                         AssetResult(kind="workflow", name=final_name, status="installed")
                     )
@@ -810,6 +831,16 @@ class SolutionInstaller:
 
                 from automations.manager import AutomationManager
                 mgr = AutomationManager()
+                orig_name = (meta.get("name") or name).strip().lower()
+                if options.conflict_mode == "overwrite":
+                    existing = next(
+                        (a for a in mgr.list_automations()
+                         if (a.get("name") or "").lower() == final_name.lower()), None)
+                    if existing:
+                        self._upgrade_automation(
+                            mgr, existing, entry, meta, code, auto_manifest,
+                            final_name, orig_name, manifest, result)
+                        continue
                 # Owner = the installing user when known, else the token sub,
                 # then resolve_owner_user_id GUARANTEES the value exists in
                 # this tenant (falls back to an admin) so the FK can't fail.
@@ -832,10 +863,10 @@ class SolutionInstaller:
                     for sample in sorted(samples.iterdir()):
                         if sample.is_file():
                             mgr.add_sample(aid, version, sample.name, sample.read_bytes())
+                mgr.set_version_source(aid, version, self._automation_source(manifest, meta))
                 # Record ORIGINAL-name -> installed identity so the workflow
                 # installer (which runs after) can rewrite Automation-node
                 # references to this fresh id/name.
-                orig_name = (meta.get("name") or name).strip().lower()
                 self._installed_automations[orig_name] = {"id": aid, "name": final_name}
                 result.assets.append(AssetResult(
                     kind="automation", name=final_name, status="installed",
@@ -848,6 +879,88 @@ class SolutionInstaller:
                 logger.exception("automation install failed for %s", name)
                 result.assets.append(AssetResult(
                     kind="automation", name=name, status="failed", detail=str(e)))
+
+    @staticmethod
+    def _automation_source(manifest, meta) -> Dict[str, Any]:
+        """Provenance stamped on an installed automation version (sidecar,
+        see AutomationManager.set_version_source)."""
+        return {
+            "kind": "solution",
+            "solution_id": getattr(manifest, "id", None),
+            "solution_name": getattr(manifest, "name", None),
+            "solution_version": getattr(manifest, "version", None),
+            "exported_version": meta.get("exported_version"),
+            "installed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def _upgrade_automation(self, mgr, existing, entry, meta, code, auto_manifest,
+                            final_name, orig_name, manifest, result):
+        """conflict_mode 'overwrite' + an automation with this name already
+        exists: an UPGRADE. Save the bundle's code + manifest as the next
+        version of the EXISTING automation (same id, so schedules, run history
+        and workflow references survive) instead of failing on the name.
+
+        Promotion: the new version is promoted only when the currently pinned
+        version is one an earlier install of this same solution delivered and
+        nobody has changed since (it still carries the install provenance —
+        a local edit is a new version without it). Otherwise it stays
+        unpromoted and the detail says exactly what keeps running."""
+        aid = existing["automation_id"]
+        prev_pinned = int(existing.get("pinned_version") or 0)
+        current = int(existing.get("current_version") or 0)
+        # Bind workflows to the existing automation whatever happens below.
+        self._installed_automations[orig_name] = {"id": aid, "name": existing.get("name") or final_name}
+        packages = auto_manifest.get("packages") or []
+        pkg_note = ("; packages needed: " + ", ".join(packages)) if packages else ""
+
+        if current >= 1 and mgr.get_code(aid, current) == code \
+                and (mgr.get_manifest(aid, current) or {}) == auto_manifest:
+            state = (f"v{current} is promoted" if prev_pinned == current else
+                     f"v{prev_pinned} is promoted — dry-run and promote v{current}" if prev_pinned >= 1 else
+                     f"not promoted — dry-run and promote v{current}")
+            result.assets.append(AssetResult(
+                kind="automation", name=final_name, status="skipped", resource_id=aid,
+                detail=f"already up to date: v{current} has this bundle's code ({state})"))
+            return
+
+        ok, version, errors = mgr.save_version(aid, code, auto_manifest)
+        if not ok:
+            raise ValueError("could not save the bundle's code as a new version of the "
+                             "existing automation: " + ("; ".join(errors) or "save failed"))
+        samples = entry / "samples"
+        if samples.is_dir():
+            for sample in sorted(samples.iterdir()):
+                if sample.is_file():
+                    mgr.add_sample(aid, version, sample.name, sample.read_bytes())
+        mgr.set_version_source(aid, version, self._automation_source(manifest, meta))
+        new_desc = meta.get("description") or ""
+        if new_desc and new_desc != (existing.get("description") or ""):
+            try:
+                mgr._db_update_automation(aid, {"description": new_desc})
+            except Exception as e:  # cosmetic — never fail the upgrade on it
+                logger.warning("automation %s: description update failed: %s", aid, e)
+
+        prev_src = mgr.get_version_source(aid, prev_pinned) if prev_pinned >= 1 else None
+        sol_id = getattr(manifest, "id", None)
+        if prev_src and sol_id and prev_src.get("solution_id") == sol_id:
+            ok, _, err = mgr.promote(aid, version)
+            if not ok:
+                raise ValueError(f"saved as v{version} but promotion failed: {err}")
+            detail = (f"updated in place: saved as v{version} and PROMOTED — it replaces "
+                      f"v{prev_pinned}, which {getattr(manifest, 'name', '') or 'this solution'} "
+                      f"{prev_src.get('solution_version') or ''} installed and nobody "
+                      f"changed since{pkg_note}").replace("  ", " ")
+        elif prev_pinned >= 1:
+            detail = (f"updated in place: saved as v{version}, NOT promoted — workflows keep "
+                      f"running the promoted v{prev_pinned} until you dry-run and promote "
+                      f"v{version} (v{prev_pinned} was not installed by this solution "
+                      f"unchanged, so it is not replaced automatically){pkg_note}")
+        else:
+            detail = (f"updated in place: saved as v{version}, NOT promoted — dry-run and "
+                      f"promote it on this system before running/scheduling{pkg_note}")
+        result.assets.append(AssetResult(
+            kind="automation", name=final_name, status="updated", detail=detail,
+            resource_id=aid))
 
     def _resolve_installer_user_id(self, auth) -> Optional[int]:
         """Best-effort CANDIDATE owner for imported automations: the local id
