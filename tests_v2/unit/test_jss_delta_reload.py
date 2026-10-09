@@ -65,6 +65,9 @@ def bare_service():
     svc = object.__new__(JobSchedulerService)
     svc.scheduler = MagicMock()
     svc.db_conn = MagicMock()
+    # Every DB operation opens its own connection since 2026-08-30 (0bc9468):
+    # route _db_cursor() to the same mock so tests drive svc.db_conn as before.
+    svc._db_cursor = lambda: (svc.db_conn, svc.db_conn.cursor())
     svc.tenant_id = None
     svc._job_fingerprints = {}
     svc._last_written_next_run = {}

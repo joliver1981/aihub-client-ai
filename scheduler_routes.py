@@ -552,7 +552,8 @@ def get_all_schedules_by_type(job_type):
                s.IntervalSeconds, s.IntervalMinutes, s.IntervalHours, s.IntervalDays, s.IntervalWeeks,
                s.CronExpression, s.StartDate, s.EndDate, s.NextRunTime, s.LastRunTime, s.MaxRuns, s.CurrentRuns,
                s.IsActive,
-               w.workflow_name
+               w.workflow_name,
+               JSON_VALUE(w.workflow_data, '$.kind') AS workflow_kind
         FROM ScheduledJobs j
         JOIN ScheduleDefinitions s ON j.ScheduledJobId = s.ScheduledJobId
         LEFT JOIN Workflows w ON j.TargetId = w.id
@@ -582,10 +583,17 @@ def get_all_schedules_by_type(job_type):
                 'last_run_time': row[15].isoformat() if row[15] else None,
                 'max_runs': row[16],
                 'current_runs': row[17],
-                'is_active': bool(row[18])
+                'is_active': bool(row[18]),
+                # 'code_flow' for a Code Flow (same table, same job type); None for a visual workflow
+                'workflow_kind': row[20],
             }
             schedules.append(schedule)
         
+        # each schedule's cron zone (its own, else the job's; None = UTC)
+        zones = _schedule_zones(cursor, [sc['scheduled_job_id'] for sc in schedules])
+        for sc in schedules:
+            sc['timezone'] = _zone_for(zones, sc['scheduled_job_id'], sc['id'])
+
         cursor.close()
         conn.close()
         
@@ -681,6 +689,10 @@ def get_job_schedules_by_type_and_target_id(job_id, job_type):
             }
             schedules.append(schedule)
         
+        zones = _schedule_zones(cursor, [scheduled_job_id])
+        for sc in schedules:
+            sc['timezone'] = _zone_for(zones, scheduled_job_id, sc['id'])
+
         cursor.close()
         conn.close()
         
@@ -805,6 +817,8 @@ def get_job_schedule_by_type(job_id, job_type, schedule_id):
             'current_runs': row[13],
             'is_active': bool(row[14])
         }
+        schedule['timezone'] = _zone_for(_schedule_zones(cursor, [scheduled_job_id]),
+                                         scheduled_job_id, schedule_id)
         
         cursor.close()
         conn.close()
@@ -902,18 +916,25 @@ def create_job_schedule_by_type(job_id, job_type):
         data = request.json
         if not data:
             return jsonify({'error': 'No data provided'}), 400
-        
+
+        # Optional zone a CRON schedule fires in (validated before anything is written)
+        zone, zone_error = _canonical_zone(data.get('timezone'))
+        if zone_error:
+            return jsonify({'error': zone_error}), 400
+        if data.get('type') != 'cron':
+            zone = ''      # interval / one-time schedules are absolute instants
+
         # Connect to database
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Set tenant context
         set_tenant_context(cursor)
-        
+
         # Check if a scheduler job exists for this document job
         cursor.execute("SELECT ScheduledJobId FROM ScheduledJobs WHERE JobType = ? AND TargetId = ?", job_type, job_id)
         row = cursor.fetchone()
-        
+
         # If no scheduler job exists, create one
         if not row:
             print(f'Creating scheduler job for {job_type} job {job_id}')
@@ -954,6 +975,9 @@ def create_job_schedule_by_type(job_id, job_type):
         
         if not schedule_id:
             return jsonify({'error': 'Failed to create schedule'}), 500
+
+        if zone:
+            _set_schedule_zone(cursor, scheduled_job_id, schedule_id, zone)
         
         # Commit changes
         conn.commit()
@@ -967,7 +991,8 @@ def create_job_schedule_by_type(job_id, job_type):
             'job_id': job_id,  # Return the document job ID for consistency in the API
             'scheduled_job_id': scheduled_job_id,  # Also return the scheduled job ID for reference
             'type': data.get('type'),
-            'is_active': data.get('is_active', True)
+            'is_active': data.get('is_active', True),
+            'timezone': zone or None,
         }), 201
         
     except Exception as e:
@@ -1198,7 +1223,22 @@ def update_job_schedule_by_type(job_id, job_type, schedule_id):
             print(f'Running update query: {query}')
             cursor.execute(query, *params)
             conn.commit()
-        
+
+        # The schedule's own cron zone changes ONLY when the caller sends
+        # 'timezone' explicitly ('' = back to the default, UTC) — an edit that
+        # does not mention it never moves a schedule's firing time.
+        if 'timezone' in data:
+            zone, zone_error = _canonical_zone(data.get('timezone'))
+            if zone_error:
+                cursor.close()
+                conn.close()
+                return jsonify({'error': zone_error}), 400
+            cursor.execute("SELECT ScheduleType FROM ScheduleDefinitions WHERE ScheduleId = ?", schedule_id)
+            type_row = cursor.fetchone()
+            _set_schedule_zone(cursor, scheduled_job_id, schedule_id,
+                               zone if type_row and type_row[0] == 'cron' else '')
+            conn.commit()
+
         # Return success
         cursor.close()
         conn.close()
@@ -1282,8 +1322,9 @@ def delete_job_schedule_by_type(job_id, job_type, schedule_id):
         if not cursor.fetchone():
             return jsonify({'error': 'Schedule not found or does not belong to the specified job'}), 404
         
-        # Delete the schedule from the database
+        # Delete the schedule from the database (and its own cron zone, if any)
         cursor.execute("DELETE FROM ScheduleDefinitions WHERE ScheduleId = ?", schedule_id)
+        _set_schedule_zone(cursor, scheduled_job_id, schedule_id, '')
         conn.commit()
         
         cursor.close()
@@ -1568,7 +1609,7 @@ def run_job_now(job_id):
             payload = {
                 'workflow_id': target_id,
                 'initiator': 'api',
-                'variables': parameters
+                'variables': _without_schedule_zones(parameters)
             }
             response = requests.post(api_url, json=payload, headers=auth_headers)
             
@@ -1745,6 +1786,81 @@ def _bind_schedule_date_utc(value, request_data):
         except (TypeError, ValueError):
             return parsed
     return parsed
+
+
+# ── Per-schedule cron zone (2026-10-09) ─────────────────────────────────────
+# A cron schedule fires in the zone the person meant, not in UTC. The Workflow
+# Monitor keeps ONE scheduler job per workflow, and job parameters are shared
+# by all of its schedules, so the zone is stored per schedule as the job
+# parameter "timezone@<ScheduleId>" — the key job_scheduler.SCHEDULE_TZ_PREFIX
+# reads before the job-level "timezone". Schedules without one keep firing
+# exactly as before (UTC).
+_SCHEDULE_TZ_PREFIX = "timezone@"
+
+
+def _canonical_zone(value):
+    """(zone, error) for a requested cron zone: ('', None) when none was given,
+    (None, message) when the engine could not fire in it."""
+    zone = str(value or "").strip()
+    if not zone:
+        return "", None
+    try:
+        from schedule_tz import to_tzinfo
+    except Exception:
+        return None, "time zones are not available on this install"
+    if to_tzinfo(zone) is None:
+        return None, (f"unknown time zone '{zone}' — use an IANA name such as "
+                      "America/Toronto, 'UTC', or an offset such as 'UTC-05:00'")
+    return zone, None
+
+
+def _set_schedule_zone(cursor, scheduled_job_id, schedule_id, zone):
+    """Store (or, with zone='', remove) one schedule's own cron zone."""
+    name = f"{_SCHEDULE_TZ_PREFIX}{int(schedule_id)}"
+    cursor.execute("DELETE FROM ScheduledJobParameters WHERE ScheduledJobId = ? AND ParameterName = ?",
+                   int(scheduled_job_id), name)
+    if zone:
+        cursor.execute("""INSERT INTO ScheduledJobParameters
+                          (ScheduledJobId, ParameterName, ParameterValue, ParameterType)
+                          VALUES (?, ?, ?, 'string')""", int(scheduled_job_id), name, zone)
+
+
+def _schedule_zones(cursor, scheduled_job_ids):
+    """{(job_id, schedule_id): zone} for per-schedule zones and
+    {(job_id, None): zone} for job-level ones, for the given jobs."""
+    ids = sorted({int(j) for j in scheduled_job_ids if j is not None})
+    zones = {}
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        cursor.execute(
+            "SELECT ScheduledJobId, ParameterName, ParameterValue FROM ScheduledJobParameters "
+            f"WHERE ScheduledJobId IN ({','.join('?' * len(chunk))}) "
+            "AND (ParameterName = 'timezone' OR ParameterName LIKE 'timezone@%')", *chunk)
+        for job_id, pname, pvalue in cursor.fetchall():
+            if not pvalue:
+                continue
+            if pname == 'timezone':
+                zones[(int(job_id), None)] = str(pvalue)
+            else:
+                try:
+                    zones[(int(job_id), int(str(pname)[len(_SCHEDULE_TZ_PREFIX):]))] = str(pvalue)
+                except ValueError:
+                    pass
+    return zones
+
+
+def _zone_for(zones, scheduled_job_id, schedule_id):
+    """The zone a schedule's cron fires in (None = the engine default, UTC)."""
+    return (zones.get((int(scheduled_job_id), int(schedule_id)))
+            or zones.get((int(scheduled_job_id), None)))
+
+
+def _without_schedule_zones(parameters):
+    """Job parameters minus the scheduler's own per-schedule zone keys — what a
+    workflow run receives as variables (same rule as the engine)."""
+    return {k: v for k, v in (parameters or {}).items()
+            if not str(k).startswith(_SCHEDULE_TZ_PREFIX)}
+
 
 def _create_schedule(cursor, job_id, schedule_data):
     """

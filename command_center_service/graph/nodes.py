@@ -6195,16 +6195,22 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
 
     @lc_tool
     async def schedule_code_flow(name: str, cron_expression: str = "",
-                                 every_hours: int = 0, every_days: int = 0) -> str:
+                                 every_hours: int = 0, every_days: int = 0,
+                                 timezone: str = "", timezone_iana: str = "") -> str:
         """Schedule a Code Flow to run automatically. It runs on the platform's
         EXISTING workflow scheduler (the flow is stored as a workflow), so no extra
         setup. GROUNDING: report only the real schedule the tool returns.
 
         Args:
             name: the code flow's name.
-            cron_expression: cron like '0 2 * * *' (2:00 daily). Use this OR every_*.
+            cron_expression: cron like '0 2 * * *' (2:00 daily) in the user's local
+                time. Use this OR every_*.
             every_hours: run every N hours (interval schedule).
             every_days: run every N days (interval schedule).
+            timezone: zone the user NAMED for the cron time ("2am EST" -> "EST"); leave
+                empty when they named none — their browser timezone is used automatically.
+            timezone_iana: your best-guess IANA name for a named zone (e.g.
+                "Asia/Kolkata"); validated, never trusted blindly.
         """
         if not _automations_allowed(state):
             return _AUTOMATIONS_DENIED
@@ -6218,11 +6224,21 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 schedule["interval_days"] = every_days
         else:
             return "Provide either cron_expression or every_hours/every_days."
-        res = await asyncio.to_thread(_cf, "schedule", {"name": name, "schedule": schedule})
+        # A cron wall-clock time fires in the USER'S zone, like schedule_automation
+        # (2026-10-09: code-flow crons were stored without a zone and ran in UTC).
+        tz_name, tz_note = _resolve_schedule_tz(bool(cron_expression), timezone,
+                                                timezone_iana,
+                                                state.get("user_context") or {})
+        payload = {"name": name, "schedule": schedule}
+        if tz_name:
+            payload["timezone"] = tz_name
+        res = await asyncio.to_thread(_cf, "schedule", payload)
         if not res.get("ok"):
             return f"Could not schedule: {res.get('error')}"
+        zone_text = f" Cron times are in {tz_name}." if (cron_expression and tz_name) else ""
         return (f"Scheduled code flow '{name}' (job #{res.get('scheduled_job_id')}, "
-                f"schedule #{res.get('schedule_id')}). {res.get('note') or ''}".strip())
+                f"schedule #{res.get('schedule_id')}).{zone_text} {tz_note or ''} "
+                f"{res.get('note') or ''}".strip())
 
     # ── Native visual-workflow tools (CC_AGENT="native" A/B agent) ──────────
     # The Code Flows pattern applied to VISUAL workflows: thin typed wrappers

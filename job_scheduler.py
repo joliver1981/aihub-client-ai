@@ -52,6 +52,32 @@ except Exception:  # pragma: no cover
     _normalize_cron_dow = lambda expr: expr
 
 
+# Per-SCHEDULE zone (2026-10-09). Job parameters are shared by every schedule of
+# a job, and the Workflow Monitor keeps ONE job per workflow — so a job-level
+# "timezone" would also move that workflow's existing schedules. A cron
+# schedule's own zone is carried as the job parameter "timezone@<ScheduleId>"
+# and wins over the job-level "timezone"; schedules without one fire exactly as
+# before (job zone, else JOB_SCHEDULER_TIMEZONE / UTC).
+SCHEDULE_TZ_PREFIX = "timezone@"
+
+
+def schedule_timezone(params, schedule_id) -> str:
+    """The zone a schedule's cron fires in: its own "timezone@<id>" parameter,
+    else the job's "timezone", else '' (the engine default)."""
+    if not isinstance(params, dict):
+        return ""
+    own = params.get(f"{SCHEDULE_TZ_PREFIX}{schedule_id}")
+    return str(own or params.get("timezone") or "").strip()
+
+
+def workflow_run_variables(params):
+    """Job parameters a scheduled WORKFLOW run receives as variables: all of
+    them except the scheduler's own per-schedule zone keys."""
+    if not isinstance(params, dict):
+        return {}
+    return {k: v for k, v in params.items() if not str(k).startswith(SCHEDULE_TZ_PREFIX)}
+
+
 def _as_utc_aware(dt):
     """ScheduleDefinitions StartDate/EndDate arrive NAIVE, in UTC
     (JOB_SCHEDULER_TIMEZONE). APScheduler compares trigger bounds with
@@ -483,10 +509,11 @@ class JobSchedulerService:
                         logger.warning(f"Unsupported job type: {job_type}")
                         continue
                 
-                    # Get job parameters first - they carry the optional per-schedule "timezone"
-                    # (canonical IANA name or 'UTC+HH:MM' offset) the cron trigger should fire in.
+                    # Get job parameters first - they carry the optional zone (canonical IANA
+                    # name or 'UTC+HH:MM' offset) the cron trigger fires in: this schedule's
+                    # own "timezone@<id>", else the job's "timezone".
                     params = self._get_job_parameters(job_id)
-                    tz_name = (params.get("timezone") or "").strip() if isinstance(params, dict) else ""
+                    tz_name = schedule_timezone(params, schedule_id)
 
                     # Create or update the job in the scheduler
                     trigger = self._create_trigger(
@@ -1759,10 +1786,11 @@ class JobSchedulerService:
                 'initiator': 'scheduler'
             }
             
-            # Add any additional parameters
-            if parameters:
-                payload['variables'] = parameters
-            
+            # Add any additional parameters (never the scheduler's own zone keys)
+            run_variables = workflow_run_variables(parameters)
+            if run_variables:
+                payload['variables'] = run_variables
+
             # Make API call to run the workflow
             headers = {'X-API-Key': os.getenv('API_KEY', '')}
             response = requests.post(api_url, json=payload, headers=headers)

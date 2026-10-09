@@ -110,16 +110,23 @@ def dry_run_code_flow(name):
 # ------------------------------------------------------ scheduling helper
 
 def _create_code_flow_schedule(name, workflow_id, schedule_data, variables,
-                               user_id, username) -> Tuple[Dict, int]:
+                               user_id, username, timezone=None) -> Tuple[Dict, int]:
     """Write ScheduledJobs (JobType='workflow', TargetId=the code flow's
     workflow id) + params + ScheduleDefinitions. Reuses the EXISTING 'workflow'
     job type — the engine's _execute_workflow_job POSTs /api/workflow/run with
     the saved code-flow workflow, so no new job type and no scheduler restart.
-    Params become the run's `variables`."""
+    Params become the run's `variables`. `timezone` (2026-10-09): the zone a
+    CRON schedule fires in, stored as that schedule's own zone (it used to be
+    dropped, so a 'weekdays 7:30' flow ran at 7:30 UTC)."""
     if not isinstance(schedule_data, dict):
         return {"error": "'schedule' object is required (type: cron|interval|date)"}, 400
 
-    from scheduler_routes import _create_schedule
+    from scheduler_routes import _create_schedule, _canonical_zone, _set_schedule_zone
+    zone, zone_error = _canonical_zone(timezone)
+    if zone_error:
+        return {"error": zone_error}, 400
+    if schedule_data.get('type') != 'cron':
+        zone = ''      # interval / one-time schedules are absolute instants
     conn = _get_manager()._db_conn()
     try:
         cursor = conn.cursor()
@@ -149,6 +156,8 @@ def _create_code_flow_schedule(name, workflow_id, schedule_data, variables,
         if not schedule_id:
             conn.rollback()
             return {"error": "invalid schedule definition"}, 400
+        if zone:
+            _set_schedule_zone(cursor, job_id, schedule_id, zone)
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -159,6 +168,7 @@ def _create_code_flow_schedule(name, workflow_id, schedule_data, variables,
 
     return {
         "scheduled_job_id": job_id, "schedule_id": schedule_id, "workflow_id": int(workflow_id),
+        "timezone": zone or None,
         "note": "runs on the existing 'workflow' scheduler job type — no scheduler restart needed",
     }, 201
 
@@ -278,7 +288,8 @@ def internal_manage():
                 return jsonify({"error": "code flow has no steps yet — add steps before scheduling"}), 400
             resp, code = _create_code_flow_schedule(
                 name, cf["workflow_id"], payload.get("schedule"),
-                payload.get("variables") or {}, user_id=user_id, username=username)
+                payload.get("variables") or {}, user_id=user_id, username=username,
+                timezone=payload.get("timezone"))
             return jsonify(resp), code
 
         return jsonify({"error": f"unknown action '{action}'"}), 400

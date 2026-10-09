@@ -2937,8 +2937,30 @@ function loadWorkflowsForDropdown() {
 }
 
 // Toggle schedule type fields
+// The browser's IANA time zone (e.g. "America/Toronto"), or '' if unknown.
+function browserTimeZone() {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    } catch (e) {
+        return '';
+    }
+}
+
+// Which zone a cron schedule's times are in, for the help text under the field.
+function setCronZoneHint(elementId, zone, isNew) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    if (isNew) {
+        el.textContent = zone ? `Times are in your time zone (${zone}).` : 'Times are in UTC.';
+    } else {
+        el.textContent = zone ? `This schedule's times are in ${zone}.`
+                              : "This schedule's times are in UTC (it was created before schedules used your time zone).";
+    }
+}
+
 function toggleScheduleTypeFields() {
     const scheduleType = document.getElementById('scheduleType').value;
+    setCronZoneHint('cronZoneHint', browserTimeZone(), true);
     
     // Hide all settings sections
     document.getElementById('intervalSettings').style.display = 'none';
@@ -3009,18 +3031,22 @@ function saveWorkflowSchedule() {
         }
     } else if (scheduleType === 'cron') {
         scheduleData.cron_expression = document.getElementById('cronExpression').value;
-        
+
         if (!scheduleData.cron_expression) {
             showAlert('warning', 'Please enter a cron expression.');
             return;
         }
+        // The cron's times are this person's local times: send their zone so the
+        // scheduler fires it then (it used to fire the same digits in UTC).
+        const zone = browserTimeZone();
+        if (zone) scheduleData.timezone = zone;
     } else if (scheduleType === 'date') {
         if (!scheduleData.start_date) {
             showAlert('warning', 'Please specify a start date for one-time execution.');
             return;
         }
     }
-    
+
     // Create API endpoint for workflow schedules
     const schedule_type = 'workflow';
     fetch(`/api/scheduler/jobs/${workflowId}/types/${schedule_type}/schedules`, {
@@ -3079,6 +3105,8 @@ function editWorkflowSchedule(scheduleId, workflowId) {
                     
                     // Cron settings
                     document.getElementById('editCronExpression').value = schedule.cron_expression || '';
+                    // An edit keeps the schedule's zone (it is never changed silently)
+                    setCronZoneHint('editCronZoneHint', schedule.timezone || '', false);
                     
                     // Format dates for datetime-local input
                     const formatDateForInput = (dateString) => {
@@ -3285,7 +3313,7 @@ function getScheduleDescription(schedule) {
         
         return `Every ${parts.join(', ')}`;
     } else if (schedule.type === 'cron') {
-        return `Cron: ${schedule.cron_expression}`;
+        return `Cron: ${schedule.cron_expression} (${schedule.timezone || 'UTC'})`;
     } else if (schedule.type === 'date') {
         return `One-time: ${
                             schedule.start_date

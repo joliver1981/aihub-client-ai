@@ -7390,6 +7390,19 @@ def list_workflows_summary():
         if "enabled" in df.columns:
             cols.append("enabled")
         summary = df[cols].to_dict(orient="records") if cols else []
+        # kind (2026-10-09): Code Flows live in this table too; callers that
+        # act on VISUAL workflows (The Agent's workflow tools) must tell them
+        # apart. 'code_flow' or 'workflow'.
+        if "workflow_data" in df.columns and len(summary) == len(df):
+            for item, raw in zip(summary, df["workflow_data"].tolist()):
+                kind = "workflow"
+                try:
+                    if isinstance(raw, str) and '"code_flow"' in raw and \
+                            (json.loads(raw) or {}).get("kind") == "code_flow":
+                        kind = "code_flow"
+                except Exception:
+                    pass
+                item["kind"] = kind
         return jsonify({"workflows": summary})
     except Exception as e:
         logger.error("Error listing workflows: %s", e)
