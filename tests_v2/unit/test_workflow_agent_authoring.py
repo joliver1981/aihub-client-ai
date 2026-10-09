@@ -107,15 +107,34 @@ def test_phase_is_forward_only(wf):
 # ── command surfacing (characterization — P1 will change the source) ─────
 
 def test_process_message_surfaces_tool_generated_commands(wf):
+    # The generate_workflow_commands tool runs inside the turn and records them.
+    cmds = [{"type": "add_node", "node_type": "Database"}]
+
+    def _turn(_inputs):
+        wf._record_generated_commands(cmds)
+        return {"output": "Here is your workflow."}
     wf.agent_executor = MagicMock()
-    wf.agent_executor.invoke.return_value = {"output": "Here is your workflow."}
-    wf.generated_commands = [{"type": "add_node", "node_type": "Database"}]
+    wf.agent_executor.invoke.side_effect = _turn
 
     response, metadata = wf.process_message("build it")
 
     assert metadata["workflow_commands"] is not None
     assert metadata["workflow_commands"]["action"] == "build_workflow"
-    assert metadata["workflow_commands"]["commands"] == wf.generated_commands
+    assert metadata["workflow_commands"]["commands"] == cmds
+
+
+def test_commands_from_an_earlier_turn_are_not_resent(wf):
+    # Live 2026-10-09: after a build, a "worked as intended, no change needed"
+    # reply to a Test run report re-sent the build and the canvas went 8 -> 16
+    # nodes. Only a turn that generated commands may return them.
+    wf._record_generated_commands([{"type": "add_node", "node_type": "Loop"}])
+    wf.agent_executor = MagicMock()
+    wf.agent_executor.invoke.return_value = {"output": "It worked as intended; no change is needed."}
+
+    response, metadata = wf.process_message("TEST RUN REPORT — ...")
+
+    assert metadata["workflow_commands"] is None
+    assert wf.generated_commands                     # still marks the workflow as built
 
 
 def test_process_message_no_commands_when_none_generated(wf):

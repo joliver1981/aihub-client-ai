@@ -99,6 +99,7 @@ class WorkflowAgent:
         self.requirements = WorkflowRequirements()
         self.workflow_plan = None
         self.generated_commands = None
+        self._commands_generation = 0         # bumped each time the tool generates commands
         self.conversation_context = []
         self.chat_history = []
         self.tools = []
@@ -1551,8 +1552,8 @@ Output a complete JSON with action: build_workflow and commands array in a ```js
                         if "dbConnection" in config and not str(config["dbConnection"]).isdigit():
                             config["dbConnection"] = self._resolve_connection_id(config["dbConnection"])
                 
-                self.generated_commands = commands
-                
+                self._record_generated_commands(commands)
+
                 if len(commands) > 0:
                     self.update_phase(BuilderPhase.REFINEMENT)
                 
@@ -1712,6 +1713,14 @@ Output a complete JSON with action: build_workflow and commands array in a ```js
             max_iterations=10
         )
     
+    def _record_generated_commands(self, commands):
+        """Store commands the generate_workflow_commands tool produced THIS turn.
+        generated_commands also serves as the "already built" signal (phase,
+        persistence), so it stays set; the generation counter is what tells
+        process_message that a turn produced new commands to send to the canvas."""
+        self.generated_commands = commands
+        self._commands_generation = getattr(self, '_commands_generation', 0) + 1
+
     # NOTE: _preprocess_json and _extract_workflow_commands_with_ai (a regex
     # JSON-repair helper and an LLM re-extraction fallback) were removed in the
     # Workflow Builder P1 hardening — both were dead code, and command JSON is
@@ -1760,6 +1769,7 @@ Output a complete JSON with action: build_workflow and commands array in a ```js
                 self._auto_update_phase()
                 
             # Run the agent
+            generation_before = getattr(self, '_commands_generation', 0)
             result = self.agent_executor.invoke({
                 "input": message,
                 "chat_history": self.chat_history
@@ -1784,9 +1794,13 @@ Output a complete JSON with action: build_workflow and commands array in a ```js
                 self.workflow_plan = extracted_plan
                 logger.info("Stored workflow plan for command generation")
             
-            # Use workflow commands from tool call only (not auto-extracted from response)
+            # Use workflow commands from tool call only (not auto-extracted from response),
+            # and only when the tool ran in THIS turn: the frontend executes whatever it
+            # receives, so re-sending an earlier build duplicated every node on the
+            # canvas (live 2026-10-09: a "worked as intended, no change needed" reply to
+            # a Test run report turned 8 nodes into 16).
             workflow_commands = None
-            if self.generated_commands:
+            if self.generated_commands and getattr(self, '_commands_generation', 0) != generation_before:
                 workflow_commands = {
                     "action": "build_workflow",
                     "commands": self.generated_commands
