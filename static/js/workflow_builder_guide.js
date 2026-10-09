@@ -2215,11 +2215,15 @@ class WorkflowBuilderGuide {
             };
         });
         
-        // Get all connections
+        // Get all connections. The designer (and the builder's own commands)
+        // store the route type with setData({type}) — read it there. Reading
+        // getParameter('type') alone reported EVERY connection as PASS, so the
+        // AI never saw a FAIL route and "fixed" correct ones (2026-10-09).
         const connections = jsPlumbInstance.getAllConnections().map(conn => ({
             from: conn.sourceId,
             to: conn.targetId,
-            type: conn.getParameter('type') || 'pass'
+            type: ((typeof conn.getData === 'function' && conn.getData()) || {}).type
+                  || conn.getParameter('type') || 'pass'
         }));
         
         return {
