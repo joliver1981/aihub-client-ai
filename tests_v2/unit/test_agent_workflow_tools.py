@@ -61,6 +61,18 @@ class FakePlatform:
             return {"execution_id": "E1", "status": st}
         if path.startswith("/api/workflow/builder/run-report"):
             return {"status": "success", "text": "RUN REPORT — 3 files found, 3 rows written", "flags": []}
+        if path.startswith("/api/workflow/builder/node-reference"):
+            self.reference_paths = getattr(self, "reference_paths", []) + [path]
+            loop = ("Loop:\n- sourceType ...\n  EXACT CONFIG KEYS for Loop (the engine ignores any other "
+                    "key; unknown keys come back as validation warnings): itemVariable, loopSource\n"
+                    "  Required: loopSource")
+            fs = ("Folder Selector:\n- folderPath ...\n  EXACT CONFIG KEYS for Folder Selector (the engine "
+                  "ignores any other key; unknown keys come back as validation warnings): filePattern, folderPath")
+            out = {"status": "success", "node_types": ["Loop", "Folder Selector"],
+                   "details": loop + "\n\n" + fs}
+            if path.endswith("types=all"):
+                out["overview"] = "Loop - repeat over a list"
+            return out
         raise AssertionError(f"unexpected GET {path}")
 
     async def post(self, path, body, timeout=None):
@@ -226,6 +238,32 @@ def test_run_that_did_not_start_says_so(monkeypatch):
     assert is_err and "did not start" in text and "not found" in text
     text, is_err = _call(wt.run_workflow, {"workflow": "5", "variables_json": "[1]"})
     assert is_err and "JSON object" in text
+
+
+def test_reference_overview_is_compact_and_details_come_per_type(monkeypatch):
+    api = FakePlatform()
+    _wire(monkeypatch, api)
+    text, is_err = _call(wt.get_workflow_node_reference, {})
+    assert not is_err and "OVERVIEW" in text and "repeat over a list" in text
+    assert "- Loop: itemVariable, loopSource  [required: loopSource]" in text
+    assert "- Folder Selector: filePattern, folderPath" in text
+    assert "sourceType ..." not in text            # full details not in the overview
+    text, _ = _call(wt.get_workflow_node_reference, {"node_types": "Loop"})
+    assert "NODE DETAILS" in text and "sourceType ..." in text and "OVERVIEW" not in text
+    assert api.reference_paths == ["/api/workflow/builder/node-reference?types=all",
+                                   "/api/workflow/builder/node-reference?types=Loop"]
+
+
+def test_contract_regex_tracks_the_platform_wording():
+    # The overview's key index is parsed out of CommonUtils._node_contract_line's
+    # text; if that wording changes, this fails instead of the index going empty.
+    src = open(os.path.join(APP_ROOT, "CommonUtils.py"), encoding="utf-8").read()
+    assert 'EXACT CONFIG KEYS for {node_type} (the engine ignores any other key; unknown "' in src
+    assert 'f"keys come back as validation warnings): {' in src
+    assert 'line += f"\\n  Required: {' in src
+    sample = ("\n  EXACT CONFIG KEYS for Loop (the engine ignores any other key; unknown keys come back "
+              "as validation warnings): itemVariable, loopSource\n  Required: loopSource")
+    assert wt._CONTRACT_RE.findall(sample) == [("Loop", "itemVariable, loopSource", "loopSource")]
 
 
 def test_unknown_workflow_name_suggests_near_matches(monkeypatch):

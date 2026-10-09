@@ -28,6 +28,7 @@ node reference (static documentation) is open to everyone.
 import asyncio
 import json
 import os
+import re
 import time
 from typing import Any, Optional
 
@@ -132,30 +133,50 @@ def _normalise_definition(defn: dict, user_id: int = 0) -> tuple[Optional[dict],
     return out, None
 
 
+_CONTRACT_RE = re.compile(r"EXACT CONFIG KEYS for (.+?) \(the engine[^)]*\): (.*)(?:\n  Required: (.*))?")
+
+
 @tool(
     "get_workflow_node_reference",
-    "The node reference for building VISUAL WORKFLOWS (the Workflow designer): every node "
-    "type, what it does, its EXACT config keys, and the general authoring rules (route "
-    "failures through FAIL connections, settings as workflow variables, …). Read it before "
-    "designing or changing a workflow. node_types: 'all' (default, includes the overview) "
-    "or a comma-separated list such as 'Folder Selector, Loop, AI Extract'.",
+    "The node reference for building VISUAL WORKFLOWS (the Workflow designer). Without "
+    "node_types: an overview of every node type, the general authoring rules (route failures "
+    "through FAIL connections, settings as workflow variables, …) and each node's EXACT config "
+    "keys. With node_types (comma-separated, e.g. 'Folder Selector, Loop, AI Extract'): the "
+    "full settings documentation of those types. Read the overview first, then the details "
+    "of the types you will use. Never use a config key that is not listed for its type.",
     {"type": "object",
      "properties": {"node_types": {"type": "string"}},
      "additionalProperties": False},
 )
 async def get_workflow_node_reference(args: dict[str, Any]) -> dict[str, Any]:
     from urllib.parse import quote
-    types = str(args.get("node_types") or "all")
+    types = str(args.get("node_types") or "").strip()
+    overview_mode = not types or types.lower() in ("all", "overview")
     try:
-        data = await _get(f"/api/workflow/builder/node-reference?types={quote(types)}")
+        data = await _get("/api/workflow/builder/node-reference?types="
+                          + quote("all" if overview_mode else types))
     except Exception as e:
         return _text(f"Could not read the node reference: {e}", is_error=True)
     if not isinstance(data, dict) or data.get("status") != "success":
         return _text(f"Could not read the node reference: {data}", is_error=True)
+    details = str(data.get("details") or "")
     parts = []
-    if data.get("overview"):
-        parts.append("OVERVIEW\n" + data["overview"])
-    parts.append("NODE DETAILS\n" + str(data.get("details") or ""))
+    if overview_mode:
+        # The full details of every type (~40 KB) are too long for one tool
+        # result; the overview plus each type's exact keys is what planning
+        # needs, and the details come per type on the next call.
+        contract = _CONTRACT_RE.findall(details)
+        parts.append("OVERVIEW\n" + str(data.get("overview") or ""))
+        if contract:
+            parts.append("EXACT CONFIG KEYS PER NODE TYPE (the engine ignores any other key):\n"
+                         + "\n".join(f"- {t}: {k}" + (f"  [required: {r}]" if r else "")
+                                     for t, k, r in contract))
+            parts.append("Next: call get_workflow_node_reference with node_types = the types you "
+                         "will use, for their full settings (values, formats, examples).")
+        else:
+            parts.append("NODE DETAILS\n" + details)
+    else:
+        parts.append("NODE DETAILS\n" + details)
     parts.append("Valid node types: " + ", ".join(data.get("node_types") or []))
     return _text("\n\n".join(parts))
 

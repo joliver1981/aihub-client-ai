@@ -14,9 +14,10 @@ things with their own tools.
 
 ## The loop
 
-1. `get_workflow_node_reference` (all, or the node types you plan to use).
-   It gives each node's EXACT config keys. Use only those: the engine ignores
-   any other key, so an invented key is a setting that silently does nothing.
+1. `get_workflow_node_reference` with no arguments (overview, rules, every
+   node's EXACT config keys), then again with `node_types` = the types you
+   will use (their full settings). Use only the listed keys: the engine
+   ignores any other key, so an invented key silently does nothing.
 2. Design it. Exactly one node has `isStart: true`. Put settings (folders,
    workbook paths, recipients) in workflow `variables` and use them as
    `${name}`, so the user can repoint them without touching nodes.
