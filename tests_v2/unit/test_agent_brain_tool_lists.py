@@ -41,6 +41,7 @@ try:
     from map_tools import MAP_TOOLS                 # noqa: E402
     from image_tools import IMAGE_TOOLS             # noqa: E402
     from connection_tools import CONNECTION_TOOLS   # noqa: E402
+    from workflow_tools import WORKFLOW_TOOLS       # noqa: E402
     HAVE_SDK = True
 except ImportError as e:
     HAVE_SDK = False
@@ -60,7 +61,8 @@ else:
     ALL_TOOLS = (AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
                  + INTEGRATION_TOOLS + FILE_TOOLS + DOCUMENT_TOOLS
                  + PORTAL_TOOLS + EMAIL_TOOLS + AGENT_BUILDER_TOOLS + WEB_TOOLS
-                 + EXPORT_TOOLS + MAP_TOOLS + IMAGE_TOOLS + CONNECTION_TOOLS)
+                 + EXPORT_TOOLS + MAP_TOOLS + IMAGE_TOOLS + CONNECTION_TOOLS
+                 + WORKFLOW_TOOLS)
     ALL_NAMES = {getattr(t, "name", "") for t in ALL_TOOLS}
 
 # Read-shaped name prefixes. A registered tool matching one of these, not in
@@ -185,6 +187,16 @@ def test_known_drift_regressions_pinned():
     assert "use_my_connection" not in brain._READ_TOOL_NAMES
     assert hasattr(brain, "_MY_CONNECTIONS_ON")   # the kill switch exists
     assert brain.claims_completed_mutation("I've sent the email from your Outlook account.")
+    # Visual workflows (2026-10-09): reference / list / get / run report are
+    # reads; save and run are writes (a run moves files and can send email).
+    for n in ("get_workflow_node_reference", "list_workflows", "get_workflow",
+              "get_workflow_run_report"):
+        assert n in brain._READ_TOOL_NAMES, n
+    for n in ("save_workflow", "run_workflow"):
+        assert n in brain.MUTATING_TOOLS, n
+        assert n not in brain._READ_TOOL_NAMES, n
+    assert hasattr(brain, "_WORKFLOW_TOOLS_ON")   # the kill switch exists
+    assert brain.claims_completed_mutation("I've saved the workflow Acme Invoice Lines.")
 
 
 def test_sensitive_fields_map_to_real_tools():

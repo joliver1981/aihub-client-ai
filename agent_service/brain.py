@@ -38,6 +38,7 @@ from export_tools import EXPORT_TOOLS
 from map_tools import MAP_TOOLS
 from image_tools import IMAGE_TOOLS
 from connection_tools import CONNECTION_TOOLS
+from workflow_tools import WORKFLOW_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -166,6 +167,11 @@ _IMAGE_TOOLS_ON = os.getenv("AGENT_IMAGE_TOOLS", "true").lower() == "true"
 # empty by default — see connection_tools.py).
 _MY_CONNECTIONS_ON = os.getenv("AGENT_MY_CONNECTIONS", "true").lower() == "true"
 
+# Visual workflows (2026-10-09): read the node reference, build and save a
+# Workflow-designer workflow, run it, read its run report, fix. Same additive /
+# reversible doctrine — AGENT_WORKFLOW_TOOLS=false ships without them.
+_WORKFLOW_TOOLS_ON = os.getenv("AGENT_WORKFLOW_TOOLS", "true").lower() == "true"
+
 aihub_server = create_sdk_mcp_server(
     name="aihub", version="0.11.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
@@ -179,7 +185,8 @@ aihub_server = create_sdk_mcp_server(
           + (EXPORT_TOOLS if _EXPORT_TOOLS_ON else [])
           + (MAP_TOOLS if _MAP_TOOLS_ON else [])
           + (IMAGE_TOOLS if _IMAGE_TOOLS_ON else [])
-          + (CONNECTION_TOOLS if _MY_CONNECTIONS_ON else []))
+          + (CONNECTION_TOOLS if _MY_CONNECTIONS_ON else [])
+          + (WORKFLOW_TOOLS if _WORKFLOW_TOOLS_ON else []))
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -206,6 +213,7 @@ MUTATING_TOOLS = frozenset({
     "send_email", "unwire_steps", "remove_code_step", "update_step_code",
     "delete_code_flow", "remember_preference", "forget_preference",
     "export_data", "manipulate_pdf", "generate_image",
+    "save_workflow", "run_workflow",
     # Acts AS the user on their personal account; reads today, and any write
     # an admin allows must be covered by the "I sent that email" guard.
     "use_my_connection",
@@ -254,6 +262,8 @@ _READ_TOOL_NAMES = [
     "query_document_records", "read_file",
     "lookup_portal", "list_portal_workflows", "describe_portal_workflow",
     "list_agents", "get_agent_config", "get_agent_builder_options",
+    "get_workflow_node_reference", "list_workflows", "get_workflow",
+    "get_workflow_run_report",
     # Personal connections: a side thread may SEE what is connected and what
     # a connection offers; use_my_connection stays out — a side thread must
     # never act (or send) as the user.
@@ -298,6 +308,16 @@ WHAT YOU CAN DO
   automations are swept automatically after about a day. Never make anything
   ephemeral the user may want to keep, schedule, or pin to a View; to keep one
   after all, promote it (promotion clears the flag).
+- Build and change VISUAL WORKFLOWS (the Workflow Designer's boxes and arrows)
+  when the user asks for a workflow — load the aihub-workflow-authoring skill
+  first. The loop: get_workflow_node_reference (exact config keys; never
+  invent one) -> save_workflow (fix EVERY validation error and warning, save
+  again) -> run_workflow -> read the run report -> fix and run again. A run is
+  real (files move, email and approvals go out): get a go-ahead first unless
+  the user asked you to run or test it. Call a workflow working only when a
+  run report shows the expected outcome (files found and processed, rows
+  written) — never on a save or a bare "Completed". To change one,
+  get_workflow first and save with replace_existing=true.
 
 WRITING AUTOMATION CODE
 Code runs in a sandboxed subprocess. START EVERY SCRIPT WITH THE EXPLICIT IMPORT

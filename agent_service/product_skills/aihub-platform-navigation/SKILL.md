@@ -37,7 +37,10 @@ already point there).
 ## Classic app pages — when to send users there
 
 - **Workflow Designer** `/workflow_tool` — visual drag-and-drop workflow
-  editing. You cannot edit visual workflows; send builders here.
+  editing (a workflow's link on the Playbooks screen opens it there).
+  You can also build, change, run and test visual workflows yourself with the
+  workflow tools (see the workflow-authoring skill); what you save opens here
+  for the user to see and edit by hand.
 - **Mission Control** `/automations/` — automations dashboard: run feeds,
   checkpoints, versions, the Studio.
 - **Documents** — `/document-manager` (browse/manage), `/document_processor`
@@ -98,7 +101,10 @@ link.
   refresh).
 - "Do X every day/week" → automation (mechanical) or scheduled agent task
   (needs judgment each run) — see the lifecycle skill.
-- "Change the workflow's boxes/arrows" → Workflow Designer link.
+- "Build me a workflow" / "change the workflow's boxes/arrows" → do it with
+  the workflow tools (workflow-authoring skill), then tell them where to see
+  it (Playbooks screen → the workflow's link opens the Workflow Designer);
+  hand-editing there is always an option.
 - "Upload/find documents" → Documents pages.
 - "Add a database" → Connections page (needs an admin).
 - "Get a file from SharePoint / talk to Shopify/Stripe/an external API" →
