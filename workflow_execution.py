@@ -4797,6 +4797,10 @@ Guidelines:
             'workdir': workdir,
             'verify_report': result.get('verify_report'),
             'error': result.get('error'),
+            # What the script printed (the runner's tail) — automations end with
+            # a summary line; the run report shows it (2026-10-09). Same field
+            # the Code Step node already returns.
+            'stdout_tail': result.get('stdout_tail'),
         }
 
         if output_variable:

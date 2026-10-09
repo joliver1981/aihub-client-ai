@@ -76,6 +76,20 @@ def test_workflow_variables_are_listed_and_empty_ones_flagged():
     assert "WORKFLOW VARIABLES" not in build_run_report(EXEC, steps, [])["text"]
 
 
+def test_automation_summary_line_is_shown():
+    # Live 2026-10-09: The Agent had to list folders to learn what the
+    # preparation automation set aside; its last printed line says so.
+    summary = '{"duplicates_moved": 6, "not_read": 2, "converted": 6}'
+    steps = [step("s1", "n1", "Prepare", "Automation",
+                  out={"status": "success", "stdout_tail": "MOVED a.pdf -> duplicates/a.pdf\n" + summary + "\n"}),
+             step("s2", "n2", "Tidy", "Code Step", out={"status": "success", "stdout_tail": "x" * 2500})]
+    r = build_run_report(EXEC, steps, [])
+    assert f"printed (last line): {summary}" in r["text"]
+    by = {n["name"]: n for n in r["nodes"]}
+    assert by["Tidy"]["automation"] == {"success": 1}
+    assert next(iter(by["Tidy"]["printed"])).startswith("…")   # a tail that began mid-line says so
+
+
 def test_clean_run_has_no_flags():
     steps = [step("s1", "n1", "Find", "Folder Selector", out={"allFiles": ["a", "b"]}),
              step("s2", "n2", "Loop", "Loop", out={"_loopStats": {"totalItems": 2, "processedItems": 2}}),

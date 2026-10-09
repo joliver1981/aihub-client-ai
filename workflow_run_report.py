@@ -72,6 +72,7 @@ def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
             "runs": 0, "status": Counter(), "errors": Counter(), "warnings": Counter(),
             "condition": Counter(), "files_found": [], "loop_items": [], "rows_written": 0,
             "moved_to": Counter(), "extracted": Counter(), "automation": Counter(),
+            "printed": Counter(),
         })
         n["runs"] += 1
         n["status"][str(s.get("status") or "?")] += 1
@@ -107,8 +108,17 @@ def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
         elif t == "AI Extract":
             for k, v in _list_lengths(out.get("extraction")).items():
                 n["extracted"][k] += v
-        elif t == "Automation":
+        elif t in ("Automation", "Code Step"):
             n["automation"][str(out.get("status") or "?")] += 1
+            # The last line the script printed (automations conventionally end
+            # with a summary) — what it did, not just that it exited 0.
+            tail = str(out.get("stdout_tail") or "")
+            printed = [ln.strip() for ln in tail.splitlines() if ln.strip()]
+            if printed:
+                last = printed[-1]
+                if len(printed) == 1 and len(tail) >= 2000:
+                    last = "…" + last           # the runner's tail began mid-line
+                n["printed"][last] += 1
 
     run_warnings: Counter = Counter()
     for lg in logs or []:
@@ -203,6 +213,8 @@ def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
             lines.append("    extracted: " + ", ".join(f"{k} {v} item(s)" for k, v in n["extracted"].items()))
         if n["automation"]:
             lines.append("    automation outcome: " + ", ".join(f"{k} {v}" for k, v in n["automation"].items()))
+        for msg, c in list(n["printed"].items())[:max_examples]:
+            lines.append(f"    printed (last line): {msg}" + (f"  (x{c})" if c > 1 else ""))
         for msg, c in list(n["errors"].items())[:max_examples]:
             lines.append(f"    ERROR x{c}: {msg}")
         if len(n["errors"]) > max_examples:
@@ -225,7 +237,7 @@ def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
             "condition": dict(n["condition"]), "files_found": n["files_found"],
             "loop_items": n["loop_items"], "rows_written": n["rows_written"],
             "moved_to": dict(n["moved_to"]), "extracted": dict(n["extracted"]),
-            "automation": dict(n["automation"]),
+            "automation": dict(n["automation"]), "printed": dict(n["printed"]),
         })
     return {"status": status, "duration_s": duration, "nodes": serial_nodes,
             "warnings": dict(run_warnings), "flags": flags, "variables": variables,
