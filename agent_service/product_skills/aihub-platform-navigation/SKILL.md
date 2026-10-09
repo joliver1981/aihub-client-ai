@@ -101,6 +101,12 @@ link.
   refresh).
 - "Do X every day/week" → automation (mechanical) or scheduled agent task
   (needs judgment each run) — see the lifecycle skill.
+- "Run my <existing thing> every …" → the schedule tool of WHAT it is: a
+  visual workflow → `schedule_workflow`; a code flow → `schedule_code_flow`;
+  a recorded portal workflow → `schedule_portal_workflow`; an automation →
+  `schedule_automation`. Look the name up first when unsure; a schedule tool
+  given the wrong kind refuses and names the right one. Visual workflow
+  schedules are also on the Workflow Monitor page `/monitoring`.
 - "Build me a workflow" / "change the workflow's boxes/arrows" → do it with
   the workflow tools (workflow-authoring skill), then tell them where to see
   it (Playbooks screen → the workflow's link opens the Workflow Designer);

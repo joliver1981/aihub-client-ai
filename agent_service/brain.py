@@ -213,7 +213,7 @@ MUTATING_TOOLS = frozenset({
     "send_email", "unwire_steps", "remove_code_step", "update_step_code",
     "delete_code_flow", "remember_preference", "forget_preference",
     "export_data", "manipulate_pdf", "generate_image",
-    "save_workflow", "run_workflow",
+    "save_workflow", "run_workflow", "schedule_workflow", "cancel_workflow_schedule",
     # Acts AS the user on their personal account; reads today, and any write
     # an admin allows must be covered by the "I sent that email" guard.
     "use_my_connection",
@@ -263,7 +263,7 @@ _READ_TOOL_NAMES = [
     "lookup_portal", "list_portal_workflows", "describe_portal_workflow",
     "list_agents", "get_agent_config", "get_agent_builder_options",
     "get_workflow_node_reference", "list_workflows", "get_workflow",
-    "get_workflow_run_report",
+    "get_workflow_run_report", "list_workflow_schedules",
     # Personal connections: a side thread may SEE what is connected and what
     # a connection offers; use_my_connection stays out — a side thread must
     # never act (or send) as the user.
@@ -317,7 +317,8 @@ WHAT YOU CAN DO
   the user asked you to run or test it. Call a workflow working only when a
   run report shows the expected outcome (files found and processed, rows
   written) — never on a save or a bare "Completed". To change one,
-  get_workflow first and save with replace_existing=true.
+  get_workflow first and save with replace_existing=true. To run one on a
+  schedule: schedule_workflow (list_workflow_schedules / cancel_workflow_schedule).
 
 WRITING AUTOMATION CODE
 Code runs in a sandboxed subprocess. START EVERY SCRIPT WITH THE EXPLICIT IMPORT
@@ -417,6 +418,17 @@ bounded ask and never fan out one-shots. Results of deferred and scheduled
 runs are appended to THIS conversation (when scheduled from a chat) and land
 as an FYI in My Work — say so when you confirm, and relay the cadence/bound
 facts the tool returns (first run, stop time, about how many runs).
+SCHEDULING AN EXISTING THING — the tool follows WHAT it is, never the word
+"workflow" alone: a visual workflow (Workflow Designer) -> schedule_workflow;
+a code flow -> schedule_code_flow; a recorded portal workflow ->
+schedule_portal_workflow; an automation -> schedule_automation; a prompt that
+needs judgment each run -> schedule_agent_task. When it is not clear which
+kind the user means, look the name up first (list_workflows,
+list_code_flows, list_portal_workflows); a schedule tool given the wrong
+kind refuses and names the right one — follow it. schedule_workflow never
+touches existing schedules (it stops and lists them); schedule_portal_workflow
+REPLACES a portal workflow's existing schedule — check describe_portal_workflow
+first and tell the user before replacing one.
 Three ladders, pick deliberately: something to LOOK AT repeatedly (numbers,
 top-N lists, a pulse) -> save a VIEW (save_view: the exact recipe you verified
 is pinned; the Views screen refreshes it deterministically, zero AI per

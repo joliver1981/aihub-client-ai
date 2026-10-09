@@ -1246,13 +1246,19 @@ async def run_code_flow(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "schedule_code_flow",
-    "Schedule a code flow (cron_expression OR every_hours/every_days). It runs "
-    "on the scheduler's existing workflow job type. Report ONLY the returned ids.",
+    "Schedule a CODE FLOW (multi-step Python) — not a visual workflow (schedule_workflow) or "
+    "a recorded portal workflow (schedule_portal_workflow). cron_expression is in the user's "
+    "LOCAL time (pass timezone only when they name another zone), OR every_hours/every_days. "
+    "It runs on the scheduler's existing workflow job type. Report ONLY the returned ids.",
     {
         "type": "object",
         "properties": {
             "name": {"type": "string"},
-            "cron_expression": {"type": "string"},
+            "cron_expression": {"type": "string",
+                                "description": "5-field cron in the user's local time"},
+            "timezone": {"type": "string",
+                         "description": "Only when the user names a zone: IANA name, alias "
+                                        "(Eastern), 'UTC' or '-05:00'"},
             "every_hours": {"type": "integer"},
             "every_days": {"type": "integer"},
         },
@@ -1263,19 +1269,35 @@ async def run_code_flow(args: dict[str, Any]) -> dict[str, Any]:
 async def schedule_code_flow(args: dict[str, Any]) -> dict[str, Any]:
     if not _authoring_allowed():
         return _text(_DENIED, is_error=True)
-    if args.get("cron_expression"):
-        schedule = {"type": "cron", "cron_expression": str(args["cron_expression"])}
-    elif args.get("every_hours") or args.get("every_days"):
-        schedule = {"type": "interval"}
-        if args.get("every_hours"):
-            schedule["interval_hours"] = int(args["every_hours"])
-        if args.get("every_days"):
-            schedule["interval_days"] = int(args["every_days"])
-    else:
+    import datetime as _dt
+    from work_tools import _build_schedule, default_zone_label, _cadence_text
+    cadence = {k: args.get(k) for k in ("cron_expression", "every_hours", "every_days", "timezone")
+               if args.get(k)}
+    if not (cadence.get("cron_expression") or cadence.get("every_hours") or cadence.get("every_days")):
         return _text("Provide either cron_expression or every_hours/every_days.",
                      is_error=True)
-    data, status = await _manage_cf("schedule", {"name": str(args["name"]),
-                                                 "schedule": schedule}, timeout=60)
+    # The cron's times are the user's local times (2026-10-09: the zone used to
+    # be dropped, so 'weekdays 7:30' ran at 7:30 UTC).
+    zone, zone_src = default_zone_label(CURRENT_USER.get() or {})
+    try:
+        plan = _build_schedule(cadence, now=_dt.datetime.utcnow(), default_tz=zone,
+                               default_src=zone_src)
+    except ValueError as e:
+        return _text(f"Nothing was scheduled: {e}", is_error=True)
+    payload: dict[str, Any] = {"name": str(args["name"]), "schedule": plan["schedule"]}
+    if plan["kind"] == "cron":
+        payload["timezone"] = plan["tz_label"]
+    data, status = await _manage_cf("schedule", payload, timeout=60)
+    if status == 404:
+        hint = ""
+        try:
+            from workflow_tools import workflow_kind_of
+            if await workflow_kind_of(str(args["name"])) == "workflow":
+                hint = (f" '{args['name']}' is a VISUAL workflow (Workflow Designer) — schedule it "
+                        "with schedule_workflow.")
+        except Exception:
+            pass
+        return _text(f"Schedule failed (HTTP 404): {data.get('error', data)}.{hint}", is_error=True)
     if status >= 400:
         return _text(f"Schedule failed (HTTP {status}): {data.get('error', data)}",
                      is_error=True)
@@ -1284,7 +1306,8 @@ async def schedule_code_flow(args: dict[str, Any]) -> dict[str, Any]:
                      "Do NOT tell the user it was scheduled.", is_error=True)
     return _text(f"Scheduled code flow '{args['name']}' "
                  f"(job #{data.get('scheduled_job_id')}, schedule "
-                 f"#{data.get('schedule_id')}). {data.get('note', '')}")
+                 f"#{data.get('schedule_id')}): {_cadence_text(plan)}.{plan.get('note') or ''} "
+                 f"{data.get('note', '')}")
 
 
 AUTHORING_TOOLS = [

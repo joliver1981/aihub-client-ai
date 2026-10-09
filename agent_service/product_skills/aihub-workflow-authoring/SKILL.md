@@ -94,8 +94,15 @@ End Loop's `loopNodeId` is the Loop's id.
   the Designer), change only what was asked, and save with
   `replace_existing=true` (same name, same id). Saving under a new name makes
   a separate copy.
-- Scheduling: you cannot schedule a visual workflow. The user sets a
-  schedule on the Workflow Monitor page (Platform menu → Workflow Monitor).
+- Scheduling: `schedule_workflow` (cron in the user's local time, or every
+  N minutes/hours/days, or `run_at` for one run). It never changes an
+  existing schedule: when the workflow already has one it lists them and
+  stops — ask the user, then `add_alongside=true` adds another, or
+  `cancel_workflow_schedule` removes one (two-step). Report the next run the
+  tool returns; it is the scheduler's own. Schedules also show, and can be
+  edited, on the Workflow Monitor page. Code Flows, portal workflows and
+  automations have their own schedule tools; given one of those, the
+  workflow tools refuse and name the right one.
 
 ## Saying what you did
 

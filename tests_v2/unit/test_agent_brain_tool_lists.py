@@ -190,11 +190,12 @@ def test_known_drift_regressions_pinned():
     # Visual workflows (2026-10-09): reference / list / get / run report are
     # reads; save and run are writes (a run moves files and can send email).
     for n in ("get_workflow_node_reference", "list_workflows", "get_workflow",
-              "get_workflow_run_report"):
+              "get_workflow_run_report", "list_workflow_schedules"):
         assert n in brain._READ_TOOL_NAMES, n
-    for n in ("save_workflow", "run_workflow"):
+    for n in ("save_workflow", "run_workflow", "schedule_workflow", "cancel_workflow_schedule"):
         assert n in brain.MUTATING_TOOLS, n
         assert n not in brain._READ_TOOL_NAMES, n
+    assert brain.claims_completed_mutation("I've scheduled the workflow for weekdays at 7am.")
     assert hasattr(brain, "_WORKFLOW_TOOLS_ON")   # the kill switch exists
     assert brain.claims_completed_mutation("I've saved the workflow Acme Invoice Lines.")
 

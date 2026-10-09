@@ -344,6 +344,25 @@ def _raise_takeover_item_if_headless(run_id: str, link: str, reason: str) -> str
         return ""
 
 
+async def _portal_not_found(name: str) -> str:
+    """'No saved portal workflow' — and, when the name belongs to a VISUAL
+    workflow or a Code Flow instead, the tool that owns it (2026-10-09: "workflow"
+    names four different things here; a wrong tool choice must correct itself)."""
+    text = (f"No saved portal workflow matches '{name}'. Call list_portal_workflows to see "
+            "the exact names.")
+    try:
+        from workflow_tools import workflow_kind_of
+        kind = await workflow_kind_of(name)
+    except Exception:
+        kind = None
+    if kind == "workflow":
+        text += (f" '{name}' is a VISUAL workflow (Workflow Designer) — use run_workflow / "
+                 "schedule_workflow / cancel_workflow_schedule.")
+    elif kind == "code_flow":
+        text += f" '{name}' is a CODE FLOW — use run_code_flow / schedule_code_flow."
+    return text
+
+
 async def _portal_schedule_jobs(client, base: str, headers: dict, uid, slug=None) -> list:
     """This user's portal_workflow scheduler jobs via the main-app scheduler REST
     (read-only): [{id, name, slug, active, next_run}], optionally only `slug`."""
@@ -754,8 +773,7 @@ async def describe_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
     name = str(args.get("name") or "").strip()
     wf = await asyncio.to_thread(wf_store.get_workflow, _uid(), name)
     if not wf:
-        return _text(f"No saved portal workflow matches '{name}'. Call "
-                     "list_portal_workflows to see the exact names.", is_error=True)
+        return _text(await _portal_not_found(name), is_error=True)
     steps = wf.get("steps") or []
     types = [s.get("type") for s in steps if isinstance(s, dict)]
 
@@ -937,8 +955,7 @@ async def schedule_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
     name = str(args.get("name") or "").strip()
     wf = await asyncio.to_thread(wf_store.get_workflow, uid, name)
     if not wf:
-        return _text(f"No saved portal workflow matches '{name}'. Call "
-                     "list_portal_workflows to see the exact names.", is_error=True)
+        return _text(await _portal_not_found(name), is_error=True)
     slug = wf["slug"]
 
     # Same schedule builder as schedule_agent_task: engine-native cron timezone
@@ -1054,8 +1071,7 @@ async def cancel_portal_workflow_schedule(args: dict[str, Any]) -> dict[str, Any
     name = str(args.get("name") or "").strip()
     wf = await asyncio.to_thread(wf_store.get_workflow, uid, name)
     if not wf:
-        return _text(f"No saved portal workflow matches '{name}'. Call "
-                     "list_portal_workflows to see the exact names.", is_error=True)
+        return _text(await _portal_not_found(name), is_error=True)
     base, hdrs = get_base_url(), _headers()
     try:
         async with httpx.AsyncClient(timeout=30) as client:

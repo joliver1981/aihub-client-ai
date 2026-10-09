@@ -48,6 +48,10 @@ class FakePlatform:
         self.save_resp = save_resp
         self.stored = None
         self.posts = []
+        self.schedules = []          # rows of /api/scheduler/types/workflow/schedules
+        self.deleted = []
+        self.record_zone = True      # False = an old main app that drops the zone
+        self.next_run = "2026-10-12T11:00:00"   # what the engine computes (UTC)
 
     async def get(self, path, timeout=None):
         if path.startswith("/api/workflows/list"):
@@ -59,6 +63,8 @@ class FakePlatform:
             if isinstance(st, Exception):
                 raise st
             return {"execution_id": "E1", "status": st}
+        if path.startswith("/api/scheduler/types/workflow/schedules"):
+            return [dict(s) for s in self.schedules]
         if path.startswith("/api/workflow/builder/run-report"):
             return {"status": "success", "text": "RUN REPORT — 3 files found, 3 rows written", "flags": []}
         if path.startswith("/api/workflow/builder/node-reference"):
@@ -85,7 +91,25 @@ class FakePlatform:
                     "validation_errors": [], "validation_warnings": []}, 200
         if path == "/api/workflow/run":
             return self.run_resp, 200
+        if path.startswith("/api/scheduler/jobs/") and path.endswith("/types/workflow/schedules"):
+            wid = int(path.split("/")[4])
+            sid = 900 + len(self.posts)
+            name = next((w["workflow_name"] for w in self.workflows if w["id"] == wid), "?")
+            self.schedules.append({
+                "id": sid, "workflow_id": wid, "workflow_name": name, "scheduled_job_id": 41,
+                "type": body["type"], "cron_expression": body.get("cron_expression"),
+                "interval_hours": body.get("interval_hours"), "start_date": body.get("start_date"),
+                "end_date": body.get("end_date"), "max_runs": body.get("max_runs"), "current_runs": 0,
+                "is_active": True, "next_run_time": self.next_run, "workflow_kind": None,
+                "timezone": body.get("timezone") if self.record_zone else None})
+            return {"id": sid, "scheduled_job_id": 41}, 201
         raise AssertionError(f"unexpected POST {path}")
+
+    async def delete(self, path):
+        sid = int(path.rsplit("/", 1)[1])
+        self.deleted.append(sid)
+        self.schedules = [s for s in self.schedules if s["id"] != sid]
+        return {"message": "deleted"}, 200
 
 
 def _wire(monkeypatch, api, allowed=True):
@@ -93,6 +117,10 @@ def _wire(monkeypatch, api, allowed=True):
     monkeypatch.setattr(wt, "_post", api.post)
     monkeypatch.setattr(wt, "_authoring_allowed", lambda: allowed)
     monkeypatch.setattr(wt, "_user_context", lambda: {"user_id": 7, "role": 2, "username": "jdoe"})
+    monkeypatch.setattr(wt, "_delete", api.delete)
+    monkeypatch.setattr(wt, "_other_kind_hint", _no_hint)
+    wt.CURRENT_USER.set({"user_id": 7, "role": 2, "username": "jdoe",
+                         "browser_timezone": "America/Toronto"})
     # No real waiting: sleeps return at once and each clock read moves 3 s on.
     clock = iter(range(0, 10**6, 3))
     monkeypatch.setattr(wt, "asyncio", SimpleNamespace(sleep=_no_sleep))
@@ -101,6 +129,10 @@ def _wire(monkeypatch, api, allowed=True):
 
 async def _no_sleep(_s):
     return None
+
+
+async def _no_hint(_ref):
+    return ""
 
 
 def _call(tool_obj, args):
@@ -158,7 +190,10 @@ def test_everything_but_the_reference_needs_a_developer(monkeypatch):
     for tool_obj, args in ((wt.list_workflows, {}), (wt.get_workflow, {"workflow": "5"}),
                            (wt.save_workflow, {"name": "Y", "definition_json": json.dumps(DEFN)}),
                            (wt.run_workflow, {"workflow": "5"}),
-                           (wt.get_workflow_run_report, {"execution_id": "E1"})):
+                           (wt.get_workflow_run_report, {"execution_id": "E1"}),
+                           (wt.schedule_workflow, {"workflow": "5", "cron_expression": "0 7 * * *"}),
+                           (wt.list_workflow_schedules, {}),
+                           (wt.cancel_workflow_schedule, {"workflow": "5"})):
         text, is_err = _call(tool_obj, args)
         assert is_err and "Developer" in text, tool_obj.name
     assert api.posts == []
@@ -271,6 +306,126 @@ def test_unknown_workflow_name_suggests_near_matches(monkeypatch):
     _wire(monkeypatch, api)
     text, is_err = _call(wt.get_workflow, {"workflow": "Invoice"})
     assert is_err and "Acme Invoice Lines" in text
+
+
+# ------------------------------------------------------------ visual only
+
+ROWS = [{"id": 5, "workflow_name": "Acme Lines", "kind": "workflow"},
+        {"id": 6, "workflow_name": "Invoice Aging", "kind": "code_flow"}]
+
+
+def test_code_flows_are_refused_and_left_out(monkeypatch):
+    api = FakePlatform(workflows=ROWS)
+    _wire(monkeypatch, api)
+    for ref in ("Invoice Aging", "6"):
+        text, is_err = _call(wt.get_workflow, {"workflow": ref})
+        assert is_err and "CODE FLOW" in text and "schedule_code_flow" in text, ref
+    text, _ = _call(wt.list_workflows, {})
+    assert "Acme Lines" in text and "Invoice Aging" not in text and "1 Code Flow(s)" in text
+    text, is_err = _call(wt.save_workflow, {"name": "invoice aging", "definition_json": json.dumps(DEFN),
+                                            "replace_existing": True})
+    assert is_err and "CODE FLOW" in text and api.posts == []
+
+
+def test_a_portal_or_automation_name_is_answered_with_its_tool(monkeypatch):
+    api = FakePlatform(workflows=ROWS)
+    _wire(monkeypatch, api)
+
+    async def portal_hint(ref):
+        return f" '{ref}' is a recorded PORTAL workflow (a browser replay) — use schedule_portal_workflow."
+    monkeypatch.setattr(wt, "_other_kind_hint", portal_hint)
+    text, is_err = _call(wt.schedule_workflow, {"workflow": "vendor_invoice_download",
+                                                "cron_expression": "0 6 * * *"})
+    assert is_err and "No visual workflow named" in text and "schedule_portal_workflow" in text
+    assert api.posts == []                      # nothing scheduled anywhere
+
+
+# ------------------------------------------------------------ scheduling
+
+def test_cron_is_scheduled_in_the_users_zone(monkeypatch):
+    api = FakePlatform(workflows=ROWS)
+    _wire(monkeypatch, api)
+    text, is_err = _call(wt.schedule_workflow, {"workflow": "Acme Lines", "cron_expression": "0 7 * * 1-5"})
+    assert not is_err, text
+    path, body = api.posts[-1]
+    assert path == "/api/scheduler/jobs/5/types/workflow/schedules"
+    assert body["cron_expression"] == "0 7 * * 1-5" and body["timezone"] == "America/Toronto"
+    assert "schedule #901" in text and "2026-10-12 07:00" in text and "WARNING" not in text
+
+
+def test_existing_schedules_stop_it_until_the_user_says_add(monkeypatch):
+    api = FakePlatform(workflows=ROWS)
+    api.schedules = [{"id": 800, "workflow_id": 5, "workflow_name": "Acme Lines", "type": "interval",
+                      "interval_hours": 4, "is_active": True, "next_run_time": None, "current_runs": 3}]
+    _wire(monkeypatch, api)
+    text, is_err = _call(wt.schedule_workflow, {"workflow": "Acme Lines", "every_days": 1})
+    assert is_err and "already has 1 active schedule" in text and "#800" in text
+    assert api.posts == [] and api.deleted == []          # nothing changed, nothing removed
+    text, is_err = _call(wt.schedule_workflow, {"workflow": "Acme Lines", "every_days": 1,
+                                                "add_alongside": True})
+    assert not is_err and len(api.schedules) == 2 and api.deleted == []
+
+
+def test_a_zone_the_scheduler_did_not_record_is_rolled_back(monkeypatch):
+    api = FakePlatform(workflows=ROWS)
+    api.record_zone = False
+    _wire(monkeypatch, api)
+    text, is_err = _call(wt.schedule_workflow, {"workflow": "Acme Lines", "cron_expression": "0 7 * * *"})
+    assert is_err and "NOT scheduled" in text and api.deleted == [901] and api.schedules == []
+
+
+def test_next_run_off_the_requested_time_is_flagged(monkeypatch):
+    api = FakePlatform(workflows=ROWS)
+    api.next_run = "2026-10-12T07:00:00"       # 03:00 in Toronto: the zone was not applied
+    _wire(monkeypatch, api)
+    text, is_err = _call(wt.schedule_workflow, {"workflow": "Acme Lines", "cron_expression": "0 7 * * 1-5"})
+    assert "WARNING" in text and "03:00" in text
+
+
+def test_cancel_is_two_step_and_removes_only_that_schedule(monkeypatch):
+    api = FakePlatform(workflows=ROWS)
+    api.schedules = [{"id": 900, "workflow_id": 5, "workflow_name": "Acme Lines", "type": "cron",
+                      "cron_expression": "0 7 * * 1-5", "timezone": "America/Toronto", "is_active": True},
+                     {"id": 901, "workflow_id": 5, "workflow_name": "Acme Lines", "type": "interval",
+                      "interval_hours": 4, "is_active": True}]
+    _wire(monkeypatch, api)
+    text, _ = _call(wt.cancel_workflow_schedule, {"workflow": "Acme Lines"})
+    assert "has 2 schedules" in text and api.deleted == []
+    text, _ = _call(wt.cancel_workflow_schedule, {"workflow": "Acme Lines", "schedule_id": 900})
+    assert "Ask the user to confirm" in text and api.deleted == []
+    text, is_err = _call(wt.cancel_workflow_schedule, {"workflow": "Acme Lines", "schedule_id": 900,
+                                                       "confirmed": True})
+    assert not is_err and "Removed schedule #900" in text and api.deleted == [900]
+    assert [s["id"] for s in api.schedules] == [901]
+
+
+def test_code_flow_schedule_carries_the_users_zone(monkeypatch):
+    import authoring_tools as at
+    sent = []
+
+    async def fake_manage_cf(action, payload, timeout=None):
+        sent.append((action, payload))
+        if payload["name"] == "Acme Lines":
+            return {"error": "code flow not found"}, 404
+        return {"scheduled_job_id": 55, "schedule_id": 901}, 201
+    monkeypatch.setattr(at, "_manage_cf", fake_manage_cf)
+    monkeypatch.setattr(at, "_authoring_allowed", lambda: True)
+    api = FakePlatform(workflows=ROWS)
+    _wire(monkeypatch, api)
+    text, is_err = _call(at.schedule_code_flow, {"name": "Invoice Aging", "cron_expression": "30 7 * * 1-5"})
+    assert not is_err and sent[-1][1]["timezone"] == "America/Toronto"
+    assert sent[-1][1]["schedule"]["cron_expression"] == "30 7 * * 1-5"
+    text, is_err = _call(at.schedule_code_flow, {"name": "Acme Lines", "cron_expression": "0 7 * * *"})
+    assert is_err and "schedule_workflow" in text       # a visual workflow's name -> the right tool
+
+
+def test_portal_tools_name_a_visual_workflow_or_code_flow(monkeypatch):
+    import portal_tools as pt
+    api = FakePlatform(workflows=ROWS)
+    _wire(monkeypatch, api)
+    assert "schedule_workflow" in asyncio.run(pt._portal_not_found("Acme Lines"))
+    assert "schedule_code_flow" in asyncio.run(pt._portal_not_found("Invoice Aging"))
+    assert "VISUAL" not in asyncio.run(pt._portal_not_found("nothing by this name"))
 
 
 if __name__ == "__main__":
