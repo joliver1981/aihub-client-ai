@@ -5262,28 +5262,34 @@ Guidelines:
                     # Fail if configured to do so
                     raise ValueError(f"No files found in folder: {folder_path}")
                 else:
-                    # Set output variable to empty string if specified
+                    # 'all' always yields a LIST — an empty one when nothing
+                    # matches — so a Loop sees zero items (not a string) and an
+                    # expression like len(${files}) works (2026-10-09). The
+                    # single-file modes keep the empty string.
+                    empty_value = [] if selection_mode == 'all' else ''
                     if node_config.get('outputVariable'):
                         output_var = self._extract_variable_name(node_config.get('outputVariable'))
                         # Update variable in database
                         self._update_workflow_variable(
-                            execution_id, output_var, 'string', '')
+                            execution_id, output_var,
+                            'array' if selection_mode == 'all' else 'string', empty_value)
                         # Update in-memory variables
-                        variables[output_var] = ''
-                        
+                        variables[output_var] = empty_value
+
                         self.log_execution(
                             execution_id, node_id, "info",
-                            f"No files found. Set variable {output_var} to empty string")
-                    
+                            f"No files found. Set variable {output_var} to "
+                            f"{'an empty list' if selection_mode == 'all' else 'empty string'}")
+
                     # Return success with empty result
-                    return {
-                        'success': True,
-                        'data': {
-                            'folderPath': folder_path,
-                            'filesFound': False,
-                            'selectedFile': None
-                        }
+                    data = {
+                        'folderPath': folder_path,
+                        'filesFound': False,
+                        'selectedFile': None
                     }
+                    if selection_mode == 'all':
+                        data['allFiles'] = []
+                    return {'success': True, 'data': data}
             
             # Set output variable if specified
             print('--------------------------------')

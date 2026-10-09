@@ -126,6 +126,22 @@ class TestFolderSelectorPatterns:
         assert r["success"] is True and r["data"]["filesFound"] is False
         assert any("*.csv" in w for w in _warnings(engine))
 
+    def test_all_mode_with_no_match_yields_an_empty_list(self, engine, folder):
+        # A Loop over it sees zero items (not "Loop source is not an array: str")
+        # and len(${files}) evaluates; single-file modes keep the empty string.
+        variables = {}
+        node = {"id": "fs", "type": "Folder Selector",
+                "config": {"folderPath": folder, "filePattern": "*.csv", "selectionMode": "all",
+                           "failIfEmpty": False, "outputVariable": "files"}}
+        r = engine._execute_folder_selector_node("e1", node, variables)
+        assert variables["files"] == [] and r["data"]["allFiles"] == []
+        c = engine._execute_conditional_node(
+            "e1", _cond(conditionType="expression", expression="len(${files}) > 0"), variables)
+        assert c["success"] is False and not any("could not be evaluated" in w for w in _warnings(engine))
+        node["config"]["selectionMode"] = "first"
+        engine._execute_folder_selector_node("e1", node, variables)
+        assert variables["files"] == ""
+
 
 # -------------------------------------------------------------- Excel Export
 
