@@ -61,6 +61,21 @@ def test_counts_rows_extractions_errors():
     assert not any("wrote 0 rows" in f for f in r["flags"])
 
 
+def test_workflow_variables_are_listed_and_empty_ones_flagged():
+    # Live 2026-10-09: the AI Builder saved variables under the wrong key, so
+    # they ran empty; the automation said "inputs are required" and nothing in
+    # the report named the variables, so the builder "fixed" the wrong thing.
+    steps = [step("s1", "n1", "Prepare", "Automation", status="Failed",
+                  err="exit code 1 — stderr: ERROR: both input_folder and output_workbook inputs are required")]
+    r = build_run_report(EXEC, steps, [], variables={"inputFolder": "", "outputWorkbook": None,
+                                                     "failedFolder": "C:\\in\\failed"})
+    assert any("inputFolder, outputWorkbook had no value" in f for f in r["flags"])
+    assert "WORKFLOW VARIABLES" in r["text"] and 'failedFolder = "C:\\\\in\\\\failed"' in r["text"]
+    assert r["variables"]["failedFolder"] == "C:\\in\\failed"
+    # Without variables the report is unchanged.
+    assert "WORKFLOW VARIABLES" not in build_run_report(EXEC, steps, [])["text"]
+
+
 def test_clean_run_has_no_flags():
     steps = [step("s1", "n1", "Find", "Folder Selector", out={"allFiles": ["a", "b"]}),
              step("s2", "n2", "Loop", "Loop", out={"_loopStats": {"totalItems": 2, "processedItems": 2}}),

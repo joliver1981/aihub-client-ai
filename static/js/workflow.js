@@ -3490,14 +3490,18 @@ function setWorkflowVariablesFromJson(workflowJson) {
         
         // Set the variables from the workflow data
         Object.entries(workflowData.variables).forEach(([name, varData]) => {
+            // Workflows the AI Builder saved before 2026-10-09 carry `value`
+            // instead of `defaultValue`; read it so a re-save keeps the value.
+            const savedDefault = (varData.defaultValue !== undefined && varData.defaultValue !== null)
+                ? varData.defaultValue : varData.value;
             workflowVariableDefinitions[name] = {
                 type: varData.type || 'string',
-                defaultValue: varData.defaultValue || '',
+                defaultValue: savedDefault || '',
                 description: varData.description || ''
             };
-            
+
             // Initialize the runtime variable value with the default value
-            let value = varData.defaultValue;
+            let value = savedDefault;
             
             // Convert the value based on the type
             if (varData.type === 'number') {

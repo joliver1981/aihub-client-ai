@@ -48,13 +48,16 @@ def _list_lengths(obj: Any) -> Dict[str, int]:
 
 
 def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
-                     max_examples: int = 3) -> Dict[str, Any]:
+                     max_examples: int = 3,
+                     variables: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Summarise one workflow execution.
 
     execution: a WorkflowExecutions row; steps: StepExecutions rows; logs:
-    ExecutionLogs rows (any order). Returns {status, duration_s, nodes, warnings,
-    flags, text}. `max_examples` only limits how many distinct error / warning
-    texts are quoted per node in `text` (every one is still counted)."""
+    ExecutionLogs rows (any order); variables: the workflow's own variables
+    (the ones its definition declares) with their values in this run, or None.
+    Returns {status, duration_s, nodes, warnings, flags, variables, text}.
+    `max_examples` only limits how many distinct error / warning texts are
+    quoted per node in `text` (every one is still counted)."""
     status = str(execution.get("status") or "unknown")
     duration = _seconds(execution.get("started_at"), execution.get("completed_at"))
 
@@ -157,6 +160,16 @@ def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
         where = ", ".join(f"{d} ({c})" for d, c in failed_moves.items())
         flags.append(f"All {processed} loop item(s) ended up in a failure folder: {where}.")
 
+    # A workflow setting (folder, workbook, recipient) with no value makes every
+    # ${name} that uses it resolve to nothing — the step then fails or works on
+    # the wrong thing, and nothing else in the report names the variable.
+    variables = dict(variables or {})
+    empty_vars = [n for n, v in variables.items()
+                  if v is None or (isinstance(v, str) and not v.strip())]
+    if empty_vars:
+        flags.append(f"Workflow variable(s) {', '.join(empty_vars)} had no value in this run; "
+                     f"every reference to them resolved to an empty value.")
+
     # ------------------------------------------------------------ text
     lines = [f"RUN REPORT — workflow '{execution.get('workflow_name') or execution.get('workflow_id')}', "
              f"execution {execution.get('execution_id')}",
@@ -165,6 +178,12 @@ def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
         lines.append("")
         lines.append("ATTENTION:")
         lines.extend(f"  - {f}" for f in flags)
+    if variables:
+        lines.append("")
+        lines.append("WORKFLOW VARIABLES (value in this run):")
+        for name, value in variables.items():
+            shown = json.dumps(value, ensure_ascii=False, default=str)
+            lines.append(f"  - {name} = {shown[:160]}{'…' if len(shown) > 160 else ''}")
     lines.append("")
     lines.append("STEPS (in order of first run):")
     for n in nodes.values():
@@ -209,7 +228,8 @@ def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
             "automation": dict(n["automation"]),
         })
     return {"status": status, "duration_s": duration, "nodes": serial_nodes,
-            "warnings": dict(run_warnings), "flags": flags, "text": "\n".join(lines)}
+            "warnings": dict(run_warnings), "flags": flags, "variables": variables,
+            "text": "\n".join(lines)}
 
 
 def fetch_run_report(execution_id: str, connection_factory, tenant_key: Optional[str] = None,
@@ -238,7 +258,20 @@ def fetch_run_report(execution_id: str, connection_factory, tenant_key: Optional
             return None
         steps = rows("SELECT * FROM StepExecutions WHERE execution_id = ? ORDER BY started_at ASC", execution_id)
         logs = rows("SELECT * FROM ExecutionLogs WHERE execution_id = ? ORDER BY timestamp ASC", execution_id)
-        return build_run_report(ex[0], steps, logs, max_examples=max_examples)
+        # The workflow's own variables (the ones its definition declares) and
+        # their values in this run. Best effort: the report stands without them.
+        variables = None
+        try:
+            wf = rows("SELECT workflow_data FROM Workflows WHERE id = ?", ex[0].get("workflow_id"))
+            declared = list(((_parse(wf[0]["workflow_data"]) or {}).get("variables") or {}).keys()) if wf else []
+            if declared:
+                vals = {str(r["variable_name"]): _parse(r["variable_value"]) for r in
+                        rows("SELECT variable_name, variable_value FROM WorkflowVariables WHERE execution_id = ?",
+                             execution_id)}
+                variables = {n: vals.get(n) for n in declared}
+        except Exception:
+            variables = None
+        return build_run_report(ex[0], steps, logs, max_examples=max_examples, variables=variables)
     finally:
         try:
             conn.close()

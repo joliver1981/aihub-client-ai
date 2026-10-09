@@ -957,9 +957,17 @@ class WorkflowCommandExecutor {
             window.workflowVariableDefinitions = {};
         }
 
+        // Same shape the designer's Variables panel writes and the engine reads
+        // ({type, defaultValue, description}). This used to write `value`, so
+        // every variable the AI Builder created ran EMPTY (2026-10-09).
+        let defaultValue = '';
+        if (default_value !== undefined && default_value !== null) {
+            defaultValue = typeof default_value === 'object' ? JSON.stringify(default_value) : String(default_value);
+        }
         workflowVariableDefinitions[name] = {
             type: data_type,
-            value: default_value !== undefined ? default_value : null
+            defaultValue: defaultValue,
+            description: command.description || ''
         };
 
         // Update variables table if it exists

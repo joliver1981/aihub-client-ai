@@ -233,7 +233,10 @@ class WorkflowExecutionEngine:
                 for var_name, var_data in workflow_data['variables'].items():
                     # Convert value to correct type
                     var_type = var_data.get('type', 'string')
-                    default_value = var_data.get('defaultValue', '')
+                    # The AI Builder used to save {type, value} instead of
+                    # {type, defaultValue}; read those rather than run with
+                    # the variable empty (2026-10-09).
+                    default_value = var_data.get('defaultValue', var_data.get('value', ''))
                     
                     # Store variable value in execution_data
                     cursor.execute("""
