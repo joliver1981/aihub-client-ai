@@ -109,8 +109,29 @@ def test_unknown_key_is_warning_not_error():
 
 
 def test_unschema_node_types_fail_open():
-    assert validate_node_config("Compliance Process", {"anything": 1}) == []
+    # Every node type the engine executes has a schema since 2026-10-09; a type
+    # the table does not know (a future node) must still never be blocked.
     assert validate_node_config("Brand New Future Node", {"x": 1}) == []
+
+
+def test_newly_schemaed_types_warn_but_never_error_on_unknown_keys():
+    issues = validate_node_config("Compliance Process", {"anything": 1})
+    assert [i["severity"] for i in issues] == ["warning"]
+
+
+def test_behaviour_keys_only_where_the_engine_honours_them():
+    # Excel Export honours outputVariable/continueOnError since 2026-10-09 …
+    assert config_warnings("Excel Export", dict(GOOD_EXCEL, outputVariable="r", continueOnError=True)) == []
+    # … Set Variable reads neither, so an authoring AI setting them is told so.
+    warns = config_warnings("Set Variable", dict(GOOD_SET_VARIABLE, continueOnError=True))
+    assert any("continueOnError" in w for w in warns)
+
+
+def test_ai_extract_invented_key_warns_and_designer_keys_do_not():
+    cfg = {"inputVariable": "${f}", "fields": [{"name": "x"}], "mappingMode": "ai",
+           "skillName": "s", "": False}
+    assert config_warnings("AI Extract", cfg) == []
+    assert any("resultVariable" in w for w in config_warnings("AI Extract", dict(cfg, resultVariable="r")))
 
 
 # ------------------------------------------------- CC chokepoint (add/update)

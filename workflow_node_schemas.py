@@ -28,10 +28,37 @@ from typing import Any, Dict, List, Optional
 ERROR = "error"
 WARNING = "warning"
 
-# Keys many node types share (engine-generic or harmless bookkeeping).
+# Bookkeeping keys any node may carry (the engine never reads them).
+#
+# 2026-10-09: continueOnError / outputVariable / saveToVariable / timeout used to
+# be listed here as if every node honoured them. They do not (e.g. Excel Export
+# read neither, AI Extract ignored continueOnError), so an authoring AI could set
+# them on any node and pass validation while the engine silently ignored them.
+# They now live in each node's `known` set only where the executor reads them
+# (derived from the executors in workflow_execution.py; see
+# ENGINE_BEHAVIOUR_KEYS below).
 COMMON_KEYS = {
-    "continueOnError", "outputVariable", "saveToVariable", "timeout",
     "description", "notes",
+}
+
+# The node-behaviour keys, per node type, that the engine actually honours —
+# merged into each schema's `known` set below.
+ENGINE_BEHAVIOUR_KEYS: Dict[str, set] = {
+    "AI Action": {"continueOnError", "outputVariable"},
+    "AI Extract": {"continueOnError", "outputVariable"},
+    "Alert": {"continueOnError", "outputVariable"},
+    "Automation": {"continueOnError", "outputVariable"},
+    "Code Step": {"continueOnError", "outputVariable", "timeout"},
+    "Compliance Excel Export": {"outputVariable"},
+    "Compliance Process": {"outputVariable"},
+    "Database": {"continueOnError", "outputVariable", "saveToVariable"},
+    "Excel Export": {"continueOnError", "outputVariable"},
+    "Execute Application": {"continueOnError", "outputVariable", "timeout"},
+    "File": {"continueOnError", "outputVariable", "saveToVariable"},
+    "File Transfer": {"continueOnError", "outputVariable"},
+    "Folder Selector": {"outputVariable"},
+    "Integration": {"continueOnError", "outputVariable"},
+    "Portal": {"continueOnError", "outputVariable", "timeout"},
 }
 
 # Per node type:
@@ -181,6 +208,56 @@ NODE_CONFIG_SCHEMAS: Dict[str, Dict[str, Any]] = {
                   "operation", "localPath", "remotePath", "overwrite",
                   "zeroMatchPolicy", "newestOnly", "filesVariable"},
     },
+    "AI Extract": {
+        "required": ["fields"],
+        "enums": {"inputSource": {"auto", "text", "document"},
+                  "outputDestination": {"variable", "excel_new", "excel_template", "excel_append"}},
+        "aliases": {"input": "inputVariable", "sourceVariable": "inputVariable",
+                    "schema": "fields", "outputVar": "outputVariable"},
+        # Engine-read keys (+ skillName/skillText read via workflow_skills) and
+        # Designer-written mappingMode.
+        "known": {"inputSource", "inputVariable", "fields", "extractionType", "specialInstructions",
+                  "formattingInstructions", "failOnMissingRequired", "includeConfidence",
+                  "includeSources", "includeAssumptions", "allowPartialExtraction",
+                  "outputDestination", "outputToExcel", "excelOutputPath", "excelTemplatePath",
+                  "excelSheetName", "excelOperation", "fieldMapping", "aiMappingInstructions",
+                  "mappingMode", "skillName", "skillText", "skill_instructions"},
+    },
+    "AI Action": {
+        "known": {"agent_id", "prompt", "skillName", "skillText"},
+    },
+    "Automation": {
+        "requires_one_of": [("automationId", "automationName", "automation_id", "automation_name")],
+        "known": {"automationId", "automationName", "automation_id", "automation_name",
+                  "allowUnverified", "inputs", "filesVariable"},
+    },
+    "Code Step": {
+        "known": {"code", "connections", "environmentId", "filesVariable", "inputs", "label", "name",
+                  "outputs", "packages", "secrets", "allowUnverified"},
+    },
+    "Document": {
+        "known": {"batchSize", "detect_document_type", "do_not_store", "documentAction", "documentId",
+                  "documentSharing", "documentType", "extract_fields", "outputFormat", "outputPath",
+                  "outputType", "pageRange", "prompt", "sourcePath", "sourceType",
+                  "useBatchProcessing", "forceAiExtraction"},
+    },
+    "Execute Application": {
+        "known": {"arguments", "captureOutput", "commandType", "environmentVars", "executablePath",
+                  "failOnError", "inputDataHandling", "outputParsing", "outputRegex", "successCodes",
+                  "workingDirectory"},
+    },
+    "Integration": {
+        # Read by the integration executor module (not workflow_execution.py).
+        "known": {"integrationId", "integration_id", "operation", "operationMeta", "parameters"},
+    },
+    "Compliance Process": {
+        "known": {"agentMode", "agentObjectiveTemplate", "agentOverrideId", "autoCreateAgent",
+                  "excelTemplatePath", "inputVariable", "onMissing", "retailerAgentOverrideId",
+                  "retailerNameVar", "routingMode", "setCategoryVar", "setId", "retailerId"},
+    },
+    "Compliance Excel Export": {
+        "known": {"outputPath", "setId", "sourceMode", "versionVariable", "retailerId"},
+    },
     "Portal": {
         "required": ["portalWorkflowSlug"],
         "aliases": {"workflowSlug": "portalWorkflowSlug",
@@ -190,6 +267,11 @@ NODE_CONFIG_SCHEMAS: Dict[str, Dict[str, Any]] = {
                   "filesVariable", "agentFallback", "uploadFilesVariable"},
     },
 }
+
+
+for _ntype, _keys in ENGINE_BEHAVIOUR_KEYS.items():
+    if _ntype in NODE_CONFIG_SCHEMAS:
+        NODE_CONFIG_SCHEMAS[_ntype]["known"] = set(NODE_CONFIG_SCHEMAS[_ntype].get("known") or set()) | _keys
 
 
 def _is_empty(v: Any) -> bool:
@@ -219,6 +301,8 @@ def validate_node_config(node_type: str, config: Dict[str, Any]) -> List[Dict[st
     # 1. Wrong-key names (the silent-empty killer): the intended value will
     #    never be read by the engine -> ERROR with a did-you-mean.
     for key in config:
+        if not str(key).strip():
+            continue  # '' keys are a Designer artefact (36 saved AI Extract nodes)
         if key in aliases:
             issues.append({
                 "severity": ERROR, "key": key, "kind": "wrong_key",

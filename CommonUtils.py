@@ -1418,7 +1418,31 @@ def get_all_node_details() -> str:
     Returns:
         Complete node configuration documentation.
     """
-    return "\n\n".join(NODE_DETAIL_REFERENCE.values())
+    return "\n\n".join(_with_contract(k, v) for k, v in NODE_DETAIL_REFERENCE.items())
+
+
+def _node_contract_line(node_type: str) -> str:
+    """The exact config keys the engine reads for a node type, generated from
+    workflow_node_schemas (the same table the save-time validator checks), so
+    what authoring AIs are told and what is enforced cannot drift (2026-10-09)."""
+    try:
+        from workflow_node_schemas import NODE_CONFIG_SCHEMAS, COMMON_KEYS
+    except Exception:
+        return ""
+    schema = NODE_CONFIG_SCHEMAS.get(node_type)
+    if not schema:
+        return ""
+    keys = sorted((set(schema.get("known") or set()) | set(schema.get("required") or []))
+                  - set(COMMON_KEYS))
+    line = (f"\n  EXACT CONFIG KEYS for {node_type} (the engine ignores any other key; unknown "
+            f"keys come back as validation warnings): {', '.join(keys)}")
+    if schema.get("required"):
+        line += f"\n  Required: {', '.join(schema['required'])}"
+    return line
+
+
+def _with_contract(node_type: str, text: str) -> str:
+    return text + _node_contract_line(node_type)
 
 
 def get_node_details(node_types: str) -> str:
@@ -1447,13 +1471,13 @@ def get_node_details(node_types: str) -> str:
     for node_type in requested:
         # Try exact match first
         if node_type in NODE_DETAIL_REFERENCE:
-            results.append(NODE_DETAIL_REFERENCE[node_type])
+            results.append(_with_contract(node_type, NODE_DETAIL_REFERENCE[node_type]))
         else:
             # Try case-insensitive match
             matched = False
             for key in NODE_DETAIL_REFERENCE:
                 if key.lower() == node_type.lower():
-                    results.append(NODE_DETAIL_REFERENCE[key])
+                    results.append(_with_contract(key, NODE_DETAIL_REFERENCE[key]))
                     matched = True
                     break
             if not matched:

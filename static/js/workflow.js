@@ -1846,8 +1846,8 @@ const nodeConfigTemplates = {
         <div class="mb-3">
             <label class="form-label">Selection Mode</label>
             <select class="form-control" name="selectionMode" onchange="toggleFileSelectionOptions(this)">
-                <option value="all">All Files</option>
-                <option value="pattern">File Matching Pattern</option>
+                <option value="all">All Files (a list — use with a Loop)</option>
+                <option value="pattern">First File Matching the Pattern</option>
                 <option value="first">First File</option>
                 <option value="latest">Latest Modified File</option>
                 <option value="largest">Largest File</option>
@@ -1855,7 +1855,7 @@ const nodeConfigTemplates = {
                 <option value="random">Random File</option>
             </select>
         </div>
-        <div class="mb-3" id="pattern-option" style="display: none;">
+        <div class="mb-3" id="pattern-option">
             <label class="form-label">File Pattern</label>
             <div class="input-group">
                 <input type="text" class="form-control" name="filePattern" placeholder="*.pdf">
@@ -1863,7 +1863,7 @@ const nodeConfigTemplates = {
                     <i class="bi bi-braces"></i>
                 </button>
             </div>
-            <small class="form-text text-muted">Pattern like *.pdf or invoice_*.csv (use * as wildcard)</small>
+            <small class="form-text text-muted">Applies to every selection mode. One pattern like *.pdf or invoice_*.csv, or several separated by | , or ; (e.g. *.pdf|*.xlsx). Empty = all files.</small>
         </div>
         <div class="mb-3">
             <label class="form-label">Output Variable</label>
@@ -1873,7 +1873,7 @@ const nodeConfigTemplates = {
                     <i class="bi bi-braces"></i>
                 </button>
             </div>
-            <small class="form-text text-muted">Variable to store the selected file path</small>
+            <small class="form-text text-muted">Variable to store the selected file path (All Files: the list of matching files)</small>
         </div>
         <div class="mb-3 form-check">
             <input type="checkbox" class="form-check-input" name="failIfEmpty" id="failIfEmpty" checked>
@@ -2769,7 +2769,9 @@ function configureNode() {
                 const selectionMode = currentConfig.selectionMode || 'first';
                 const patternDiv = document.getElementById('pattern-option');
                 if (patternDiv) {
-                    patternDiv.style.display = selectionMode === 'pattern' ? 'block' : 'none';
+                    // 2026-10-09: the engine applies filePattern in EVERY mode, so the
+                    // field is always shown (it used to appear only for "pattern").
+                    patternDiv.style.display = 'block';
                 }
             } else if (nodeType == 'Set Variable') {
                 console.log(`Set Var Config: ${formatJsonOutput(currentConfig)}`);
@@ -8021,12 +8023,10 @@ function toggleDbDataSource() {
 
 // Add this function to toggle the pattern input visibility
 function toggleFileSelectionOptions(selectElement) {
+    // The pattern applies to every selection mode (engine _list_files_in_folder),
+    // so it stays visible whatever mode is chosen (2026-10-09).
     const patternDiv = document.getElementById('pattern-option');
-    if (selectElement.value === 'pattern') {
-        patternDiv.style.display = 'block';
-    } else {
-        patternDiv.style.display = 'none';
-    }
+    if (patternDiv) patternDiv.style.display = 'block';
 }
 
 // Update the existing executeNodeAction function to include the new node type

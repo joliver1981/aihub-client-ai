@@ -2303,8 +2303,10 @@ NODE_DETAIL_REFERENCE = {
 
 Input handling:
   * inputSource: One of auto (recommended), text, document
-  * inputVariable: Can contain either text content OR a file path to PDF/DOCX
-  * When inputVariable contains a file path, AI Extract reads the document directly
+  * inputVariable: Can contain either text content OR a file path
+  * When inputVariable contains a file path, AI Extract reads the document directly: PDFs natively;
+    .docx, .xlsx, .csv and .txt are converted to text first. Old-format .xls and .doc files are NOT
+    readable — convert them before this node (e.g. with an Automation step).
 
 Required config fields:
   * inputSource: One of auto, text, document (auto-detect recommended)
@@ -2312,6 +2314,11 @@ Required config fields:
   * outputVariable: Name for storing extracted data object without dollar-brace
   * failOnMissingRequired: Boolean true or false
   * specialInstructions: Optional text for AI guidance (e.g., "Return numbers without currency symbols")
+  * skillName: Optional name of a tenant/product skill whose text is applied as extraction guidance
+  * skillText: Optional extraction rules embedded in the node (applied to PDFs and other files alike —
+    prefer this over specialInstructions for long rules)
+  * continueOnError: Optional boolean (default false). true = a failed extraction follows the PASS path
+    and outputVariable holds {status: "failed", error}; false = a failure follows the node's FAIL connection
   * fields: Array of field definitions (ALWAYS REQUIRED), each containing:
     - name: Field name using only letters, numbers, underscores (must start with letter or underscore)
     - type: One of text, number, boolean, list, group, repeated_group
@@ -2335,7 +2342,8 @@ Excel output modes:
   * excel_template: Copies template file and populates with extracted data using column mapping
   * excel_append: Adds new row to existing Excel file using column mapping
 
-Output access: Use dollar-brace with dot notation like ${extractedData.fieldName} or ${extractedData.nestedGroup.childField}""",
+Output access: Use dollar-brace with dot notation like ${extractedData.fieldName} or ${extractedData.nestedGroup.childField}.
+A repeated_group named Lines is an array at ${extractedData.Lines} — feed it to Excel Export with flattenArray true.""",
 
     "Document": """Document:
 - Purpose: Process documents (PDF, DOCX) to extract raw text content or analyze with AI
@@ -2413,6 +2421,13 @@ Output access: Use dollar-brace with dot notation like ${extractedData.fieldName
     * containsText: Text or variable to search in (use dollar-brace for variables)
     * searchText: Substring to search for
 
+  Objects and arrays: a dollar-brace variable holding an object/array is substituted as JSON text;
+  null/true/false inside it are understood. To test that a list is not empty prefer
+  comparison: leftValue ${result.Lines}, operator !=, rightValue [].
+
+  Do NOT use a Conditional to check whether the previous node succeeded — connect that node's
+  FAIL path instead (every node's failure follows its FAIL connection).
+
   For exists:
     * existsVariable: Variable name to check if defined
 
@@ -2458,11 +2473,15 @@ Output access: Use dollar-brace with dot notation like ${extractedData.fieldName
     "Folder Selector": """Folder Selector:
 - Purpose: Select files from folders
 - Required config fields:
-  * folderPath: Network or local path, use double backslash for network
-  * selectionMode: all, pattern, first, latest, random, largest, smallest
-  * filePattern: Pattern like *.pdf or *.*
-  * outputVariable: Name for storing selected files
-  * failIfEmpty: Boolean true or false""",
+  * folderPath: Network or local path (double backslash for network); may be a workflow variable like ${inputFolder}
+  * selectionMode: all | first | latest | largest | smallest | random | pattern
+    - all: outputVariable receives the LIST of every matching file — use this to Loop over files
+    - every other mode (including "pattern"): outputVariable receives ONE file path
+  * filePattern: applies to every mode. One pattern (*.pdf) or several separated by | , or ;
+    e.g. "*.pdf|*.xlsx". Empty = all files (*.*). Matching ignores case on Windows.
+  * outputVariable: Name for storing the selected file(s), without dollar-brace
+  * failIfEmpty: true = the node FAILS (visibly) when nothing matches; false = continue with an
+    empty value (a following Loop then processes 0 items)""",
 
     "File": """File:
 - Purpose: File operations
@@ -2577,6 +2596,14 @@ UPDATE operation configuration (only applies when excelOperation is "update"):
   * addChangeTimestamp: Boolean - add/update timestamp column on changed rows (default: true)
   * timestampColumn: Name of the timestamp column (default: "Last Updated")
   * changeLogSheet: Optional sheet name to write change history log
+
+Result variable and error routing:
+  * outputVariable: Optional name receiving {status: "success"|"failed", file_path, rows_written,
+    sheet_name | error} after the write
+  * continueOnError: Optional boolean (default false). true = a failed write follows the PASS path
+    (status "failed" in outputVariable); false = a failed write follows the node's FAIL connection
+  * carryForwardFields adds the value of each named workflow VARIABLE (e.g. the Loop item variable
+    currentFile) as a column on every row; rename the column with fieldMapping {"currentFile": "SourceFile"}
 
 Output: Node returns success status and file path in result data
   * data.file_path: Path to the written Excel file
@@ -2744,6 +2771,8 @@ End Loop
 
 Conditional
 - Branch workflow based on value comparisons
+- Do NOT add a Conditional just to check whether the previous node succeeded: every node's
+  failure already follows its FAIL connection (see GENERAL AUTHORING RULES)
 - Prefer conditionType "comparison" for simple checks (auto-handles type coercion)
 - Operators: equals, not equals, greater than, less than, contains, etc.
 - Creates two paths: pass (condition true) and fail (condition false)
@@ -2768,9 +2797,12 @@ Alert
 
 Folder Selector
 - Select files from network or local folders
-- Selection modes: All files, pattern match, first, latest, random, largest, smallest
-- Outputs: Array of file paths (use with Loop to process multiple files)
-- Can fail workflow if no files found
+- selectionMode "all" returns the LIST of every matching file (use this to loop over files);
+  "first", "latest", "largest", "smallest", "random" and "pattern" return ONE file path
+- filePattern applies to every mode: one pattern (*.pdf) or several separated by | , or ;
+  (e.g. *.pdf|*.xlsx). Empty = all files. Matching ignores case on Windows.
+- failIfEmpty true = the node FAILS visibly when nothing matches; false = it continues with an
+  empty list and a following Loop processes 0 items
 
 File
 - Perform file system operations
@@ -2797,7 +2829,13 @@ Excel Export
 - Operations: Create new file, use template, or append to existing file
 - Column mapping: AI auto-mapping or manual field-to-column mapping
 - Preferred over AI Extract Excel output when: Exporting non-extracted data, need carry-forward fields, or want explicit mapping control
-- Outputs: File path and row count in result data
+- outputVariable (optional): receives {status: "success"|"failed", file_path, rows_written,
+  sheet_name | error} after the write
+- continueOnError (optional, default false): true = a failed write follows the PASS path with
+  status "failed" in outputVariable; false = a failed write follows this node's FAIL connection
+- carryForwardFields: comma-separated names of workflow VARIABLES (e.g. the Loop item variable)
+  added as extra columns to every row; the column is named after the variable — rename it with
+  fieldMapping, e.g. {"currentFile": "SourceFile"}
 - Validator constraint: when excelOperation is "append", "template", or "update", the
   excelTemplatePath field is REQUIRED. For "append" it is typically the same path as
   excelOutputPath (the existing file you are appending to).
@@ -2844,6 +2882,20 @@ File Transfer
 - Optional config: protocol ("sftp" default | "ftp" | "ftps"), port (blank = protocol default), username, newestOnly (true = of the wildcard matches transfer only the most recently modified — ideal for date-stamped extract files), overwrite ("overwrite" default | "skip"), zeroMatchPolicy ("fail" default | "pass"), outputVariable (result object: status, matched, transferred, skipped, files, errors, entries), filesVariable (bare list of transferred paths — local paths for download, remote paths for upload; feed downstream nodes, e.g. an Automation input via dollar-brace with [0] indexing), continueOnError (default false)
 - Matching is case-insensitive. The password secret is resolved at execution time and never logged or stored in the result.
 - Outputs: transferred file paths in filesVariable; full result in outputVariable
+
+GENERAL AUTHORING RULES (apply to every node)
+- Error routing: when a node fails it follows its FAIL connection. To send a file elsewhere
+  when an AI Extract, Excel Export, File, Database or Automation step fails, connect that
+  node's FAIL path to the handling node. No "did it succeed?" Conditional is needed.
+- continueOnError: true makes a failed node follow its PASS path instead (it records the
+  failure in its outputVariable where the node has one). Never combine continueOnError with a
+  FAIL connection on the same node — the FAIL connection would never be used.
+- Settings a user may want to change later (input/output folders, file paths, email
+  addresses) are WORKFLOW VARIABLES: create them with add_variable (they appear in the
+  designer's Variables window) and reference them with dollar-brace. Do not use Set Variable
+  nodes for fixed settings.
+- Use only the config keys documented for a node type. A key the engine does not read is
+  ignored silently and is reported back to you as a validation warning to fix.
 """
 
 # Canonical list of valid workflow node types. Must match what the workflow runtime

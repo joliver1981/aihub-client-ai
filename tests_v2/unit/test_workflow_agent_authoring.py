@@ -153,9 +153,15 @@ def test_workflow_agent_prompt_has_no_server_node(wf):
 
 
 def test_command_generator_prompt_has_no_server_node():
+    # The defect was a "Server" NODE TYPE (no engine handler). Plain prose such as
+    # File Transfer's "Server hostname" is fine — check node headings and the
+    # valid-type list, not every occurrence of the word (2026-10-09).
     import re
     import CommandGenerator as CG
-    assert not re.search(r"\bServer\b", CG.COMMAND_GENERATOR_SYSTEM_PROMPT)
+    from system_prompts import VALID_WORKFLOW_NODE_TYPES
+    prompt = CG.COMMAND_GENERATOR_SYSTEM_PROMPT
+    assert not re.search(r"(?m)^\s*Server\s*:", prompt)
+    assert "Server" not in VALID_WORKFLOW_NODE_TYPES
 
 
 # ── live conversation smoke (opt-in; real LLM) ───────────────────────────
