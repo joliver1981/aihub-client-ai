@@ -2665,7 +2665,7 @@
       `<option value="tenant">tenant — everyone here (admins only; also selectable in workflow AI nodes)</option>` +
       `</select>` +
       `<input id="sk-group" style="${inp};display:none" placeholder="group id">` +
-      `<label style="${lab}">Description — the trigger line, e.g. "Use when filing requirements to Horizon teams"</label>` +
+      `<label style="${lab}">Description — the trigger line, e.g. "Use when routing requests to the right team"</label>` +
       `<input id="sk-desc" style="${inp}">` +
       `<label style="${lab}">Skill body (markdown) — procedure and gotchas; tell sessions to verify current facts with tools</label>` +
       `<textarea id="sk-body" rows="16" style="${inp};font-family:var(--mono);font-size:11.5px"></textarea>`;
@@ -2743,7 +2743,7 @@
     h.appendChild(el("p", "", "Explore your data, build automations through conversation, and keep humans in the loop with My Work."));
     const s = el("div", "starters");
     ["What data connections do we have?",
-     "Build me an automation that checks ERPDB daily",
+     "Build me an automation that runs a daily check on my data",
      "What's waiting in My Work?"].forEach(q => {
       const b = el("button", "starter", q);
       b.onclick = () => { input.value = q; sendMsg(); };
