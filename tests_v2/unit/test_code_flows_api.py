@@ -167,18 +167,19 @@ def test_schedule_dispatch_uses_workflow_job_type(client, monkeypatch):
     # workflow id (the 'workflow' job type's TargetId)
     seen = {}
 
-    def _fake_schedule(name, workflow_id, schedule_data, variables, user_id, username):
-        seen.update(name=name, workflow_id=workflow_id, schedule=schedule_data)
+    def _fake_schedule(name, workflow_id, schedule_data, variables, user_id, username, timezone=None):
+        seen.update(name=name, workflow_id=workflow_id, schedule=schedule_data, timezone=timezone)
         return {"scheduled_job_id": 1, "workflow_id": workflow_id}, 201
     monkeypatch.setattr(cf_api, "_create_code_flow_schedule", _fake_schedule)
 
     _manage(client, "create", {"name": "nightly"})
     wid = client._mem.workflow_id("nightly")
     _manage(client, "add_step", {"name": "nightly", "step_name": "s", "code": "print(1)"})
-    r = _manage(client, "schedule", {"name": "nightly",
+    r = _manage(client, "schedule", {"name": "nightly", "timezone": "America/Toronto",
                                      "schedule": {"type": "cron", "expression": "0 2 * * *"}})
     assert r.status_code == 201, r.get_json()
     assert seen["workflow_id"] == wid and seen["schedule"]["type"] == "cron"
+    assert seen["timezone"] == "America/Toronto"      # the user's zone reaches the writer (2026-10-09)
 
 
 def test_schedule_requires_steps(client):
