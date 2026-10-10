@@ -1274,6 +1274,20 @@
     inlineImages(target);
     // File handoff links: fetch with the auth header and trigger a real
     // browser download (no token ever rides in a URL).
+    // The saved name comes from the server's Content-Disposition (the staged
+    // file's real name), else from the link text: "⤓ name (size)" as the
+    // tools write it, or the model's own wording without the arrow. It used
+    // to read the text only, and a link without the arrow saved as a bare
+    // "download" with no extension (2026-10-10).
+    const downloadName = (resp, linkText) => {
+      const cd = (resp && resp.headers.get("Content-Disposition")) || "";
+      let m = cd.match(/filename\*\s*=\s*utf-8''([^;]+)/i);
+      if (m) { try { return decodeURIComponent(m[1].trim()); } catch (err) { /* fall through */ } }
+      m = cd.match(/filename\s*=\s*"([^"]+)"/i) || cd.match(/filename\s*=\s*([^;]+)/i);
+      if (m && m[1].trim()) return m[1].trim();
+      const t = String(linkText || "").replace(/^\s*⤓\s*/, "").replace(/\s*\([^()]*\)\s*$/, "").trim();
+      return t || "download";
+    };
     target.querySelectorAll('a[href^="/api/files/"]').forEach(a => {
       a.classList.add("filelink");
       a.onclick = async (e) => {
@@ -1287,8 +1301,7 @@
           const url = URL.createObjectURL(blob);
           const dl = document.createElement("a");
           dl.href = url;
-          const m = orig.match(/⤓\s*(.+?)\s*\(/);
-          dl.download = (m ? m[1] : "download").trim();
+          dl.download = downloadName(r, orig);
           document.body.appendChild(dl); dl.click(); dl.remove();
           setTimeout(() => URL.revokeObjectURL(url), 5000);
           a.textContent = orig;
