@@ -10413,8 +10413,25 @@ def workflow_secrets_store():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+# Server-file routes (2026-10-10): they act on any path the caller names, so
+# they need a Developer session or the internal API key, and they refuse the
+# secret store, the system folder and .env files (see server_path_guard.py).
+from server_path_guard import refusal as _server_path_refusal
+import datetime as _dt_mod
+
+
+def _server_path_refused(path, for_delete=False):
+    """A 403 response when the path is protected, else None."""
+    reason = _server_path_refusal(path, for_delete=for_delete)
+    if reason:
+        logger.warning(f"Server-file route refused {request.path} for {path!r}: {reason}")
+        return jsonify({"status": "error", "message": reason}), 403
+    return None
+
+
 @app.route('/workflow/file/read', methods=['POST'])
 @cross_origin()
+@api_key_or_session_required(min_role=2)
 def read_file():
     """Read a file and return its contents"""
     try:
@@ -10424,9 +10441,12 @@ def read_file():
                 "status": "error",
                 "message": "Missing required parameter: filePath"
             }), 400
-            
+
         file_path = data['filePath']
-        
+        refused = _server_path_refused(file_path)
+        if refused:
+            return refused
+
         if not os.path.exists(file_path):
             return jsonify({
                 "status": "error",
@@ -10476,6 +10496,7 @@ def read_file():
 
 @app.route('/workflow/file/write', methods=['POST'])
 @cross_origin()
+@api_key_or_session_required(min_role=2)
 def write_file():
     """Write content to a file"""
     try:
@@ -10485,8 +10506,11 @@ def write_file():
                 "status": "error",
                 "message": "Missing required parameters: filePath and content"
             }), 400
-            
+
         file_path = data['filePath']
+        refused = _server_path_refused(file_path)
+        if refused:
+            return refused
         content = data['content']
         overwrite = data.get('overwrite', True)
         
@@ -10534,6 +10558,7 @@ def write_file():
 
 @app.route('/workflow/file/append', methods=['POST'])
 @cross_origin()
+@api_key_or_session_required(min_role=2)
 def append_file():
     """Append content to a file"""
     try:
@@ -10543,8 +10568,11 @@ def append_file():
                 "status": "error",
                 "message": "Missing required parameters: filePath and content"
             }), 400
-            
+
         file_path = data['filePath']
+        refused = _server_path_refused(file_path)
+        if refused:
+            return refused
         content = data['content']
         
         # Create directory if it doesn't exist
@@ -10584,6 +10612,7 @@ def append_file():
 
 @app.route('/workflow/file/check', methods=['POST'])
 @cross_origin()
+@api_key_or_session_required(min_role=2)
 def check_file():
     """Check if a file exists"""
     try:
@@ -10593,8 +10622,11 @@ def check_file():
                 "status": "error",
                 "message": "Missing required parameter: filePath"
             }), 400
-            
+
         file_path = data['filePath']
+        refused = _server_path_refused(file_path)
+        if refused:
+            return refused
         exists = os.path.exists(file_path)
         
         file_info = {}
@@ -10628,6 +10660,7 @@ def check_file():
 
 @app.route('/workflow/file/delete', methods=['POST'])
 @cross_origin()
+@api_key_or_session_required(min_role=2)
 def delete_file():
     """Delete a file"""
     try:
@@ -10637,9 +10670,12 @@ def delete_file():
                 "status": "error",
                 "message": "Missing required parameter: filePath"
             }), 400
-            
+
         file_path = data['filePath']
-        
+        refused = _server_path_refused(file_path, for_delete=True)
+        if refused:
+            return refused
+
         if not os.path.exists(file_path):
             return jsonify({
                 "status": "error",
@@ -10689,6 +10725,7 @@ def delete_file():
 # Add these functions to your Flask app
 @app.route('/folder/list_files', methods=['POST'])
 @cross_origin()
+@api_key_or_session_required(min_role=2)
 def list_folder_files_route():
     """List files in a folder with various selection methods"""
     try:
@@ -10698,8 +10735,11 @@ def list_folder_files_route():
                 "status": "error",
                 "message": "Missing required parameter: folderPath"
             }), 400
-            
+
         folder_path = data['folderPath']
+        refused = _server_path_refused(folder_path)
+        if refused:
+            return refused
         selection_mode = data.get('selectionMode', 'first')
         file_pattern = data.get('filePattern', '*.*')
         
@@ -10722,7 +10762,11 @@ def list_folder_files_route():
             file_path = os.path.join(folder_path, file_pattern)
             if os.path.isfile(file_path):
                 matching_files = [file_path]
-        
+
+        # A pattern can climb out of the folder ("..\..\x\*"): never list a
+        # protected file, whatever the pattern.
+        matching_files = [f for f in matching_files if not _server_path_refusal(f)]
+
         # If no files found, return empty result
         if not matching_files:
             return jsonify({
@@ -10783,6 +10827,7 @@ def list_folder_files_route():
 # Optional: Add a /folder/info endpoint for getting folder metadata
 @app.route('/folder/info', methods=['POST'])
 @cross_origin()
+@api_key_or_session_required(min_role=2)
 def get_folder_info_route():
     """Get information about a folder"""
     try:
@@ -10792,20 +10837,25 @@ def get_folder_info_route():
                 "status": "error",
                 "message": "Missing required parameter: folderPath"
             }), 400
-            
+
         folder_path = data['folderPath']
-        
+        refused = _server_path_refused(folder_path)
+        if refused:
+            return refused
+
         # Check if folder exists
         if not os.path.isdir(folder_path):
             return jsonify({
                 "status": "error",
                 "message": f"Directory not found: {folder_path}"
             }), 404
-        
-        # Get folder stats
+
+        # Get folder stats. `datetime` is the MODULE at this point in app.py
+        # (later `import datetime` statements rebind the name), so the class is
+        # reached through the module — datetime.fromtimestamp() raised.
         folder_stat = os.stat(folder_path)
-        creation_time = datetime.fromtimestamp(folder_stat.st_ctime).isoformat()
-        modification_time = datetime.fromtimestamp(folder_stat.st_mtime).isoformat()
+        creation_time = _dt_mod.datetime.fromtimestamp(folder_stat.st_ctime).isoformat()
+        modification_time = _dt_mod.datetime.fromtimestamp(folder_stat.st_mtime).isoformat()
         
         # Count files and sub-folders
         files = []
@@ -10820,7 +10870,7 @@ def get_folder_info_route():
                             "name": entry.name,
                             "path": entry.path,
                             "size": file_stat.st_size,
-                            "modified": datetime.fromtimestamp(file_stat.st_mtime).isoformat()
+                            "modified": _dt_mod.datetime.fromtimestamp(file_stat.st_mtime).isoformat()
                         })
                     elif entry.is_dir():
                         folders.append({
