@@ -654,9 +654,31 @@ Respond with ONLY the email body text, no subject line or headers."""
                     logger.warning(
                         f"Attachment text injection failed (event={email.get('event_id')}): {att_err}")
 
+            # Workflow file drops (2026-10-10): a workflow set up for file drops
+            # gets the attachments as real files in its inbox, and runs one at
+            # a time over it (an email arriving mid-run is picked up by the
+            # next run instead of starting a second one on the same files).
+            try:
+                import workflow_file_drops
+                if workflow_file_drops.is_set_up(workflow_id):
+                    saved = workflow_file_drops.save_email_attachments(workflow_id, email)
+                    if saved:
+                        variables['email_inbox_files'] = json.dumps(saved)
+                    outcome = workflow_file_drops.start_or_queue(
+                        workflow_id, 'email_trigger',
+                        {'email': email.get('sender_email', ''), 'name': email.get('sender_name', ''),
+                         'via': 'email'},
+                        variables)
+                    if outcome.get('error'):
+                        return {'success': False, 'error': outcome['error']}
+                    return {'success': True, 'execution_id': outcome.get('execution_id'),
+                            'queued': bool(outcome.get('queued')), 'files_saved': len(saved)}
+            except Exception as fd_err:
+                logger.warning(f"Workflow file drops step skipped for workflow {workflow_id}: {fd_err}")
+
             # Call workflow executor API directly (not through main app)
             api_url = f"{get_executor_api_base_url()}/api/workflow/run"
-            
+
             response = requests.post(api_url, json={
                 'workflow_id': workflow_id,
                 'initiator': 'email_trigger',

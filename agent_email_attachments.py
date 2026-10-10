@@ -109,6 +109,40 @@ def fetch_attachment_bytes(attachment_id: int) -> Optional[Tuple[str, str, int, 
                 return None
 
 
+def fetch_attachments_for_event(event_id) -> List[Dict]:
+    """
+    Every attachment of one inbound email event, with its bytes:
+    [{attachment_id, filename, content_type, size, content}]. Workflow file
+    drops save these into a workflow's inbox as real files. A query failure
+    returns an empty list (logged).
+    """
+    conn = None
+    try:
+        conn, cursor = _cloud_cursor()
+        cursor.execute(
+            """
+            SELECT attachment_id, filename, content_type, size, content
+            FROM InboundEmailAttachments
+            WHERE event_id = ?
+            ORDER BY attachment_id
+            """,
+            (event_id,),
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+    except Exception as e:
+        logger.error(f"fetch_attachments_for_event({event_id}) query failed: {e}")
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return [{"attachment_id": r[0], "filename": r[1], "content_type": r[2], "size": r[3],
+             "content": bytes(r[4]) if r[4] is not None else None} for r in rows]
+
+
 def get_attachment_texts_for_event(event_id, max_chars: Optional[int] = None) -> List[Dict]:
     """
     Extract text for every attachment on an inbound email event.
