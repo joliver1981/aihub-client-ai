@@ -17,6 +17,7 @@ import os
 from collections import Counter, OrderedDict
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 
 def _parse(value: Any) -> Any:
@@ -49,13 +50,16 @@ def _list_lengths(obj: Any) -> Dict[str, int]:
 
 def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
                      max_examples: int = 3,
-                     variables: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                     variables: Optional[Dict[str, Any]] = None,
+                     files: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Summarise one workflow execution.
 
     execution: a WorkflowExecutions row; steps: StepExecutions rows; logs:
     ExecutionLogs rows (any order); variables: the workflow's own variables
-    (the ones its definition declares) with their values in this run, or None.
-    Returns {status, duration_s, nodes, warnings, flags, variables, text}.
+    (the ones its definition declares) with their values in this run, or None;
+    files: the workflow file drops record of this run (what it took from
+    Waiting and what it put in Results), or None.
+    Returns {status, duration_s, nodes, warnings, flags, variables, files, text}.
     `max_examples` only limits how many distinct error / warning texts are
     quoted per node in `text` (every one is still counted)."""
     status = str(execution.get("status") or "unknown")
@@ -86,9 +90,9 @@ def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
         if t == "Conditional" and "conditionResult" in out:
             n["condition"]["TRUE" if out.get("conditionResult") else "FALSE"] += 1
         elif t == "Folder Selector":
-            files = out.get("allFiles")
-            if isinstance(files, list):
-                n["files_found"].append(len(files))
+            all_files = out.get("allFiles")
+            if isinstance(all_files, list):
+                n["files_found"].append(len(all_files))
             elif out.get("filesFound") is False:
                 n["files_found"].append(0)
             elif out.get("selectedFile"):
@@ -180,6 +184,19 @@ def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
         flags.append(f"Workflow variable(s) {', '.join(empty_vars)} had no value in this run; "
                      f"every reference to them resolved to an empty value.")
 
+    # Workflow file drops: files were waiting but the run took none, or it
+    # took files and produced nothing.
+    if files and files.get("finished_at"):
+        taken = len(files.get("consumed") or [])
+        waiting = int(files.get("waiting_at_start") or 0)
+        if waiting and not taken:
+            flags.append(f"{waiting} file(s) were waiting in the workflow's inbox but the run took none: "
+                         f"check that the Folder Selector reads the inbox variable and that its "
+                         f"pattern matches those files.")
+        elif taken and not (files.get("outputs") or files.get("failed")) and status.lower() == "completed":
+            flags.append(f"The run took {taken} file(s) from the inbox but wrote nothing to Results "
+                         f"and set nothing aside.")
+
     # ------------------------------------------------------------ text
     lines = [f"RUN REPORT — workflow '{execution.get('workflow_name') or execution.get('workflow_id')}', "
              f"execution {execution.get('execution_id')}",
@@ -194,6 +211,29 @@ def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
         for name, value in variables.items():
             shown = json.dumps(value, ensure_ascii=False, default=str)
             lines.append(f"  - {name} = {shown[:160]}{'…' if len(shown) > 160 else ''}")
+    if files:
+        lines.append("")
+        lines.append("FILES (workflow file drops):")
+        if not files.get("finished_at"):
+            lines.append("  - still being recorded; read this report again in a few seconds")
+        else:
+            wid = files.get("workflow_id")
+            taken = files.get("consumed") or []
+            lines.append("  - taken from Waiting: " + (", ".join(
+                c["name"] + (f" (dropped by {c['uploaded_by']})" if c.get("uploaded_by") else "")
+                for c in taken) or "none"))
+            for o in files.get("outputs") or []:
+                link = f"/api/workflow-files/{wid}/download?folder=outbox&name={quote(o['name'])}"
+                lines.append(f"  - result ({'new' if o.get('new') else 'updated'}): [{o['name']}]({link})")
+            if not files.get("outputs"):
+                lines.append("  - results: none new or updated")
+            if files.get("failed"):
+                lines.append("  - failed (set aside): " + ", ".join(files["failed"]))
+            if files.get("waiting_now"):
+                lines.append(f"  - still waiting: {files['waiting_now']} file(s)")
+            for sp in files.get("sharepoint") or []:
+                lines.append(f"  - SharePoint copy of {sp['name']}: "
+                             + ("ok" if sp.get("ok") else f"FAILED: {sp.get('error')}"))
     lines.append("")
     lines.append("STEPS (in order of first run):")
     for n in nodes.values():
@@ -241,7 +281,7 @@ def build_run_report(execution: Dict, steps: List[Dict], logs: List[Dict],
         })
     return {"status": status, "duration_s": duration, "nodes": serial_nodes,
             "warnings": dict(run_warnings), "flags": flags, "variables": variables,
-            "text": "\n".join(lines)}
+            "files": files, "text": "\n".join(lines)}
 
 
 def fetch_run_report(execution_id: str, connection_factory, tenant_key: Optional[str] = None,
@@ -283,7 +323,16 @@ def fetch_run_report(execution_id: str, connection_factory, tenant_key: Optional
                 variables = {n: vals.get(n) for n in declared}
         except Exception:
             variables = None
-        return build_run_report(ex[0], steps, logs, max_examples=max_examples, variables=variables)
+        # Workflow file drops: what this run took and produced (None when the
+        # workflow is not set up for file drops).
+        files = None
+        try:
+            import workflow_file_drops
+            files = workflow_file_drops.load_run(ex[0].get("workflow_id"), execution_id)
+        except Exception:
+            files = None
+        return build_run_report(ex[0], steps, logs, max_examples=max_examples, variables=variables,
+                                files=files)
     finally:
         try:
             conn.close()

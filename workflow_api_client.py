@@ -83,15 +83,19 @@ class WorkflowAPIClient:
             return False
     
     def start_workflow(self, workflow_id: int, initiator: str = 'api', workflow_data: dict = None,
-                       variables: dict = None) -> dict:
+                       variables: dict = None, requested_by: dict = None) -> dict:
         """Start a workflow execution. `variables` are runtime values the
         executor service injects into workflow_data['variables'] before running
-        (used by scheduled runs / Code Flow schedules to seed step inputs)."""
+        (used by scheduled runs / Code Flow schedules to seed step inputs).
+        `requested_by` ({user_id, name, via, notify}) names the person behind
+        the run, so workflow file drops can hand them its results."""
         data = {'workflow_id': workflow_id, 'initiator': initiator}
         if workflow_data:
             data['workflow_data'] = workflow_data
         if variables:
             data['variables'] = variables
+        if requested_by:
+            data['requested_by'] = requested_by
         return self._request('POST', '/api/workflow/run', data)
     
     def pause_workflow(self, execution_id: str) -> dict:

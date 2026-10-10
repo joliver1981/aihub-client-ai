@@ -311,9 +311,12 @@ def run_workflow():
         # =====================================================================
         
         initiator = data.get('initiator', 'api')
+        # The person behind the run (workflow file drops hands them its results)
+        requested_by = data.get('requested_by') if isinstance(data.get('requested_by'), dict) else None
         
         logger.info(f"Starting workflow {workflow_id} for initiator {initiator}")
-        execution_id = workflow_engine.start_workflow(workflow_id, workflow_data, initiator)
+        execution_id = workflow_engine.start_workflow(workflow_id, workflow_data, initiator,
+                                                      requested_by=requested_by)
         logger.info(f"Workflow execution started with ID: {execution_id}")
 
         timer.stop()

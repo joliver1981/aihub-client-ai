@@ -36,6 +36,10 @@ import decimal
 import math
 from integration_workflow_node import execute_integration_node
 from config import MAX_LOG_CHARS
+try:  # workflow file drops (2026-10-10); never let it stop the engine
+    import workflow_file_drops
+except Exception:  # pragma: no cover
+    workflow_file_drops = None
 
 
 # Configure logging
@@ -187,13 +191,16 @@ class WorkflowExecutionEngine:
         
         return None, None
     
-    def start_workflow(self, workflow_id: int, workflow_data: Dict, initiator: str = 'system') -> str:
+    def start_workflow(self, workflow_id: int, workflow_data: Dict, initiator: str = 'system',
+                       requested_by: Optional[Dict] = None) -> str:
         """Start a new workflow execution
         
         Args:
             workflow_id: ID of the workflow to execute
             workflow_data: Parsed workflow definition (nodes, connections, variables)
             initiator: User or system that initiated the workflow
+            requested_by: Optional {user_id, name, email, via, notify}: the person
+                behind the run, so workflow file drops can hand them its results
             
         Returns:
             execution_id: Unique ID for the workflow execution
@@ -275,13 +282,15 @@ class WorkflowExecutionEngine:
             self._active_executions[execution_id] = {
                 'workflow_id': workflow_id,
                 'workflow_name': workflow_name,
+                'initiator': initiator,
                 'status': 'Running',
                 'started_at': datetime.datetime.now().isoformat(),
                 'workflow_data': workflow_data,
                 'current_node': start_node['id'],
                 'variables': {},
                 'paused': False,
-                'cancelled': False
+                'cancelled': False,
+                'requested_by': requested_by or {},
             }
             
             print('Creating queue...')
@@ -355,6 +364,16 @@ class WorkflowExecutionEngine:
             
             # Store variables in execution state
             execution_state['variables'] = variables
+
+            # Workflow file drops (2026-10-10): note what is waiting and what the
+            # results folder holds, so the end of the run can tell the people
+            # involved what it took and produced. None unless set up.
+            if workflow_file_drops is not None:
+                execution_state['file_drops'] = workflow_file_drops.run_started(
+                    execution_state.get('workflow_id'), execution_id,
+                    execution_state.get('workflow_name') or '',
+                    execution_state.get('initiator') or '',
+                    execution_state.get('requested_by'))
 
             # BUG-WORKFLOW-001 (informational): emit a non-fatal warning for
             # every Loop node that has no reachable End Loop. The engine
@@ -501,9 +520,23 @@ class WorkflowExecutionEngine:
                 f"Unhandled error in workflow execution: {str(e)}")
             
         finally:
+            # Workflow file drops: deliver this run's outcome in its own thread
+            # (never holds the slot, never changes the run).
+            _drops = None
+            try:
+                _st = self._active_executions.get(execution_id) or {}
+                if _st.get('file_drops'):
+                    _drops = (_st['file_drops'], _st.get('status') or 'Unknown')
+            except Exception:
+                pass
             # CRITICAL: Always clean up resources when thread completes
             self._cleanup_execution_resources(execution_id)
             self._workflow_semaphore.release()  # Free the concurrency slot
+            if _drops and workflow_file_drops is not None:
+                try:
+                    workflow_file_drops.run_finished_async(*_drops)
+                except Exception as _e:
+                    logger.warning(f"file drops hand-off failed for {execution_id}: {_e}")
             logger.info(f"Workflow thread completed and cleaned up for execution {execution_id}")
 
     

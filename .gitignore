@@ -201,6 +201,9 @@ data/collection_sessions/
 data/browser_use_downloads/
 data/compliance_uploads/
 data/solutions_drafts/
+# Workflow file drops (2026-10-10): dropped files, results and run records stay local
+data/workflow_files/
+data/workflow_file_drops/
 data/solutions_staging/
 data/portal_workflows.json
 data/portal_registry.json

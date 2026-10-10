@@ -96,3 +96,35 @@ def test_clean_run_has_no_flags():
              step("s3", "n3", "Move", "File", out={"operation": "move", "destinationPath": "C:\\done\\a"}),
              step("s4", "n3", "Move", "File", out={"operation": "move", "destinationPath": "C:\\done\\b"})]
     assert build_run_report(EXEC, steps, [])["flags"] == []
+
+
+# ---------------------------------------------- workflow file drops (2026-10-10)
+FILES = {"workflow_id": 1605, "execution_id": "E1", "finished_at": "2026-10-10T12:00:00Z",
+         "status": "Completed", "waiting_at_start": 3,
+         "consumed": [{"name": "a.pdf", "uploaded_by": "ru_drew"}, {"name": "b c.pdf", "uploaded_by": ""}],
+         "outputs": [{"name": "CI_Lines.xlsx", "size": 10, "new": False}],
+         "failed": ["b c.pdf"], "processed": ["a.pdf"], "waiting_now": 1,
+         "sharepoint": [{"name": "CI_Lines.xlsx", "ok": False, "error": "denied"}]}
+
+
+def test_file_drops_section_lists_what_the_run_took_and_made():
+    r = build_run_report(EXEC, [], [], files=FILES)
+    t = r["text"]
+    assert "FILES (workflow file drops):" in t
+    assert "taken from Waiting: a.pdf (dropped by ru_drew), b c.pdf" in t
+    assert "result (updated): [CI_Lines.xlsx](/api/workflow-files/1605/download?folder=outbox&name=CI_Lines.xlsx)" in t
+    assert "failed (set aside): b c.pdf" in t and "still waiting: 1 file(s)" in t
+    assert "SharePoint copy of CI_Lines.xlsx: FAILED: denied" in t
+    assert r["files"] is FILES and not r["flags"]
+
+
+def test_file_drops_flags_files_left_waiting_and_runs_that_made_nothing():
+    r = build_run_report(EXEC, [], [], files=dict(FILES, consumed=[], outputs=[], failed=[]))
+    assert any("3 file(s) were waiting" in f and "took none" in f for f in r["flags"])
+    r = build_run_report(EXEC, [], [], files=dict(FILES, outputs=[], failed=[]))
+    assert any("took 2 file(s) from the inbox but wrote nothing" in f for f in r["flags"])
+
+
+def test_file_drops_record_still_being_written():
+    r = build_run_report(EXEC, [], [], files={"workflow_id": 1605, "status": "Running"})
+    assert "still being recorded" in r["text"] and not r["flags"]
