@@ -671,7 +671,7 @@ These are the exit criteria for the prototype, and then a permanent smoke test. 
 ### 7.3 Existing holes that apps must not make worse
 
 - `/document/serve` still returns any file path to any signed-in user. It is tracked separately.
-- The access-check middleware only logs on this machine (`AUTH_MIDDLEWARE_DRY_RUN=true` in `.env`).
+- ~~The access-check middleware only logs on this machine (`AUTH_MIDDLEWARE_DRY_RUN=true` in `.env`).~~ Enforcing since 2026-10-10 (dev `.env` and the shipped `dist\.env` both `false`).
 - API keys are accepted in the URL (`role_decorators.py:297`), and a key on its own is fully trusted.
 
 So the bridge never gives an app a key, a direct platform URL or a server path, and the new main-app SQL route refuses calls without a user identity. Fixing these holes is separate work; this feature does not change them.

@@ -89,13 +89,15 @@ Unlike the relay failure, this one has no visible symptom at all.
 
 ## Deliberately NOT seeded
 
-- **`AUTH_MIDDLEWARE_DRY_RUN`** — owner decision, parked. Worth recording the
-  mechanics so nobody trips over them later: the code default in
-  `auth_middleware.py:109` is `false`, i.e. **enforcing**. An install lacking
-  the key therefore enforces; `dist\.env` setting it `true` is what turns
-  enforcement *off*, and only for fresh installs. This means fresh and upgraded
-  installs of the same build differ in whether authorization is enforced. Do not
-  change without an explicit decision.
+- **`AUTH_MIDDLEWARE_DRY_RUN`** — DECIDED 2026-10-10: **enforcing everywhere.**
+  `dist\.env` now ships `false`, matching the code default in
+  `auth_middleware.py:109`, so fresh and upgraded installs behave the same.
+  The observation log had come back clean: the remaining would-be blocks were
+  regression probes, stale browser sessions after restarts, and a unit test
+  that leaked a GET to the dev app. `true` remains a support escape hatch
+  (log-only); the log names the endpoint to allowlist. Note `config.py` loads
+  `.env` without `override`, so a machine- or user-scope environment variable
+  beats the file.
 - The ~99 inert keys (log paths, SMTP placeholders, LLM prompt text, thread
   counts). Their code defaults are fine and seeding them adds churn.
 
