@@ -76,7 +76,9 @@ def _read(path):
 def _automation_branch(html):
     """renderDetail's workflow/automation branch: from its source guard up to
     the review-vs-gate comment that follows the Context section."""
-    start = html.index('item.source === "workflow" || item.source === "automation"')
+    # renderDetail's branch is the `else if`; the bulk-decide code (2026-09-29)
+    # tests the same sources earlier in the page
+    start = html.index('} else if (item.source === "workflow" || item.source === "automation")')
     end = html.index("const isReview = item.source", start)
     return html[start:end]
 
@@ -159,7 +161,7 @@ class TestMyWorkAttachmentLinks(unittest.TestCase):
         # item.id targets the same row the buttons act on.
         src = _read(AGENT_MAIN)
         self.assertIn('"source": "automation", "id": row.get("request_id")', src)
-        i = src.index("async def work_decide")
+        i = src.index("async def work_decide(")   # not work_decided (the History view)
         self.assertIn('readthrough.decide_generic(\n            str(body.get("id"))',
                       src[i:i + 1200])
 
