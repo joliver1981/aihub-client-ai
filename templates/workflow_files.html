@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block page_title %}Workflow Files{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page wff-page" id="docPage" data-workflow-id="{{ workflow_id }}"
+     data-can-manage="{{ 'true' if can_manage else 'false' }}">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h2><i class="fas fa-folder-open"></i> Workflow Files</h2>
+            <p class="wff-muted">
+                Drop files for a workflow to process, then collect what it produces. Each workflow has four
+                folders: <strong>Waiting</strong> (new files), <strong>Results</strong> (what it produced),
+                <strong>Failed</strong> (files it set aside) and <strong>Processed</strong> (files it finished with).
+            </p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-4 mb-3">
+            <div class="wff-card">
+                <div class="wff-card-head">
+                    <span>Workflows</span>
+                    <button class="btn btn-sm wff-btn-ghost" id="wffRefreshList" title="Refresh"><i class="fas fa-sync-alt"></i></button>
+                </div>
+                <div id="wffList"><div class="wff-muted p-3"><i class="fas fa-spinner fa-spin"></i> Loading…</div></div>
+                <div id="wffSetupPicker" class="wff-setup-picker" style="display:none;">
+                    <label class="wff-label" for="wffCandidate">Set up file drops for another workflow</label>
+                    <div class="d-flex gap-2">
+                        <select id="wffCandidate" class="form-control form-control-sm wff-input"></select>
+                        <button class="btn btn-sm wff-btn" id="wffCandidateGo">Open</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-8 mb-3">
+            <div id="wffDetail">
+                <div class="wff-card wff-empty">
+                    <i class="fas fa-hand-pointer fa-2x"></i>
+                    <p class="mt-2 mb-0">Choose a workflow on the left.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+
+<style>
+.wff-page .wff-muted { color: var(--text-secondary); }
+.wff-card { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px;
+            margin-bottom: 16px; overflow: hidden; }
+.wff-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+                 padding: 10px 14px; border-bottom: 1px solid var(--border-subtle); font-weight: 600; }
+.wff-card-body { padding: 14px; }
+.wff-empty { text-align: center; padding: 48px 16px; color: var(--text-secondary); }
+.wff-item { padding: 10px 14px; border-bottom: 1px solid var(--border-subtle); cursor: pointer; }
+.wff-item:last-child { border-bottom: 0; }
+.wff-item:hover, .wff-item.active { background: var(--bg-hover); }
+.wff-item .wff-name { font-weight: 600; color: var(--text-primary); word-break: break-word; }
+.wff-item .wff-meta { font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px; }
+.wff-pill { display: inline-block; font-size: 0.72rem; padding: 1px 8px; border-radius: 999px;
+            border: 1px solid var(--border-accent); color: var(--text-secondary); margin-right: 4px; }
+.wff-pill.ok { color: var(--status-success); border-color: var(--status-success); }
+.wff-pill.bad { color: var(--status-error); border-color: var(--status-error); }
+.wff-pill.warn { color: var(--status-warning); border-color: var(--status-warning); }
+.wff-setup-picker { padding: 12px 14px; border-top: 1px solid var(--border-subtle); }
+.wff-label { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; display: block; }
+.wff-input, .wff-page select.wff-input { background: var(--bg-input) !important; color: var(--text-primary) !important;
+             border: 1px solid var(--border-accent) !important; }
+.wff-btn { background: var(--cyber-cyan); color: #000; border: 0; font-weight: 600; }
+.wff-btn:hover { filter: brightness(1.1); color: #000; }
+.wff-btn:disabled { opacity: .5; }
+.wff-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-accent); }
+.wff-btn-ghost:hover { color: var(--text-primary); background: var(--bg-hover); }
+.wff-btn-danger { background: transparent; color: var(--status-error); border: 1px solid var(--status-error); }
+.wff-drop { border: 2px dashed var(--border-accent); border-radius: 10px; padding: 26px 16px; text-align: center;
+            color: var(--text-secondary); cursor: pointer; transition: border-color .15s, background .15s; }
+.wff-drop.over { border-color: var(--cyber-cyan); background: rgba(6,182,212,0.07); color: var(--text-primary); }
+.wff-progress { height: 6px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden; margin-top: 10px; display: none; }
+.wff-progress > div { height: 100%; width: 0; background: var(--cyber-cyan); transition: width .2s; }
+.wff-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-subtle); padding: 0 10px; flex-wrap: wrap; }
+.wff-tab { background: none; border: 0; color: var(--text-secondary); padding: 9px 12px; border-bottom: 2px solid transparent; }
+.wff-tab.active { color: var(--text-primary); border-bottom-color: var(--cyber-cyan); }
+.wff-tab .wff-count { font-size: 0.75rem; margin-left: 4px; color: var(--text-muted); }
+.wff-files { width: 100%; font-size: 0.86rem; }
+.wff-files td, .wff-files th { padding: 7px 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; }
+.wff-files th { color: var(--text-muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: .03em; }
+.wff-files td.wff-act { text-align: right; white-space: nowrap; }
+.wff-files a { color: var(--cyber-cyan); }
+.wff-run { padding: 10px 14px; border-bottom: 1px solid var(--border-subtle); font-size: 0.86rem; }
+.wff-run:last-child { border-bottom: 0; }
+.wff-run a { color: var(--cyber-cyan); }
+.wff-note { font-size: 0.82rem; color: var(--text-secondary); }
+.wff-warn { font-size: 0.84rem; color: var(--status-warning); }
+.wff-err { font-size: 0.84rem; color: var(--status-error); }
+.wff-map td { padding: 6px 8px; vertical-align: middle; font-size: 0.86rem; }
+.wff-map code, .wff-path { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--text-secondary); word-break: break-all; }
+.wff-toggle { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 0.88rem; }
+.wff-page label.wff-toggle { text-transform: none; letter-spacing: normal; font-weight: 400; color: var(--text-primary); }
+.wff-msg { margin-top: 8px; font-size: 0.85rem; }
+.wff-sp-list { max-height: 220px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: 6px; margin-top: 6px; }
+.wff-sp-list div { padding: 5px 10px; cursor: pointer; font-size: 0.85rem; }
+.wff-sp-list div:hover { background: var(--bg-hover); }
+.wff-page select[multiple].wff-input { min-height: 130px; }
+</style>
+
+<script src="/static/js/workflow_files.js?v=20261010c"></script>
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+{% endblock %}

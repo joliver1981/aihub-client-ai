@@ -12130,3 +12130,29 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }, 250);
 });
+
+
+// Workflow file drops (2026-10-10): open the loaded workflow's Files page
+// (drop files, collect results; set up its managed folders).
+async function openWorkflowFiles() {
+    if (typeof currentWorkflowName === 'undefined' || !currentWorkflowName) {
+        showToast('Load or save a workflow first, then open its files', 'warning');
+        return;
+    }
+    let workflowId = '';
+    try {
+        const response = await fetch('/get/workflows');
+        const data = await response.json();
+        const workflows = typeof data === 'string' ? JSON.parse(data) : data;
+        const match = (Array.isArray(workflows) ? workflows : Object.values(workflows || {}))
+            .find(w => (w.workflow_name || w.name) === currentWorkflowName);
+        if (match) workflowId = match.id || match.ID || '';
+    } catch (error) {
+        console.error('Error finding workflow ID for Files:', error);
+    }
+    if (!workflowId) {
+        showToast('Save the workflow first, then open its files', 'warning');
+        return;
+    }
+    window.open('/workflow-files/' + encodeURIComponent(workflowId), '_blank');
+}

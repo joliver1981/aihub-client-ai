@@ -1160,6 +1160,17 @@
                 {% endif %}
                 {% endif %}
 
+                {# Workflow file drops (2026-10-10): people a workflow's files are shared with
+                   drop files and collect results here; Developers find it under Workflows. #}
+                {% if current_user.is_authenticated and FLAG_WORKFLOW_FILES and current_user.role is not none and current_user.role < 2 %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('workflow_files.files_page') }}" class="new-nav-link">
+                        <i class="fas fa-folder-open nav-icon"></i>
+                        <span class="nav-text">Workflow Files</span>
+                    </a>
+                </div>
+                {% endif %}
+
                 {# Preview posture (james 2026-09-03): Developers/Admins only unless AGENT_ALLOW_ALL_USERS #}
                 {% if current_user.is_authenticated and FLAG_THE_AGENT and (FLAG_THE_AGENT_ALL_USERS or (current_user.role and current_user.role >= 2)) %}
                 <div class="new-nav-item">
@@ -1309,6 +1320,11 @@
                         <a href="{{ url_for('monitoring_dashboard') }}" class="new-nav-link" target="_blank">
                             <span class="nav-text">Workflow Monitor</span>
                         </a>
+                        {% if FLAG_WORKFLOW_FILES %}
+                        <a href="{{ url_for('workflow_files.files_page') }}" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Workflow Files</span>
+                        </a>
+                        {% endif %}
                     </div>
                 </div>
                 {% endif %}
@@ -1543,6 +1559,17 @@
                 {% endif %}
                 {% endif %}
 
+                {# Workflow file drops (2026-10-10): people a workflow's files are shared with
+                   drop files and collect results here; Developers find it under Workflows. #}
+                {% if current_user.is_authenticated and FLAG_WORKFLOW_FILES and current_user.role is not none and current_user.role < 2 %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('workflow_files.files_page') }}" class="new-nav-link">
+                        <i class="fas fa-folder-open nav-icon"></i>
+                        <span class="nav-text">Workflow Files</span>
+                    </a>
+                </div>
+                {% endif %}
+
                 <!-- Data & Connections -->
                  {% if current_user.is_authenticated and current_user.role >= 2 %}
                 <div class="new-nav-item">
@@ -1655,6 +1682,11 @@
                         <a href="{{ url_for('monitoring_dashboard') }}" class="new-nav-link" target="_blank">
                             <span class="nav-text">Workflow Monitor</span>
                         </a>
+                        {% if FLAG_WORKFLOW_FILES %}
+                        <a href="{{ url_for('workflow_files.files_page') }}" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Workflow Files</span>
+                        </a>
+                        {% endif %}
                     </div>
                 </div>
                 {% endif %}

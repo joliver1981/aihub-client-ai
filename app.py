@@ -11943,6 +11943,10 @@ def run_workflow():
 
         initiator = data.get('initiator', 'api')
         runtime_variables = data.get('variables') or {}
+        # The person behind the run: a workflow with file drops hands them its
+        # results (a My Work notice only when they ask; they are watching).
+        from workflow_files_routes import requester_for_run
+        requested_by = requester_for_run(initiator, notify=bool(data.get('notify_requester', False)))
 
         if USE_WORKFLOW_EXECUTOR_SERVICE:
             try:
@@ -11950,6 +11954,7 @@ def run_workflow():
                     workflow_id=int(workflow_id),
                     initiator=initiator,
                     variables=runtime_variables or None,
+                    requested_by=requested_by or None,
                 )
                 return jsonify({
                     "status": "success",
@@ -11986,7 +11991,8 @@ def run_workflow():
                         'defaultValue': str(var_value) if var_value is not None else '',
                     }
 
-            execution_id = workflow_engine.start_workflow(workflow_id, workflow_data, initiator)
+            execution_id = workflow_engine.start_workflow(workflow_id, workflow_data, initiator,
+                                                          requested_by=requested_by or None)
             return jsonify({
                 "status": "success",
                 "message": "Workflow execution started",
@@ -14144,6 +14150,27 @@ app.register_blueprint(agent_email_bp)
 from routes.portal_workflows_routes import portal_workflows_bp
 app.register_blueprint(portal_workflows_bp)
 
+# Workflow file drops (2026-10-10): managed inbox / processed / failed / outbox
+# folders per workflow, the Files page and its API (workflow_files_routes.py).
+# The Designer's save, the caller identity and the executor client live here.
+from workflow_files_routes import workflow_files_bp, configure as _configure_workflow_files
+
+
+def _workflow_files_start_run(workflow_id, initiator, requested_by):
+    if not USE_WORKFLOW_EXECUTOR_SERVICE:
+        raise RuntimeError("the workflow executor service is turned off on this install")
+    return workflow_client.start_workflow(workflow_id=int(workflow_id), initiator=initiator,
+                                          requested_by=requested_by).get('execution_id')
+
+
+_configure_workflow_files(
+    save_workflow=save_workflow_to_database, save_mirror=save_to_file,
+    caller_identity=_caller_identity_or_session, invalid_assertion=_InvalidUserAssertion,
+    start_run=_workflow_files_start_run,
+    active_runs=lambda: (workflow_client.get_active() or {}).get('active_executions') or [],
+    run_status=lambda execution_id: workflow_client.get_status(execution_id))
+app.register_blueprint(workflow_files_bp)
+
 # Import email processing routes
 from email_processing_routes import email_processing_bp
 app.register_blueprint(email_processing_bp)
@@ -14362,6 +14389,7 @@ def inject_config():
             # Local feature flags for sidebar visibility
             'FLAG_THE_AGENT': os.getenv('THE_AGENT_ENABLED', 'false').lower() == 'true',
             'FLAG_THE_AGENT_ALL_USERS': os.getenv('AGENT_ALLOW_ALL_USERS', 'false').lower() == 'true',
+            'FLAG_WORKFLOW_FILES': os.getenv('WORKFLOW_FILE_DROPS_ENABLED', 'true').strip().lower() not in ('false', '0', 'no', 'off'),
             'FLAG_AGENT_MODE': os.getenv('THE_AGENT_MODE', 'false').lower() == 'true',
             'FLAG_AGENT_NAV_LENS': os.getenv('THE_AGENT_NAV_LENS', 'false').lower() == 'true',
             'FLAG_COMMAND_CENTER': local_flags.get('command_center_enabled', True),
@@ -14415,6 +14443,7 @@ def inject_config():
             'APP_VERSION': app_config.APP_VERSION,
             'FLAG_THE_AGENT': os.getenv('THE_AGENT_ENABLED', 'false').lower() == 'true',
             'FLAG_THE_AGENT_ALL_USERS': os.getenv('AGENT_ALLOW_ALL_USERS', 'false').lower() == 'true',
+            'FLAG_WORKFLOW_FILES': os.getenv('WORKFLOW_FILE_DROPS_ENABLED', 'true').strip().lower() not in ('false', '0', 'no', 'off'),
             'FLAG_AGENT_MODE': os.getenv('THE_AGENT_MODE', 'false').lower() == 'true',
             'FLAG_AGENT_NAV_LENS': os.getenv('THE_AGENT_NAV_LENS', 'false').lower() == 'true',
             'FLAG_COMMAND_CENTER': True,
