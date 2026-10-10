@@ -3324,7 +3324,9 @@
     (turns || []).forEach(t => {
       if (t.role === "user") {
         if (t.kind === "scheduled_run" || t.kind === "portal_update") { addScheduledRun(t); return; }
-        addUser(t.text); return; }
+        // same look as a live message: the user's words, then the files they attached
+        const files = t.attachments || [];
+        addUser(t.text + (files.length ? "\n📎 " + files.join(", ") : "")); return; }
       const m = el("div", "msg agent");
       m.appendChild(el("span", "au", "The Agent"));
       (t.tools || []).forEach(name => {
@@ -3338,11 +3340,11 @@
       thread.appendChild(m);
     });
   }
-  async function openHistory(s) {
+  async function openHistory(s) {        // true when the conversation is on screen
     try {
       const r = await fetch(`/api/chat/history/${encodeURIComponent(s.session_id)}`,
                             { headers: H() });
-      if (!r.ok) return;
+      if (!r.ok) return false;
       const d = await r.json();
       renderTurns(d.turns);
       // Resume: the next message continues THIS conversation.
@@ -3355,7 +3357,8 @@
       note.style.borderColor = "var(--accent-line)";
       thread.appendChild(note); scroll();
       refreshHistoryUnread();       // the replay marked it opened — drop it from the badge
-    } catch {}
+      return true;
+    } catch { return false; }
   }
 
   // ---- live updates for the OPEN conversation (2026-08-23, hand-back bridge):
@@ -4270,14 +4273,24 @@
         `signed in as<b>${d.user.name || d.user.username}</b>`;
       renderModelNote(d);
       input.disabled = false; send.disabled = false;
-      if (!document.getElementById("hello") && !thread.children.length) hello(d.user);
+      // Deep link (2026-08-22): #chat=<session_id> opens that conversation —
+      // the target for My Work / notification links to a deferred result.
+      const hc = new URLSearchParams(location.hash.replace(/^#/, "")).get("chat");
+      // This tab keeps its conversation across a reload (sessionStorage, which
+      // is what lets the silent re-auth bounce come back to the same chat).
+      // Show that conversation: the screen used to come back to the welcome
+      // page while the next message still went into the old conversation,
+      // so two chats ended up as one (2026-10-10). New starts a fresh one.
+      let resumed = false;
+      if (!hc && sessionId && !thread.children.length) {
+        resumed = await openHistory({ session_id: sessionId });
+        if (!resumed) { sessionId = null; sessionStorage.removeItem("agent_session"); }
+      }
+      if (!resumed && !document.getElementById("hello") && !thread.children.length) hello(d.user);
       input.focus(); refreshWorkCount();
       // Deep link (v2.1): #view=<name>&scope=&gid= opens straight to a view.
       const hv = viewFromHash();
       if (hv) { currentView = hv; show("views"); runView(hv); }
-      // Deep link (2026-08-22): #chat=<session_id> opens that conversation —
-      // the target for My Work / notification links to a deferred result.
-      const hc = new URLSearchParams(location.hash.replace(/^#/, "")).get("chat");
       if (hc) { show("chat"); openHistory({ session_id: hc }); }
     } catch (e) { gate("The Agent service is unreachable: " + e.message); }
   }

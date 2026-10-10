@@ -80,6 +80,35 @@ def _drop_preferences_block(t: str) -> str:
     return t
 
 
+# file_tools.attachments_prompt_block: the note main.py puts in front of a
+# message that carries attachments (the server paths are for the model only).
+ATTACHMENTS_OPEN = "[Attached files from the user"
+
+
+def split_attachments_block(t: str) -> tuple:
+    """(the user's own words, [attachment names]) when `t` opens with the
+    attachments note: its header line, "  name (size) -> path" rows, then a
+    lone "]" line. Replay shows the user their words and the file names, never
+    the note (it showed up whole in replayed bubbles until 2026-10-10). No
+    closer means this is not the note and nothing is touched."""
+    lines = str(t or "").split("\n")
+    if not lines[0].startswith(ATTACHMENTS_OPEN):
+        return t, []
+    for i in range(1, len(lines)):
+        if lines[i] == "]":
+            names = []
+            for row in lines[1:i]:
+                if " -> " not in row:
+                    continue
+                label = row.split(" -> ", 1)[0].strip()          # "name (size)"
+                if label.endswith(")") and " (" in label:
+                    label = label.rsplit(" (", 1)[0]
+                if label:
+                    names.append(label)
+            return "\n".join(lines[i + 1:]).lstrip("\n"), names
+    return t, []
+
+
 def strip_context_line(text: str) -> str:
     """The user's own words: the envelope (Context line, then the optional
     identity line and preferences block) removed."""
@@ -312,6 +341,7 @@ def replay(session_id: str, max_turns: int = 400) -> list:
                     content = msg.get("content")
                     if isinstance(content, str) and content.strip():
                         text = strip_context_line(content.strip()).strip()
+                        text, attached = split_attachments_block(text)
                         if not text:
                             continue
                         dp = split_deferred_prompt(text)
@@ -320,7 +350,10 @@ def replay(session_id: str, max_turns: int = 400) -> list:
                                           "kind": deferred_kind(text) or "scheduled_run",
                                           "header": dp[0], "text": dp[1][:8000]})
                         else:
-                            turns.append({"role": "user", "text": text[:8000]})
+                            turn = {"role": "user", "text": text[:8000]}
+                            if attached:
+                                turn["attachments"] = attached
+                            turns.append(turn)
                 elif rtype == "assistant":
                     text_parts, tools = [], []
                     for block in (msg.get("content") or []):
