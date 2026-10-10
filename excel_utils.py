@@ -2054,6 +2054,28 @@ def write_extraction_to_excel(
             cell_formatting = transformed_formatting
             logger.debug(f"Transformed cell_formatting keys using field_mapping")
         
+        # An append to a workbook that does not exist yet - the first run of a
+        # workflow that keeps adding to a register in its Results folder -
+        # creates it instead of failing (2026-10-10). With a separate template
+        # the register starts as a copy of it; otherwise it is built like
+        # "new", the manual field mapping naming its columns so later appends
+        # line up with them.
+        name_columns_by_mapping = False
+        if operation == "append" and output_path and not os.path.exists(output_path):
+            same_file = bool(template_path) and (
+                os.path.normcase(os.path.abspath(template_path))
+                == os.path.normcase(os.path.abspath(output_path)))
+            out_dir = os.path.dirname(os.path.abspath(output_path))
+            if template_path and not same_file and os.path.exists(template_path):
+                import shutil
+                os.makedirs(out_dir, exist_ok=True)
+                shutil.copy2(template_path, output_path)
+                logger.info(f"Append target did not exist: started it from the template {template_path}")
+            else:
+                os.makedirs(out_dir, exist_ok=True)
+                operation, template_path, name_columns_by_mapping = "new", None, True
+                logger.info(f"Append target did not exist: creating {output_path}")
+
         # Determine if we need to map to an existing schema
         use_template_schema = operation in ["append", "new_from_template"] and template_path
 
@@ -2333,6 +2355,8 @@ def write_extraction_to_excel(
                 include_confidence=include_confidence,
                 transpose=True  # Fields as columns
             )
+            if name_columns_by_mapping and field_mapping:
+                df = df.rename(columns={k: v for k, v in field_mapping.items() if v and k in df.columns})
             
             # Build schema from DataFrame columns
             schema = {
