@@ -39,6 +39,7 @@ from map_tools import MAP_TOOLS
 from image_tools import IMAGE_TOOLS
 from connection_tools import CONNECTION_TOOLS
 from workflow_tools import WORKFLOW_TOOLS
+from workflow_file_tools import WORKFLOW_FILE_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -172,6 +173,12 @@ _MY_CONNECTIONS_ON = os.getenv("AGENT_MY_CONNECTIONS", "true").lower() == "true"
 # reversible doctrine — AGENT_WORKFLOW_TOOLS=false ships without them.
 _WORKFLOW_TOOLS_ON = os.getenv("AGENT_WORKFLOW_TOOLS", "true").lower() == "true"
 
+# Workflow file drops (2026-10-10): put files into a workflow's managed Waiting
+# folder, run it and hand the results back as chat links; set it up / share
+# it (Developer). Same doctrine — AGENT_WORKFLOW_FILE_TOOLS=false ships
+# without them (the platform's own WORKFLOW_FILE_DROPS_ENABLED also gates).
+_WORKFLOW_FILE_TOOLS_ON = os.getenv("AGENT_WORKFLOW_FILE_TOOLS", "true").lower() == "true"
+
 aihub_server = create_sdk_mcp_server(
     name="aihub", version="0.11.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
@@ -186,7 +193,8 @@ aihub_server = create_sdk_mcp_server(
           + (MAP_TOOLS if _MAP_TOOLS_ON else [])
           + (IMAGE_TOOLS if _IMAGE_TOOLS_ON else [])
           + (CONNECTION_TOOLS if _MY_CONNECTIONS_ON else [])
-          + (WORKFLOW_TOOLS if _WORKFLOW_TOOLS_ON else []))
+          + (WORKFLOW_TOOLS if _WORKFLOW_TOOLS_ON else [])
+          + (WORKFLOW_FILE_TOOLS if _WORKFLOW_FILE_TOOLS_ON else []))
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -214,6 +222,8 @@ MUTATING_TOOLS = frozenset({
     "delete_code_flow", "remember_preference", "forget_preference",
     "export_data", "manipulate_pdf", "generate_image",
     "save_workflow", "run_workflow", "schedule_workflow", "cancel_workflow_schedule",
+    "setup_workflow_files", "add_workflow_files", "run_workflow_on_files",
+    "retry_workflow_files", "share_workflow_files",
     # Acts AS the user on their personal account; reads today, and any write
     # an admin allows must be covered by the "I sent that email" guard.
     "use_my_connection",
@@ -263,7 +273,7 @@ _READ_TOOL_NAMES = [
     "lookup_portal", "list_portal_workflows", "describe_portal_workflow",
     "list_agents", "get_agent_config", "get_agent_builder_options",
     "get_workflow_node_reference", "list_workflows", "get_workflow",
-    "get_workflow_run_report", "list_workflow_schedules",
+    "get_workflow_run_report", "list_workflow_schedules", "list_workflow_files",
     # Personal connections: a side thread may SEE what is connected and what
     # a connection offers; use_my_connection stays out — a side thread must
     # never act (or send) as the user.
@@ -319,6 +329,16 @@ WHAT YOU CAN DO
   written) — never on a save or a bare "Completed". To change one,
   get_workflow first and save with replace_existing=true. To run one on a
   schedule: schedule_workflow (list_workflow_schedules / cancel_workflow_schedule).
+- Move FILES in and out of workflows (file drops): a workflow that reads a folder
+  of files has managed folders (Waiting, Results, Failed, Processed) the user
+  reaches from a browser. When you build or change one, setup_workflow_files
+  points its folder variables there — never ask anyone for a server path.
+  "Run these invoices through <workflow>" with attachments ->
+  run_workflow_on_files (files = the attachment paths): it adds them, runs it
+  and returns the results as download links (include them VERBATIM).
+  list_workflow_files / get_workflow_files / add_workflow_files /
+  retry_workflow_files; share_workflow_files lets other people drop and
+  collect. Works for every user the workflow is shared with.
 
 WRITING AUTOMATION CODE
 Code runs in a sandboxed subprocess. START EVERY SCRIPT WITH THE EXPLICIT IMPORT

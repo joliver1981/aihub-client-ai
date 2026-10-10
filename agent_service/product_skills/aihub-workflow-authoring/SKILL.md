@@ -68,6 +68,31 @@ Connection types: `pass` (the node succeeded), `fail` (the node failed),
 Every branch inside the loop ends at the End Loop, failure branches too, and
 End Loop's `loopNodeId` is the Loop's id.
 
+## Getting files in and out (file drops)
+
+People work in a browser; the workflow runs on the server. Never ask anyone
+for a server path. Once a workflow that reads a folder of files is saved and
+working, `setup_workflow_files` creates its managed folders and points its
+variables at them: `inbox_variable` (e.g. inputFolder), `processed_variable`,
+`failed_variable`, `outbox_variable` (a folder, or the output workbook: it
+keeps its file name inside Results). Then tell the user they drop files on the
+Workflow Files page (in AI Hub's menu, or Files in The Agent) or
+attach them in chat.
+
+- "Run these invoices through the CI workflow" with attachments:
+  `run_workflow_on_files` with `files` = the attachment paths. It adds them to
+  Waiting, runs the workflow and hands the results back as download links:
+  include those VERBATIM. `add_workflow_files` only adds them.
+- `list_workflow_files` shows what is waiting, the results, failures and
+  recent runs; `get_workflow_files` hands files over as links;
+  `retry_workflow_files` puts failed files back once the cause is fixed.
+- `share_workflow_files` lets other people (or groups) drop and collect
+  without Designer access. Results of runs they start or files they drop
+  reach them in My Work too.
+- Testing a workflow that has file drops: a run is real, and the Waiting
+  files are the user's work. Test on a copy of the input with `variables_json`
+  pointing the folder variables at a test folder, or ask before running.
+
 ## Gotchas
 
 - Folder Selector: `selectionMode "all"` returns a LIST (feed it to a Loop);

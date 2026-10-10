@@ -430,6 +430,111 @@ async def list_attachments(request: Request):
     return {"uploads": file_tools.list_uploads(int(user["user_id"] or 0))}
 
 
+# ---------- workflow file drops: the Files screen (2026-10-10) ----------
+# The main app's /api/workflow-files routes, called AS the signed-in user
+# (service key + their signed assertion): the platform decides access exactly
+# as it does on its own Files page (shared workflows only, for regular users).
+def _wf_files_headers(request: Request) -> dict:
+    user = _verify_request(request)
+    try:
+        return readthrough._user_headers(user)
+    except readthrough.NoUserIdentity as e:
+        raise HTTPException(403, str(e))
+
+
+def _wf_files_reply(r) -> JSONResponse:
+    try:
+        data = r.json()
+    except Exception:
+        data = {"status": "error", "message": (r.text or "")[:300] or f"HTTP {r.status_code}"}
+    return JSONResponse(data, status_code=r.status_code)
+
+
+async def _wf_files_call(request: Request, method: str, path: str, *, params=None, body=None):
+    import httpx
+    from agent_config import get_base_url
+    headers = _wf_files_headers(request)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+        r = await client.request(method, f"{get_base_url()}{path}", params=params, json=body,
+                                 headers=headers)
+    return _wf_files_reply(r)
+
+
+@app.get("/api/wf-files")
+async def wf_files_list(request: Request):
+    return await _wf_files_call(request, "GET", "/api/workflow-files")
+
+
+@app.get("/api/wf-files/{wid}")
+async def wf_files_detail(wid: int, request: Request):
+    return await _wf_files_call(request, "GET", f"/api/workflow-files/{wid}")
+
+
+@app.get("/api/wf-files/{wid}/runs/{eid}")
+async def wf_files_run(wid: int, eid: str, request: Request):
+    return await _wf_files_call(request, "GET", f"/api/workflow-files/{wid}/runs/{eid}")
+
+
+@app.post("/api/wf-files/{wid}/upload")
+async def wf_files_upload(wid: int, request: Request):
+    """Raw body + X-File-Name (URL-encoded), like chat attachments."""
+    import httpx
+    from agent_config import get_base_url
+    headers = _wf_files_headers(request)
+    name = request.headers.get("X-File-Name") or ""
+    if not name:
+        raise HTTPException(400, "X-File-Name is required")
+    data = await request.body()
+    headers.update({"X-File-Name": name, "Content-Type": "application/octet-stream"})
+    params = {k: request.query_params[k] for k in ("run",) if k in request.query_params}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, read=900.0, write=900.0)) as client:
+        r = await client.post(f"{get_base_url()}/api/workflow-files/{wid}/upload",
+                              params=dict(params, via="the_agent_files"), content=data, headers=headers)
+    return _wf_files_reply(r)
+
+
+@app.get("/api/wf-files/{wid}/download")
+async def wf_files_download(wid: int, request: Request, folder: str = "outbox", name: str = ""):
+    import httpx
+    from agent_config import get_base_url
+    headers = _wf_files_headers(request)
+    client = httpx.AsyncClient(timeout=httpx.Timeout(60.0, read=900.0))
+    upstream = await client.send(client.build_request(
+        "GET", f"{get_base_url()}/api/workflow-files/{wid}/download",
+        params={"folder": folder, "name": name}, headers=headers), stream=True)
+    if upstream.status_code != 200:
+        body = await upstream.aread()
+        await upstream.aclose()
+        await client.aclose()
+        try:
+            data = json.loads(body or b"{}")
+        except Exception:
+            data = {"status": "error", "message": body[:300].decode("utf-8", "replace")}
+        return JSONResponse(data, status_code=upstream.status_code)
+
+    async def relay():
+        try:
+            async for block in upstream.aiter_bytes():
+                yield block
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+    passthrough = {k: v for k, v in upstream.headers.items()
+                   if k.lower() in ("content-type", "content-disposition", "content-length")}
+    return StreamingResponse(relay(), headers=passthrough)
+
+
+@app.post("/api/wf-files/{wid}/{action}")
+async def wf_files_action(wid: int, action: str, request: Request):
+    if action not in ("retry", "delete", "run"):
+        raise HTTPException(404, "unknown action")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return await _wf_files_call(request, "POST", f"/api/workflow-files/{wid}/{action}", body=body)
+
+
 @app.post("/api/chat")
 async def chat(request: Request):
     user = _verify_request(request)

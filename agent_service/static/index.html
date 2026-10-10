@@ -224,6 +224,23 @@
   .threadrow{display:flex;gap:8px;margin-top:8px}
   .ok-note{color:var(--green);font-size:12px;margin-top:8px}
   .err-note{color:var(--red);font-size:12px;margin-top:8px}
+  /* Files: workflow file drops (2026-10-10) */
+  #files-body{flex:1;display:grid;grid-template-columns:300px 1fr;gap:14px;
+              padding:14px 22px 22px;overflow:hidden;min-height:0}
+  #wff-list{overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:2px}
+  #wff-detail{overflow-y:auto;background:var(--panel);border:1px solid var(--line);
+              border-radius:13px;padding:18px 20px}
+  .wff-drop{border:2px dashed var(--line);border-radius:11px;padding:20px;text-align:center;
+            color:var(--text2);font-size:12.5px;cursor:pointer;margin-top:12px}
+  .wff-drop.over{border-color:var(--accent);background:var(--accent-tint);color:var(--text)}
+  .wff-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+  .wff-table td{padding:6px 8px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
+  .wff-table td.r{text-align:right;white-space:nowrap}
+  .wff-table .mini{border:1px solid var(--line);border-radius:7px;padding:2px 9px;font-size:11px;
+                   color:var(--text2);margin-left:6px}
+  .wff-table .mini:hover{color:var(--text);border-color:var(--text3)}
+  .wff-run{padding:8px 0;border-bottom:1px solid var(--line-soft);font-size:12px;color:var(--text2)}
+  .wff-run b{color:var(--text)}
   .guard-note{color:var(--amber);background:var(--amber-tint);
               border:1px solid rgba(229,182,99,.4);border-radius:9px;
               padding:8px 12px;font-size:12px;max-width:88%}
@@ -405,6 +422,7 @@
   <button class="navlink" id="nav-work">▣ My Work <span class="count" id="work-count" style="display:none">0</span></button>
   <button class="navlink" id="nav-views">▦ Views</button>
   <button class="navlink" id="nav-playbooks">▷ Playbooks</button>
+  <button class="navlink" id="nav-files">⇅ Files</button>
   <button class="navlink" id="nav-schedules">⏱ Schedules</button>
   <button class="navlink" id="nav-email">✉ Email</button>
   <button class="navlink" id="nav-skills">◆ Skills</button>
@@ -595,6 +613,19 @@
            style="margin-left:auto;width:220px;padding:6px 12px;border-radius:9px;font-size:12px">
   </div>
   <div id="pb-list" style="flex:1;overflow-y:auto;padding:14px 22px 22px;display:flex;flex-direction:column;gap:8px"></div>
+</section>
+
+<!-- ===================== FILES (workflow file drops) ===================== -->
+<section class="view" id="view-files">
+  <div style="padding:16px 22px 0;display:flex;align-items:center;gap:14px">
+    <h1 style="font-size:17px;font-weight:650">Files</h1>
+    <span class="sub" style="color:var(--text3);font-size:12px">Drop files for a workflow to process, then collect what it produced</span>
+    <button id="wff-refresh" style="margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">↻ Refresh</button>
+  </div>
+  <div id="files-body">
+    <div id="wff-list"></div>
+    <div id="wff-detail"></div>
+  </div>
 </section>
 
 <!-- ===================== SCHEDULES ===================== -->
@@ -1287,6 +1318,7 @@
                   work: document.getElementById("view-work"),
                   views: document.getElementById("view-views"),
                   playbooks: document.getElementById("view-playbooks"),
+                  files: document.getElementById("view-files"),
                   schedules: document.getElementById("view-schedules"),
                   email: document.getElementById("view-email"),
                   skills: document.getElementById("view-skills") };
@@ -1294,6 +1326,7 @@
                  work: document.getElementById("nav-work"),
                  views: document.getElementById("nav-views"),
                  playbooks: document.getElementById("nav-playbooks"),
+                 files: document.getElementById("nav-files"),
                  schedules: document.getElementById("nav-schedules"),
                  email: document.getElementById("nav-email"),
                  skills: document.getElementById("nav-skills") };
@@ -1307,6 +1340,7 @@
     if (v === "skills") loadSkills();
     if (v === "views") loadViews();
     if (v === "playbooks") loadPlaybooks();
+    if (v === "files") loadFiles();
     if (v === "schedules") loadSchedules();
     if (v === "email") loadEmail();
   }
@@ -1314,6 +1348,7 @@
   navs.work.onclick = () => show("work");
   navs.views.onclick = () => show("views");
   navs.playbooks.onclick = () => show("playbooks");
+  navs.files.onclick = () => show("files");
   navs.schedules.onclick = () => show("schedules");
   navs.email.onclick = () => show("email");
   navs.skills.onclick = () => show("skills");
@@ -1583,6 +1618,7 @@
     { label: "Build & automate", minRole: 2, links: [
       ["Workflow Designer", "/workflow_tool"],
       ["Workflow Monitor", "/monitoring"],
+      ["Workflow Files", "/workflow-files"],
       ["Mission Control", "/automations/"],
       ["Command Center", "/command-center"],
       ["Agent Builder", "/custom_agent_enhanced"],
@@ -2239,6 +2275,234 @@
     }
   }
   document.getElementById("pb-refresh").onclick = loadPlaybooks;
+
+  // ---------- files: workflow file drops (2026-10-10) ----------
+  // Drop files into a workflow's Waiting folder, collect its Results, retry
+  // what failed — through the platform's /api/workflow-files routes AS this
+  // user (proxied by /api/wf-files), so only workflows shared with them show.
+  let wffId = "", wffDetail = null, wffTab = "inbox", wffTimer = null, wffMsg = null;
+  const WFF_LABEL = { inbox: "Waiting", outbox: "Results", failed: "Failed", processed: "Processed" };
+  const wffBytes = n => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB"
+                                              : (n / 1048576).toFixed(1) + " MB";
+  const wffWhen = iso => { const d = new Date(iso); return isNaN(d) ? (iso || "") : d.toLocaleString(); };
+  async function wffFetch(path, opts) {
+    const r = await fetch(path, Object.assign({ headers: H() }, opts || {}));
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.message || d.detail || ("HTTP " + r.status));
+    return d;
+  }
+  async function loadFiles() {
+    const list = document.getElementById("wff-list");
+    list.textContent = "Loading…";
+    let d;
+    try { d = await wffFetch("/api/wf-files"); }
+    catch (e) { list.textContent = "Could not load: " + e.message; return; }
+    list.innerHTML = "";
+    const rows = d.workflows || [];
+    if (!rows.length) {
+      list.appendChild(el("div", "qfrom", d.can_manage
+        ? "No workflow has file drops yet. Ask me to set them up for a workflow, or use Workflow Files in AI Hub."
+        : "No workflow shares its files with you yet. Ask the workflow's owner to share it with you or one of your groups."));
+      document.getElementById("wff-detail").innerHTML = "";
+      return;
+    }
+    if (!rows.some(w => String(w.workflow_id) === wffId)) wffId = String(rows[0].workflow_id);
+    rows.forEach(w => {
+      const c = w.counts || {};
+      const b = el("button", "qitem" + (String(w.workflow_id) === wffId ? " on" : ""));
+      b.dataset.id = String(w.workflow_id);
+      b.appendChild(el("div", "qtitle", w.name));
+      b.appendChild(el("div", "qfrom", `Waiting ${c.inbox || 0} · Results ${c.outbox || 0} · Failed ${c.failed || 0}`
+        + (w.last_run ? ` · last run ${w.last_run.status}` : "")));
+      b.onclick = () => {
+        wffId = b.dataset.id;
+        wffMsg = null;
+        list.querySelectorAll(".qitem").forEach(x => x.classList.toggle("on", x === b));
+        loadWff();
+      };
+      list.appendChild(b);
+    });
+    loadWff();
+  }
+  async function loadWff(quiet) {
+    const box = document.getElementById("wff-detail");
+    clearTimeout(wffTimer);
+    if (!wffId) return;
+    if (!quiet) box.textContent = "Loading…";
+    try { wffDetail = await wffFetch("/api/wf-files/" + wffId); }
+    catch (e) { box.textContent = e.message; return; }
+    renderWff();
+    // poll while a run is going, only while this screen is open
+    if (wffDetail.running) wffTimer = setTimeout(() => {
+      if (views.files.classList.contains("on")) loadWff(true);
+    }, 4000);
+  }
+  function wffNote(text, bad) {        // survives re-renders (polling) until another workflow is picked
+    wffMsg = { text, bad };
+    const n = document.getElementById("wff-note");
+    if (!n) return;
+    n.className = bad ? "err-note" : "ok-note";
+    n.textContent = text;
+  }
+  function renderWff() {
+    const d = wffDetail, box = document.getElementById("wff-detail");
+    box.innerHTML = "";
+    if (!d.set_up) {
+      box.appendChild(el("div", "qfrom", "File drops are not set up for this workflow."));
+      return;
+    }
+    const c = d.counts || {}, s = d.settings || {};
+    const head = el("div", "qrow");
+    head.appendChild(el("div", "dtitle", d.name));
+    if (d.running) head.appendChild(el("span", "tchip t-review", "running"));
+    const run = el("button", "btn primary", c.inbox ? `▶ Run now (${c.inbox})` : "▶ Run now");
+    run.style.marginLeft = "auto";
+    run.disabled = !c.inbox;
+    run.onclick = async () => {
+      run.disabled = true;
+      try {
+        const r = await wffFetch(`/api/wf-files/${wffId}/run`, { method: "POST", body: "{}" });
+        wffNote(r.queued ? r.message : "A run started. This screen updates when it finishes.");
+        await loadWff(true);
+      } catch (e) { wffNote(e.message, true); run.disabled = false; }
+    };
+    head.appendChild(run);
+    box.appendChild(head);
+    if (s.run_on_upload) box.appendChild(el("div", "qfrom", "A run starts as soon as files arrive."));
+    (d.email_addresses || []).forEach(a => box.appendChild(el("div", "qfrom",
+      `Email attachments to ${a.address}${a.active ? "" : " (inactive)"} land in Waiting.`)));
+
+    const drop = el("div", "wff-drop", "Drop files here, or click to choose. They go to Waiting.");
+    const input = el("input"); input.type = "file"; input.multiple = true; input.style.display = "none";
+    drop.onclick = () => input.click();
+    input.onchange = () => { wffUpload(Array.from(input.files || [])); input.value = ""; };
+    ["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+    ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+    drop.addEventListener("drop", e => wffUpload(Array.from(e.dataTransfer.files || [])));
+    box.appendChild(drop); box.appendChild(input);
+    if (!s.run_on_upload) {
+      const lab = el("label", "qfrom");
+      lab.style.display = "flex"; lab.style.gap = "6px"; lab.style.marginTop = "6px";
+      const cb = el("input"); cb.type = "checkbox"; cb.id = "wff-runafter";
+      lab.appendChild(cb); lab.appendChild(document.createTextNode("Run the workflow after this upload"));
+      box.appendChild(lab);
+    }
+    box.appendChild(el("div", "ok-note")).id = "wff-note";
+    if (wffMsg) wffNote(wffMsg.text, wffMsg.bad);
+
+    const tabs = el("div", "chips"); tabs.style.marginTop = "14px";
+    ["inbox", "outbox", "failed", "processed"].forEach(f => {
+      const t = el("button", "chip" + (f === wffTab ? " on" : ""), WFF_LABEL[f] + " ");
+      t.appendChild(el("span", "n", String(c[f] || 0)));
+      t.onclick = () => { wffTab = f; renderWff(); };
+      tabs.appendChild(t);
+    });
+    box.appendChild(tabs);
+    const files = (d.files || {})[wffTab] || [];
+    if (!files.length) {
+      box.appendChild(el("div", "qfrom", { inbox: "Nothing is waiting.", outbox: "No results yet.",
+        failed: "Nothing has failed.", processed: "Nothing processed yet." }[wffTab]));
+    } else {
+      const t = el("table", "wff-table");
+      files.forEach(f => {
+        const tr = el("tr");
+        tr.appendChild(el("td", "", f.name));
+        tr.appendChild(el("td", "", wffBytes(f.size)));
+        tr.appendChild(el("td", "", wffWhen(f.modified) + (f.uploaded_by ? " · " + f.uploaded_by : "")));
+        const act = el("td", "r");
+        const dl = el("button", "mini", "⤓ Download"); dl.onclick = () => wffDownload(wffTab, f.name, dl);
+        act.appendChild(dl);
+        if (wffTab === "failed") {
+          const rt = el("button", "mini", "Retry"); rt.onclick = () => wffRetry([f.name]);
+          act.appendChild(rt);
+        }
+        if (wffTab === "inbox") {
+          const rm = el("button", "mini", "Remove"); rm.onclick = () => wffRemove(f.name);
+          act.appendChild(rm);
+        }
+        tr.appendChild(act); t.appendChild(tr);
+      });
+      box.appendChild(t);
+    }
+    const runs = d.runs || [];
+    const sec = el("div", "dsection");
+    sec.appendChild(el("div", "dlabel", "Recent runs"));
+    if (!runs.length) sec.appendChild(el("div", "qfrom", "No runs yet."));
+    runs.forEach(r => {
+      const row = el("div", "wff-run");
+      row.appendChild(el("b", "", r.status || "?"));
+      row.appendChild(document.createTextNode(` · ${wffWhen(r.finished_at || r.started_at)}`
+        + (r.started_by ? ` · started by ${r.started_by}` : "")
+        + ` · took ${(r.consumed || []).length}`
+        + ((r.failed || []).length ? ` · failed: ${r.failed.join(", ")}` : "")));
+      (r.outputs || []).forEach(o => {
+        const b = el("button", "mini", "⤓ " + o.name);
+        b.style.marginLeft = "6px";
+        b.onclick = () => wffDownload("outbox", o.name, b);
+        row.appendChild(b);
+      });
+      sec.appendChild(row);
+    });
+    box.appendChild(sec);
+  }
+  async function wffUpload(files) {
+    if (!files.length) return;
+    const runAfter = document.getElementById("wff-runafter");
+    const wantRun = runAfter ? runAfter.checked : !!((wffDetail || {}).settings || {}).run_on_upload;
+    const added = [], problems = [];
+    let runNote = "";
+    wffNote(`Uploading ${files.length} file(s)…`);
+    for (const [i, f] of files.entries()) {
+      // add them all, then start ONE run with the last file (when wanted)
+      const runParam = wantRun && i === files.length - 1 ? "?run=1" : "?run=0";
+      try {
+        const r = await fetch(`/api/wf-files/${wffId}/upload${runParam}`, { method: "POST",
+          headers: { "Authorization": "Bearer " + token(), "X-File-Name": encodeURIComponent(f.name) }, body: f });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { problems.push(`${f.name}: ${d.message || (d.errors || []).join("; ") || r.status}`); continue; }
+        (d.stored || []).forEach(x => added.push(x.name));
+        if (d.run) runNote = d.run.queued ? " " + d.run.message : " A run started.";
+      } catch (e) { problems.push(`${f.name}: ${e}`); }
+    }
+    wffTab = "inbox";
+    await loadWff(true);
+    wffNote((added.length ? "Added to Waiting: " + added.join(", ") + "." : "")
+      + (problems.length ? " Not added: " + problems.join("; ") + "." : "") + runNote, !added.length);
+  }
+  async function wffDownload(folder, name, btn) {
+    const orig = btn.textContent;
+    btn.textContent = orig + " …";
+    try {
+      const r = await fetch(`/api/wf-files/${wffId}/download?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(name)}`,
+                            { headers: { "Authorization": "Bearer " + token() } });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); wffNote(d.message || ("HTTP " + r.status), true); return; }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = name.split("/").pop();
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (e) { wffNote("Download failed: " + e, true); }
+    finally { btn.textContent = orig; }
+  }
+  async function wffRetry(names) {
+    const run = confirm("Move the file back to Waiting and start a run now?\n\nOK = retry and run; Cancel = just move it back.");
+    try {
+      const r = await wffFetch(`/api/wf-files/${wffId}/retry`, { method: "POST", body: JSON.stringify({ names, run }) });
+      await loadWff(true);
+      wffNote("Back in Waiting: " + (r.moved || []).map(m => m.to).join(", ") + "."
+        + (r.run ? (r.run.queued ? " " + r.run.message : " A run started.") : ""));
+    } catch (e) { wffNote(e.message, true); }
+  }
+  async function wffRemove(name) {
+    if (!confirm(`Remove ${name} from Waiting? This cannot be undone.`)) return;
+    try {
+      await wffFetch(`/api/wf-files/${wffId}/delete`, { method: "POST", body: JSON.stringify({ folder: "inbox", names: [name] }) });
+      await loadWff(true);
+      wffNote(`Removed ${name}.`);
+    } catch (e) { wffNote(e.message, true); }
+  }
+  document.getElementById("wff-refresh").onclick = loadFiles;
 
   // ---------- schedules view ----------
   // One surface over the shared scheduler engine: every job's cadence, next/last
