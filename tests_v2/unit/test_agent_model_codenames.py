@@ -171,6 +171,15 @@ def test_parse_empty_or_absent_is_no_mapping_and_logs_nothing():
     assert not warn.called and not err.called
 
 
+def test_parse_off_means_no_mapping_without_a_warning():
+    # the opt-out that survives upgrades: the installer re-adds the key when it
+    # is missing or EMPTY, never when it holds a word
+    with mock.patch.object(C.logger, "warning") as warn:
+        for raw in ("off", "OFF", " none ", "False"):
+            assert C.parse_model_codenames(raw) == {}, raw
+    assert not warn.called
+
+
 def test_parse_never_raises():
     class Unreadable:
         def __str__(self):
@@ -469,6 +478,16 @@ def test_env_template_documents_the_decided_default():
     lines = _read(os.path.join(APP_ROOT, ".env.template")).splitlines()
     assert "AGENT_MODEL_CODENAMES=" + DEFAULT in lines
     assert C.parse_model_codenames(DEFAULT) == MAP
+
+
+def test_installer_seeds_the_same_default_on_upgrade():
+    # an upgrade keeps the client's own .env; the highest installer script adds
+    # the key when missing (Ensure, not Force). Fresh installs get dist\.env,
+    # which is machine-local and not in git, so it is not checked here.
+    iss = _read(os.path.join(APP_ROOT, "AIHub_Setup_Script_v7_OneDir_Dev.iss"))
+    assert "EnsureEnvKeyExists(EnvConfigFile, 'AGENT_MODEL_CODENAMES'," in iss
+    assert "'" + DEFAULT + "'" in iss
+    assert "ForceEnvKeyValue(EnvConfigFile, 'AGENT_MODEL_CODENAMES'" not in iss
 
 
 if __name__ == "__main__":

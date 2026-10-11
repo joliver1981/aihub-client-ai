@@ -1397,6 +1397,21 @@ begin
                mbError, MB_OK);
       end;
 
+      // --- AGENT_MODEL_CODENAMES (2026-10-11) ---
+      // The Agent shows these code names instead of the real model ids, to
+      // Admins too (display-only). dist\.env ships the line for fresh installs;
+      // an upgrade keeps the client's own .env, so seed it when missing. Ensure,
+      // not Force: a box set to its own names, or to off (show the real ids),
+      // keeps its value. A missing or EMPTY value is seeded again, which is why
+      // the opt-out is the word off rather than an empty value.
+      if not EnsureEnvKeyExists(EnvConfigFile, 'AGENT_MODEL_CODENAMES',
+           'claude-haiku-5-5:the-agent-basic,claude-sonnet-5-5:the-agent-standard,claude-opus-5-5:the-agent-pro') then
+      begin
+        MsgBox('Warning: Failed to write AGENT_MODEL_CODENAMES to .env.' + #13#10 +
+               'You may need to add it manually',
+               mbError, MB_OK);
+      end;
+
       // --- NLQ_ENGINE_DEFAULT (v2.0) ---
       // Code default is 'legacy'. Without this key an UPGRADED install keeps
       // running the old NL->SQL engine while fresh installs get the agentic

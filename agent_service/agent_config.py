@@ -381,9 +381,14 @@ def parse_model_codenames(raw) -> dict:
     and logged when it has no colon or an empty side, a real id the model
     setting would refuse, a code name outside _CODENAME_RE, or a real id or
     code name an earlier pair already uses (either way round, any case) — so
-    each code name maps back to exactly one real id. Never raises."""
+    each code name maps back to exactly one real id. off (or none / false)
+    = no mapping, and no warning: the installer re-adds the key on upgrade
+    when it is missing or EMPTY, so a word is the opt-out that lasts. Never
+    raises."""
     mapping = {}
     try:
+        if str(raw or "").strip().lower() in ("off", "none", "false"):
+            return mapping
         taken = set()
         for chunk in str(raw or "").split(","):
             pair = chunk.strip()
