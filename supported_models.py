@@ -17,10 +17,11 @@ model). So one list serves both direct-OpenAI and Azure-OpenAI for each role.
 # (o1 was removed from the OpenAI API in 2025. The gpt-5.6 family (GA
 # 2026-07-09) is the current generation — Sol = flagship, Terra = mid,
 # Luna = fast/cheap; 'gpt-5.6' is OpenAI's alias for Sol. gpt-5.4 remains
-# this platform's configured default.)
+# this platform's configured default. 'gpt-5.6-sol' is not offered: it was
+# never deployed on the platform's Azure resource, so choosing it failed
+# every call - removed 2026-10-11.)
 OPENAI_PRIMARY_MODELS = [
     'gpt-5.6',
-    'gpt-5.6-sol',
     'gpt-5.6-terra',
     'gpt-5.4',
     'gpt-5.5',
@@ -100,7 +101,6 @@ ANTHROPIC_MINI_MODELS = [
 BROWSER_USE_MODELS = [
     'gpt-5.6-terra',
     'gpt-5.6',
-    'gpt-5.6-sol',
     'gpt-5.6-luna',
     'gpt-5.4',
     'gpt-5.4-mini',
