@@ -12,12 +12,14 @@ pytest; self-skips without the SDK.
 """
 import os
 import sys
+from unittest import mock
 
 APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, APP_ROOT)
 sys.path.insert(0, os.path.join(APP_ROOT, "agent_service"))
 
 try:
+    import agent_config                        # noqa: E402
     import brain as B                          # noqa: E402
     from claude_agent_sdk import ClaudeAgentOptions  # noqa: E402
     HAVE_SDK = True
@@ -35,16 +37,19 @@ if not HAVE_SDK:
 
 
 def test_options_carry_the_prompt_by_file_and_the_file_is_current():
-    opts = B._make_options(None, "full", None, 2, ["aihub-portals"])
-    assert isinstance(opts.system_prompt, dict)
-    assert opts.system_prompt["type"] == "file"
-    path = opts.system_prompt["path"]
-    assert path == B.SYSTEM_PROMPT_PATH and os.path.isfile(path)
-    with open(path, encoding="utf-8") as fh:
-        assert fh.read() == B.SYSTEM_PROMPT
-    # the read-scope side-thread options use the same file form
-    ro = B._make_options(None, "read", None, 2, [])
-    assert ro.system_prompt == {"type": "file", "path": B.SYSTEM_PROMPT_PATH}
+    # The shared file, so no model code names here whatever this box's .env
+    # says (a code-named model reads its own copy: test_agent_model_codenames).
+    with mock.patch.object(agent_config, "MODEL_CODENAMES", {}):
+        opts = B._make_options(None, "full", None, 2, ["aihub-portals"])
+        assert isinstance(opts.system_prompt, dict)
+        assert opts.system_prompt["type"] == "file"
+        path = opts.system_prompt["path"]
+        assert path == B.SYSTEM_PROMPT_PATH and os.path.isfile(path)
+        with open(path, encoding="utf-8") as fh:
+            assert fh.read() == B.SYSTEM_PROMPT
+        # the read-scope side-thread options use the same file form
+        ro = B._make_options(None, "read", None, 2, [])
+        assert ro.system_prompt == {"type": "file", "path": B.SYSTEM_PROMPT_PATH}
 
 
 def test_stale_or_missing_prompt_file_is_rewritten_before_a_turn():
