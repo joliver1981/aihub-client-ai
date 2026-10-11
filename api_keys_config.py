@@ -32,6 +32,15 @@ from local_secrets import (
 
 logger = logging.getLogger(__name__)
 
+# Models that accept only their default temperature (the gpt-6 family) are
+# handled for every OpenAI call in this process; every service that talks to
+# OpenAI imports this module first. See openai_param_guard.
+try:
+    import openai_param_guard
+    openai_param_guard.install()
+except Exception as _guard_err:  # never let the guard stop the platform
+    logger.warning(f"openai_param_guard not installed: {_guard_err}")
+
 api_keys_bp = Blueprint('api_keys_config', __name__, url_prefix='/api/api-keys')
 
 # =============================================================================
