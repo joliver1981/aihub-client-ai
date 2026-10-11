@@ -175,8 +175,13 @@ class TestExcelExportOutputAndContinue:
         assert r["success"] is False and variables["res"]["status"] == "failed"
 
     def test_end_to_end_failure_honours_continue(self, engine, tmp_path):
+        # A write that cannot happen: the destination sits under a FILE, so no
+        # folder or workbook can be created there. (Appending to a workbook
+        # that doesn't exist yet now creates it, so that is no longer a failure.)
+        blocker = tmp_path / "not_a_folder"
+        blocker.write_text("x")
         node = {"id": "x1", "type": "Excel Export",
-                "config": {"inputVariable": "${nothing_here}", "excelOutputPath": str(tmp_path / "o.xlsx"),
+                "config": {"inputVariable": "${nothing_here}", "excelOutputPath": str(blocker / "o.xlsx"),
                            "excelOperation": "append", "continueOnError": True, "outputVariable": "res"}}
         variables = {}
         r = engine._execute_excel_export_node("e1", node, variables)
