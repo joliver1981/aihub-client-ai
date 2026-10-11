@@ -899,11 +899,17 @@ async def work_respond(request: Request):
 
 @app.get("/api/skills")
 async def skills_list(request: Request):
+    """The Skills page inventory. Product skills (the platform know-how shipped
+    with the service) are listed for admins only (James 2026-10-11) — they are
+    still mounted into every user's sessions, this only hides them here."""
     user = _verify_request(request)
     import skills_mount
     uid = int(user["user_id"] or 0)
     gids = readthrough.user_group_ids(uid)
-    return {"skills": skills_mount.list_skills(uid, gids)}
+    skills = skills_mount.list_skills(uid, gids)
+    if int(user.get("role") or 0) < 3:
+        skills = [s for s in skills if s["scope"] != "product"]
+    return {"skills": skills}
 
 
 @app.get("/api/skills/read")
@@ -911,9 +917,16 @@ async def skills_read(request: Request):
     user = _verify_request(request)
     import skills_mount
     q = request.query_params
-    content = skills_mount.read_skill(q.get("scope", ""), q.get("name", ""),
-                                      user_id=int(user["user_id"] or 0),
-                                      group_id=int(q.get("group_id") or 0))
+    scope = q.get("scope", "")
+    uid = int(user["user_id"] or 0)
+    gid = int(q.get("group_id") or 0)
+    # Same visibility as the list: product = admins; group = members only.
+    if scope == "product" and int(user.get("role") or 0) < 3:
+        raise HTTPException(404, "skill not found")
+    if scope == "group" and gid not in set(int(g) for g in readthrough.user_group_ids(uid)):
+        raise HTTPException(404, "skill not found")
+    content = skills_mount.read_skill(scope, q.get("name", ""),
+                                      user_id=uid, group_id=gid)
     if not content:
         raise HTTPException(404, "skill not found")
     return {"content": content}
@@ -996,9 +1009,12 @@ async def skills_delete(request: Request):
     scope = str(body.get("scope") or "")
     if scope in ("tenant", "product") and int(user.get("role") or 0) < 3:
         raise HTTPException(403, "Deleting tenant/product skills requires an admin.")
+    uid = int(user["user_id"] or 0)
+    gid = int(body.get("group_id") or 0)
+    if scope == "group" and gid not in set(int(g) for g in readthrough.user_group_ids(uid)):
+        raise HTTPException(403, "You can only delete a group skill from a group you belong to.")
     ok = skills_mount.delete_skill(scope, str(body.get("name") or ""),
-                                   user_id=int(user["user_id"] or 0),
-                                   group_id=int(body.get("group_id") or 0))
+                                   user_id=uid, group_id=gid)
     if not ok:
         raise HTTPException(404, "skill not found")
     return {"deleted": True}

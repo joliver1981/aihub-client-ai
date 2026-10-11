@@ -935,7 +935,9 @@ async def save_skill(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "list_skills",
     "List the skills the current user's sessions load: product + tenant + "
-    "their groups + private.",
+    "their groups + private. Product skills are listed for admins only; for "
+    "other users the result just says built-in platform skills are loaded — "
+    "do not name or describe them to a non-admin.",
     {},
 )
 async def list_skills_tool(args: dict[str, Any]) -> dict[str, Any]:
@@ -944,13 +946,22 @@ async def list_skills_tool(args: dict[str, Any]) -> dict[str, Any]:
     user = CURRENT_USER.get()
     uid = int(user.get("user_id") or 0)
     skills = skills_mount.list_skills(uid, readthrough.user_group_ids(uid))
+    # Product skills = admins only, same as the Skills page (/api/skills).
+    hidden = 0
+    if int(user.get("role") or 0) < 3:
+        hidden = sum(1 for s in skills if s["scope"] == "product")
+        skills = [s for s in skills if s["scope"] != "product"]
+    note = ("\n(Built-in platform skills are also loaded; only admins can "
+            "list them.)" if hidden else "")
     if not skills:
-        return _text("No skills exist yet in any scope.")
+        return _text(("No skills of your own, your groups' or this tenant's "
+                      "exist yet." + note) if hidden else
+                     "No skills exist yet in any scope.")
     lines = []
     for s in skills:
         scope = s["scope"] + (f" {s['group_id']}" if s.get("group_id") else "")
         lines.append(f"- [{scope}] {s['name']} — {s['description'][:100]}")
-    return _text(f"Skills ({len(skills)}):\n" + "\n".join(lines))
+    return _text(f"Skills ({len(skills)}):\n" + "\n".join(lines) + note)
 
 
 def _scope_label(scope: str, gid: int) -> str:
