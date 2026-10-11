@@ -109,6 +109,10 @@ AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-haiku-5-5")
 # Regular users (role < 2) run their own model chain (james 2026-08-24,
 # all-users rollout), admin-settable at runtime; same default today.
 AGENT_MODEL_ROLE1 = os.getenv("AGENT_MODEL_ROLE1", "claude-haiku-5-5")
+# Optional model code names (james 2026-10-10): "real-id:code-name,..." —
+# what people SEE instead of the real ids, Admins included. Absent/empty =
+# no mapping = no change. Parsed below (parse_model_codenames).
+AGENT_MODEL_CODENAMES = os.getenv("AGENT_MODEL_CODENAMES", "")
 AGENT_MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "40"))
 
 
@@ -300,7 +304,8 @@ def _write_runtime_settings(settings: dict) -> None:
 
 def _set_model_key(key: str, model, label: str) -> None:
     settings = _read_runtime_settings()
-    m = str(model or "").strip()
+    # an Admin sees (and may type) code names; the store keeps the real id
+    m = resolve_model(model)
     if m:
         if not _MODEL_RE.match(m):
             raise ValueError("model id may only contain letters, digits, "
@@ -350,6 +355,115 @@ def set_turn_cap(value) -> int:
     _write_runtime_settings(settings)
     logger.info(f"daily turn cap {'set to ' + str(n) if n else 'turned OFF'}")
     return n
+
+
+# ---------------------------------------------------------------------------
+# Model code names (james 2026-10-10). With AGENT_MODEL_CODENAMES set, every
+# user-facing model id passes through display_model() — /api/me, the Admin
+# pickers, /health, chat events, error text — so nobody (Admins included)
+# sees a real id, and a turn on a mapped model gets one system-prompt line
+# telling The Agent to go by that name. Display-only: the SDK call, the
+# runtime settings file and the server logs keep the real ids (a code name
+# an Admin picks is stored as its real id via resolve_model()). Absent or
+# empty = no mapping = exactly the prior behavior. Fail-open: a malformed
+# pair is logged and skipped, never fatal.
+# ---------------------------------------------------------------------------
+
+# A code name rides in the UI, the system prompt and a prompt file name:
+# letters, digits, dots, underscores and hyphens (a model id minus colons).
+_CODENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+
+
+def parse_model_codenames(raw) -> dict:
+    """AGENT_MODEL_CODENAMES -> {real_id: code_name}. Comma-separated
+    real-id:code-name pairs, whitespace trimmed, split on the LAST colon (a
+    model id may contain one, e.g. Bedrock's '...-v1:0'). A pair is skipped
+    and logged when it has no colon or an empty side, a real id the model
+    setting would refuse, a code name outside _CODENAME_RE, or a real id or
+    code name an earlier pair already uses (either way round, any case) — so
+    each code name maps back to exactly one real id. Never raises."""
+    mapping = {}
+    try:
+        taken = set()
+        for chunk in str(raw or "").split(","):
+            pair = chunk.strip()
+            if not pair:
+                continue
+            real, sep, code = pair.rpartition(":")
+            real, code = real.strip(), code.strip()
+            if not sep or not real or not code:
+                problem = "expected real-id:code-name"
+            elif not _MODEL_RE.match(real):
+                problem = "the model id has characters a model id cannot have"
+            elif not _CODENAME_RE.match(code):
+                problem = ("a code name may only contain letters, digits, dots, "
+                           "underscores and hyphens")
+            elif {real.lower(), code.lower()} & taken:
+                problem = "the model id or code name is already used by an earlier pair"
+            else:
+                taken |= {real.lower(), code.lower()}
+                mapping[real] = code
+                continue
+            logger.warning(f"AGENT_MODEL_CODENAMES: ignoring {pair!r} ({problem})")
+    except Exception as e:
+        logger.error(f"AGENT_MODEL_CODENAMES could not be read ({e}); "
+                     "keeping the pairs read so far")
+    return mapping
+
+
+MODEL_CODENAMES = parse_model_codenames(AGENT_MODEL_CODENAMES)
+if MODEL_CODENAMES:
+    logger.info(f"model code names active: {MODEL_CODENAMES}")
+
+
+def display_model(model_id):
+    """The name to SHOW for a model id: its code name when mapped, else the
+    id unchanged. Never feed the result to the SDK or the settings store."""
+    if not MODEL_CODENAMES or not isinstance(model_id, str):
+        return model_id
+    return MODEL_CODENAMES.get(model_id.strip(), model_id)
+
+
+def resolve_model(name) -> str:
+    """The reverse, for what an Admin types or picks: a code name (any case)
+    becomes its real id; anything else — an unmapped real id, '' to clear —
+    comes back trimmed and unchanged."""
+    m = str(name or "").strip()
+    low = m.lower()
+    for real, code in MODEL_CODENAMES.items():
+        if code.lower() == low:
+            return real
+    return m
+
+
+def mask_model_ids(text):
+    """display_model() for free text — an error message the UI shows. A
+    mapped id is replaced only where it stands as a whole id: not inside a
+    longer one (claude-opus-5 in claude-opus-5-5), though a sentence's
+    closing period may follow it."""
+    if not MODEL_CODENAMES or not isinstance(text, str) or not text:
+        return text
+    ids = sorted(MODEL_CODENAMES, key=len, reverse=True)
+    pattern = re.compile(r"(?<![A-Za-z0-9._-])(?:" + "|".join(map(re.escape, ids))
+                         + r")(?![A-Za-z0-9_-]|[.:][A-Za-z0-9])")
+    return pattern.sub(lambda m: display_model(m.group(0)), text)
+
+
+def model_suggestions() -> list:
+    """The Admin pickers' suggestions while code names are on: the code
+    names, in .env order. [] when off (the UI keeps its built-in list)."""
+    return list(MODEL_CODENAMES.values())
+
+
+def codename_prompt_line(model_id) -> str:
+    """The one system-prompt line for a turn on a mapped model; '' for an
+    unmapped one, whose prompt stays byte-identical."""
+    code = MODEL_CODENAMES.get(str(model_id or "").strip())
+    if not code:
+        return ""
+    return (f'Your model name is "{code}". If asked which model, AI or provider '
+            f"powers you, say {code}; never name the underlying model, its maker "
+            "or its provider.")
 
 
 # Where the LAST ensure_anthropic_key() call resolved the key from. The bare

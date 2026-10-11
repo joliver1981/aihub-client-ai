@@ -21,6 +21,7 @@ from typing import AsyncIterator, Optional
 from agent_config import (
     AGENT_MODEL, AGENT_MAX_TURNS, CLAUDE_CONFIG_DIR, DATA_DIR, WORKSPACE_DIR,
     ensure_anthropic_key, email_tools_enabled, logger,
+    codename_prompt_line, display_model, mask_model_ids,
 )
 from platform_tools import AIHUB_TOOLS, CURRENT_USER, reset_coverage
 from authoring_tools import AUTHORING_TOOLS
@@ -847,6 +848,31 @@ def ensure_system_prompt_file() -> str:
     return write_system_prompt_file()
 
 
+def prompt_file_for_model(model_id) -> str:
+    """The prompt file a turn on `model_id` reads. Unmapped (the default):
+    the shared file above, untouched. Mapped by AGENT_MODEL_CODENAMES
+    (james 2026-10-10): a sibling per code name holding the same prompt plus
+    the one name line — still by file, so argv does not grow — rewritten
+    when stale exactly like the shared one."""
+    line = codename_prompt_line(model_id)
+    if not line:
+        return ensure_system_prompt_file()
+    text = SYSTEM_PROMPT + "\n\n" + line + "\n"
+    path = os.path.join(os.path.dirname(SYSTEM_PROMPT_PATH),
+                        f"system_prompt.{display_model(model_id).lower()}.md")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            if fh.read() == text:
+                return path
+    except OSError:
+        pass
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+    return path
+
+
 def measure_argv_chars(options: ClaudeAgentOptions) -> Optional[int]:
     """Length of the exact command line the SDK would spawn for `options`
     (its own _build_command, joined the way CreateProcess sees it). None when
@@ -937,13 +963,15 @@ def _make_options(session_id: Optional[str], tool_scope: str, cwd: Optional[str]
     else:
         skills_opt = "all"
         allowed_tools = allowed + ["Skill"]
+    # Per-role model (all-users D4): role<2 gets the role1 chain (admin
+    # override > AGENT_MODEL_ROLE1); everyone else the original chain.
+    model = get_effective_model(role)
     return ClaudeAgentOptions(
         # By FILE, never inline: an inline prompt rides on the command line and
         # Windows caps that at 32,767 chars (see SYSTEM_PROMPT_PATH above).
-        system_prompt={"type": "file", "path": ensure_system_prompt_file()},
-        # Per-role model (all-users D4): role<2 gets the role1 chain (admin
-        # override > AGENT_MODEL_ROLE1); everyone else the original chain.
-        model=get_effective_model(role),
+        # A code-named model reads its own copy (prompt_file_for_model).
+        system_prompt={"type": "file", "path": prompt_file_for_model(model)},
+        model=model,
         tools=["Skill"],            # ONLY the Skill loader — no Bash/Read/Write
         mcp_servers={"aihub": aihub_server},
         allowed_tools=allowed_tools,
@@ -1065,14 +1093,19 @@ async def run_turn(prompt: str, session_id: Optional[str],
                                    if isinstance(s, dict) else str(s)
                                    for s in (init_data.get("mcp_servers") or [])]
                         yield {"type": "init", "tools": names, "mcp_servers": servers,
-                               "model": init_data.get("model")}
+                               "model": display_model(init_data.get("model"))}
                     except Exception:
                         pass
             elif isinstance(message, AssistantMessage):
+                # An API failure arrives as an assistant message flagged
+                # .error, its text written by the CLI (it can name the model):
+                # mask model ids there — the model's own replies stay as written.
+                api_error = bool(getattr(message, "error", None))
                 for block in message.content:
                     if hasattr(block, "text") and getattr(block, "text", None):
-                        all_text.append(block.text)
-                        yield {"type": "text", "text": block.text}
+                        text = mask_model_ids(block.text) if api_error else block.text
+                        all_text.append(text)
+                        yield {"type": "text", "text": text}
                     elif hasattr(block, "name"):
                         bid = getattr(block, "id", "") or ""
                         bname = getattr(block, "name", "?")
@@ -1126,7 +1159,8 @@ async def run_turn(prompt: str, session_id: Optional[str],
         # query() raises after yielding an error result; surface honestly.
         logger.error(f"turn error user={user_ctx.get('username')} "
                      f"session={new_session_id}: {e}")
-        yield {"type": "error", "error": str(e), "session_id": new_session_id}
+        yield {"type": "error", "error": mask_model_ids(str(e)),
+               "session_id": new_session_id}
     finally:
         if marked:
             clear_inflight(marked)

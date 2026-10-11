@@ -4156,9 +4156,11 @@
         "font-family:var(--mono);font-size:10.5px";
       const dl = document.createElement("datalist");
       dl.id = "model-suggestions-" + key;
-      [...new Set([d[defKey], "claude-haiku-5-5", "claude-sonnet-5-5",
-       "claude-opus-5-5", "claude-sonnet-5", "claude-opus-5",
-       "claude-haiku-4-5"])].forEach(m => {
+      // With model code names on, the server sends them (model_suggestions)
+      // and stores a picked code name as its real id; else the built-in list.
+      [...new Set([d[defKey], ...(d.model_suggestions || ["claude-haiku-5-5",
+       "claude-sonnet-5-5", "claude-opus-5-5", "claude-sonnet-5", "claude-opus-5",
+       "claude-haiku-4-5"])])].forEach(m => {
         const o = document.createElement("option"); o.value = m;
         dl.appendChild(o);
       });

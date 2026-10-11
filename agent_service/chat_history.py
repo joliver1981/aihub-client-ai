@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from workitem_store import DB_PATH  # share the mywork.db file
-from agent_config import CLAUDE_CONFIG_DIR, logger
+from agent_config import CLAUDE_CONFIG_DIR, logger, mask_model_ids
 from preferences import ENVELOPE_OPEN as PREFERENCES_OPEN, ENVELOPE_CLOSE as PREFERENCES_CLOSE
 
 _LOCK = threading.Lock()
@@ -364,6 +364,10 @@ def replay(session_id: str, max_turns: int = 400) -> list:
                         elif block.get("type") == "tool_use":
                             tools.append(str(block.get("name", "?")).replace(
                                 "mcp__aihub__", ""))
+                    if rec.get("isApiErrorMessage"):
+                        # the CLI's error text can name the model: code names
+                        # on replay too, as in the live stream (brain.run_turn)
+                        text_parts = [mask_model_ids(t) for t in text_parts]
                     if text_parts or tools:
                         # merge consecutive assistant records of one turn
                         if turns and turns[-1]["role"] == "agent" and \

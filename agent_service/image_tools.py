@@ -25,7 +25,7 @@ import httpx
 
 from claude_agent_sdk import tool
 
-from agent_config import APP_ROOT, logger
+from agent_config import APP_ROOT, logger, display_model, mask_model_ids
 from platform_tools import CURRENT_USER, _text
 
 OPENAI_IMAGES_URL = os.getenv("AGENT_OPENAI_IMAGES_URL", "https://api.openai.com/v1/images/generations")
@@ -184,11 +184,13 @@ async def generate_image(args: dict[str, Any]) -> dict[str, Any]:
         if status == 401:
             return _text(f"The OpenAI key ({source}) was rejected — image generation is "
                          "not available until an admin fixes it.", is_error=True)
+        # tool results show in the chat's tool chips: model ids as code names
         if status == 400 and msg:
-            return _text(f"The image model ({model}) could not generate that image: "
-                         f"{msg}", is_error=True)
-        return _text(f"Image generation failed (HTTP {status}): {msg or data} — nothing "
-                     "was generated.", is_error=True)
+            return _text(f"The image model ({display_model(model)}) could not generate "
+                         f"that image: {mask_model_ids(msg)}", is_error=True)
+        return _text(mask_model_ids(f"Image generation failed (HTTP {status}): "
+                                    f"{msg or data} — nothing was generated."),
+                     is_error=True)
     item = data["data"][0] or {}
     b64 = item.get("b64_json")
     if not b64:
@@ -219,8 +221,8 @@ async def generate_image(args: dict[str, Any]) -> dict[str, Any]:
     revised = str(item.get("revised_prompt") or "").strip()
     logger.info(f"generate_image: {model} {body['size']} {len(raw)} bytes in "
                 f"{time.time() - started:.1f}s (key {source})")
-    return _text(f"Image generated ({model}, {body['size']}). Include BOTH lines below "
-                 "VERBATIM in your reply — the first shows the picture inline, the "
+    return _text(f"Image generated ({display_model(model)}, {body['size']}). Include BOTH "
+                 "lines below VERBATIM in your reply — the first shows the picture inline, the "
                  "second is the download:\n" + "\n".join(imgs) + "\n" + link
                  + (f"\n(The model's revised prompt: {revised[:300]})" if revised else ""))
 

@@ -195,11 +195,17 @@ async def health():
     # command-line budget the CLI spawn depends on. A service that cannot run
     # a turn reports "degraded" with the reason, never "ok".
     from brain import spawn_readiness
+    from agent_config import display_model
     try:
         spawn = spawn_readiness()
     except Exception as e:
         spawn = {"ok": False, "error": str(e)}
-    return {"status": "ok" if spawn.get("ok") else "degraded", **summary(),
+    # unauthenticated: model ids show as their code names when those are on
+    # (the startup log line keeps the real summary)
+    info = summary()
+    for k in ("model", "model_default", "model_role1", "model_role1_default"):
+        info[k] = display_model(info[k])
+    return {"status": "ok" if spawn.get("ok") else "degraded", **info,
             "spawn": spawn}
 
 
@@ -207,19 +213,26 @@ async def health():
 async def me(request: Request):
     user = _verify_request(request)
     from agent_config import (get_effective_model, get_turn_cap, APP_VERSION,
-                              AGENT_MODEL_ROLE1)
-    return {"user": {k: user[k] for k in ("username", "name", "role")},
-            "model": get_effective_model(),
-            "model_default": AGENT_MODEL,
-            "model_role1": get_effective_model(role=1),
-            "model_role1_default": AGENT_MODEL_ROLE1,
-            "turns_per_day": get_turn_cap(),
-            "app_version": APP_VERSION,
-            # Deep links into the legacy app (Playbooks/Platform views) target
-            # the same hostname the browser used, on the main app's port.
-            "main_port": int(os.getenv("HOST_PORT", "5001")),
-            # the zone the service falls back to when the browser sends none
-            "server_timezone": __import__("work_tools").server_zone_label()}
+                              AGENT_MODEL_ROLE1, display_model, model_suggestions)
+    # Model ids go out as their code names when AGENT_MODEL_CODENAMES is set
+    # (james 2026-10-10: Admins too); the Admin pickers then suggest the code
+    # names and a picked one is stored as its real id (resolve_model).
+    out = {"user": {k: user[k] for k in ("username", "name", "role")},
+           "model": display_model(get_effective_model()),
+           "model_default": display_model(AGENT_MODEL),
+           "model_role1": display_model(get_effective_model(role=1)),
+           "model_role1_default": display_model(AGENT_MODEL_ROLE1),
+           "turns_per_day": get_turn_cap(),
+           "app_version": APP_VERSION,
+           # Deep links into the legacy app (Playbooks/Platform views) target
+           # the same hostname the browser used, on the main app's port.
+           "main_port": int(os.getenv("HOST_PORT", "5001")),
+           # the zone the service falls back to when the browser sends none
+           "server_timezone": __import__("work_tools").server_zone_label()}
+    suggestions = model_suggestions()
+    if suggestions:
+        out["model_suggestions"] = suggestions
+    return out
 
 
 def _service_key_ok(request: Request) -> bool:
@@ -579,7 +592,8 @@ async def chat(request: Request):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:  # belt-and-suspenders: never die mid-stream silently
             logger.error(f"/api/chat stream error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+            from agent_config import mask_model_ids
+            yield f"data: {json.dumps({'type': 'error', 'error': mask_model_ids(str(e))})}\n\n"
         # Chat-history ledger (CC-parity): title = the conversation's FIRST
         # message (only the INSERT sets it; later turns just bump counters).
         # opened=True: the user's own turn means they are looking at it.
@@ -1562,7 +1576,7 @@ async def settings_model(request: Request):
     user = _verify_request(request)
     if int(user.get("role") or 0) < 3:
         raise HTTPException(403, "Changing the model requires an admin.")
-    from agent_config import set_model_override
+    from agent_config import set_model_override, display_model
     body = await request.json()
     try:
         effective = set_model_override(body.get("model"))
@@ -1570,7 +1584,8 @@ async def settings_model(request: Request):
         raise HTTPException(400, str(e))
     logger.info(f"model override changed by user {user['user_id']} "
                 f"({user.get('username')}) -> effective {effective}")
-    return {"model": effective, "model_default": AGENT_MODEL,
+    return {"model": display_model(effective),
+            "model_default": display_model(AGENT_MODEL),
             "override_active": effective != AGENT_MODEL}
 
 
@@ -1582,7 +1597,8 @@ async def settings_role1_model(request: Request):
     user = _verify_request(request)
     if int(user.get("role") or 0) < 3:
         raise HTTPException(403, "Changing the model requires an admin.")
-    from agent_config import set_role1_model_override, AGENT_MODEL_ROLE1
+    from agent_config import (set_role1_model_override, AGENT_MODEL_ROLE1,
+                              display_model)
     body = await request.json()
     try:
         effective = set_role1_model_override(body.get("model"))
@@ -1590,7 +1606,8 @@ async def settings_role1_model(request: Request):
         raise HTTPException(400, str(e))
     logger.info(f"role1 model override changed by user {user['user_id']} "
                 f"({user.get('username')}) -> effective {effective}")
-    return {"model_role1": effective, "model_role1_default": AGENT_MODEL_ROLE1,
+    return {"model_role1": display_model(effective),
+            "model_role1_default": display_model(AGENT_MODEL_ROLE1),
             "override_active": effective != AGENT_MODEL_ROLE1}
 
 

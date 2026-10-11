@@ -1668,7 +1668,9 @@ def main():
     # applies without restart; non-admin 403; clear restores the default.
     try:
         import agent_config as _ac
-        default_model = _ac.AGENT_MODEL
+        # /api/me shows model ids by their code names when
+        # AGENT_MODEL_CODENAMES maps them (display_model is a no-op otherwise)
+        default_model = _ac.display_model(_ac.AGENT_MODEL)
         r_low = requests.post(f"{BASE}/api/settings/model",
                               json={"model": "claude-sonnet-5"},
                               headers={"Authorization": f"Bearer {_tok(2)}"},
@@ -1680,7 +1682,8 @@ def main():
         me = requests.get(f"{BASE}/api/me",
                           headers={"Authorization": f"Bearer {token}"},
                           timeout=90).json()
-        set_ok = (r_set.status_code == 200 and me.get("model") == "claude-sonnet-5"
+        set_ok = (r_set.status_code == 200
+                  and me.get("model") == _ac.display_model("claude-sonnet-5")
                   and me.get("model_default") == default_model)
         r_bad = requests.post(f"{BASE}/api/settings/model",
                               json={"model": "bad model!!"},
@@ -2856,8 +2859,8 @@ def main():
         check("U-4", "per-role model: /health model_role1 matches the role<2 "
                      "chain (haiku default unless overridden); Developer "
                      "chain untouched",
-              h14.get("model_role1") == eff1
-              and h14.get("model") == _ac14.get_effective_model()
+              h14.get("model_role1") == _ac14.display_model(eff1)
+              and h14.get("model") == _ac14.display_model(_ac14.get_effective_model())
               and (has_override or eff1 == _ac14.AGENT_MODEL_ROLE1),
               f"health_role1={h14.get('model_role1')} local={eff1} "
               f"override={has_override} model={h14.get('model')}")
@@ -2923,7 +2926,7 @@ def main():
         check("U-6", "role-1 model setting: non-admin 403; admin sets "
                      "claude-sonnet-5 -> visible in /api/me -> restored",
               r_forb2.status_code == 403 and r_set2.status_code == 200
-              and me_r1.get("model_role1") == "claude-sonnet-5"
+              and me_r1.get("model_role1") == _ac14.display_model("claude-sonnet-5")
               and r_back2.status_code == 200
               and _ac14.get_effective_model(role=1)
               == (prev_r1 or _ac14.AGENT_MODEL_ROLE1),
