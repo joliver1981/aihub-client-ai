@@ -2008,7 +2008,9 @@ def runtime_ai():
     model = _automations_ai_model(data.get("model"))
     max_tokens = min(int(data.get("max_tokens") or 1500), 8000)
 
-    key = getattr(cfg, "ANTHROPIC_API_KEY", "") or ""
+    # BYOK: the customer's own Anthropic key; else the platform key
+    from api_keys_config import get_active_anthropic_key
+    key = get_active_anthropic_key() or getattr(cfg, "ANTHROPIC_API_KEY", "") or ""
     if not key:
         return jsonify({"error": "the platform has no Anthropic API key configured"}), 503
 

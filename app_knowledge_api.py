@@ -230,6 +230,11 @@ def setup_logging():
 
 logger = setup_logging()
 
+# BYOK: with the customer's own OpenAI key on, this service's OpenAI calls go
+# straight to OpenAI, never through the Cloud API relay (main app: init_byok()).
+from api_keys_config import init_byok_transport
+init_byok_transport()
+
 # ============================================================================
 # Workflow Assistant System Prompts
 # ============================================================================

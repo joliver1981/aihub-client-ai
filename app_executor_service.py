@@ -64,6 +64,11 @@ rotate_logs_on_startup(os.getenv('APP_WORKFLOW_EXECUTOR_LOG', get_log_path('app_
 
 logger = setup_logging()
 
+# BYOK: with the customer's own OpenAI key on, this service's OpenAI calls go
+# straight to OpenAI, never through the Cloud API relay (main app: init_byok()).
+from api_keys_config import init_byok_transport
+init_byok_transport()
+
 # Create Flask app
 app = Flask(__name__)
 CORS(app, supports_credentials=True)

@@ -23,20 +23,26 @@ logger = logging.getLogger(__name__)
 
 # Lazy-init module-level client (matches whisper_routes.py)
 _client = None
+_client_key = None
 
 
 def _get_client():
-    global _client
-    if _client is not None:
-        return _client
+    global _client, _client_key
 
-    # Try cfg.OPENAI_API_KEY first (platform's existing config)
+    # BYOK first: the customer's own key when they turned it on
     api_key = None
     try:
-        import config as cfg
-        api_key = getattr(cfg, 'OPENAI_API_KEY', None)
+        from api_keys_config import get_active_openai_key
+        api_key = get_active_openai_key()
     except Exception:
         pass
+    # Then cfg.OPENAI_API_KEY (platform's existing config)
+    if not api_key:
+        try:
+            import config as cfg
+            api_key = getattr(cfg, 'OPENAI_API_KEY', None)
+        except Exception:
+            pass
     # Fall back to env vars
     if not api_key:
         api_key = os.environ.get('OPENAI_API_KEY')
@@ -47,8 +53,12 @@ def _get_client():
             "OPENAI_API_KEY env var."
         )
 
+    if _client is not None and api_key == _client_key:
+        return _client
+
     from openai import OpenAI
     _client = OpenAI(api_key=api_key)
+    _client_key = api_key
     return _client
 
 

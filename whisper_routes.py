@@ -35,18 +35,22 @@ rotate_logs_on_startup(os.getenv('WHISPER_LOG', get_log_path('whisper_log.txt'))
 
 logger = setup_logging()
 
-# Lazy-initialized OpenAI client
+# Lazy-initialized OpenAI client (rebuilt when the key it was built with changes)
 _whisper_client = None
+_whisper_client_key = None
 
 def _get_whisper_client():
-    """Lazy-initialize and return the OpenAI client for Whisper."""
-    global _whisper_client
-    if _whisper_client is None:
-        api_key = cfg.OPENAI_API_KEY
-        if not api_key:
-            logger.warning("OPENAI_API_KEY not set!")
-            return None
+    """Lazy-initialize and return the OpenAI client for Whisper: the customer's
+    own key when BYOK is on, else the platform key."""
+    global _whisper_client, _whisper_client_key
+    from api_keys_config import get_active_openai_key
+    api_key = get_active_openai_key() or cfg.OPENAI_API_KEY
+    if not api_key:
+        logger.warning("OPENAI_API_KEY not set!")
+        return None
+    if _whisper_client is None or api_key != _whisper_client_key:
         _whisper_client = OpenAI(api_key=api_key)
+        _whisper_client_key = api_key
     return _whisper_client
 
 

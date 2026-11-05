@@ -42,7 +42,7 @@ import time
 from request_tracking import RequestTracking
 
 from CommonUtils import AnthropicProxyClient, rotate_logs_on_startup, get_log_path
-from api_keys_config import get_openai_config
+from api_keys_config import get_openai_config, byok_anthropic_messages, byok_document_client
 import fitz
 import re
 
@@ -68,7 +68,8 @@ def _anthropic_quick_prompt(prompt, system="You are an assistant.", temp=0.0, mo
 
     Uses the same proxy infrastructure as document processing — calls the
     Cloud API over HTTP with built-in retry logic.  No local anthropic SDK
-    required.
+    required. With BYOK on, the call goes straight to Anthropic on the
+    customer's own key instead (never through the proxy).
 
     Mirrors the output contract of the OpenAI quick-prompt functions.
     """
@@ -77,16 +78,19 @@ def _anthropic_quick_prompt(prompt, system="You are an assistant.", temp=0.0, mo
     if max_tokens is None:
         max_tokens = int(cfg.ANTHROPIC_MAX_TOKENS or 4096)
 
-    proxy = _get_anthropic_proxy()
     messages = [{"role": "user", "content": prompt}]
 
-    response = proxy.messages_create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=messages,
-        temperature=temp
-    )
+    response = byok_anthropic_messages(model=model, max_tokens=max_tokens, system=system,
+                                       messages=messages, temperature=temp)
+    if response is None:
+        proxy = _get_anthropic_proxy()
+        response = proxy.messages_create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+            temperature=temp
+        )
 
     # Proxy returns a dict (Anthropic API JSON structure)
     if isinstance(response, dict):
@@ -4004,9 +4008,10 @@ def populate_schema_with_claude(
     import logging
     logger = logging.getLogger("populate_schema_with_claude")
     
-    # Instantiate client if not provided
+    # Instantiate client if not provided (BYOK: the document goes straight to
+    # Anthropic on the customer's key, not through the Cloud API proxy)
     if client is None:
-        client = AnthropicProxyClient()
+        client = byok_document_client() or AnthropicProxyClient()
 
     # Set tracking params for logging/observability in your proxy
     client._set_tracking_params(module_name=module_name, request_id=request_id)

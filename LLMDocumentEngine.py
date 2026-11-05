@@ -25,7 +25,7 @@ import io
 import math
 
 from CommonUtils import get_db_connection, get_db_connection_string, normalize_boolean, AnthropicProxyClient, rotate_logs_on_startup, get_log_path
-from api_keys_config import get_anthropic_config, create_anthropic_client
+from api_keys_config import get_anthropic_config, create_anthropic_client, document_content_block
 from anthropic_streaming_helper import anthropic_messages_create
 
 # Backward compatability
@@ -5303,14 +5303,29 @@ class LLMDocumentProcessor:
         
         try:
             # Let Claude process the file directly
-            client = AnthropicProxyClient()
-            response = client.messages_with_document(
-                file_path=file_path,
-                user_text=f"Extract all text content from this {document_type} file. Preserve the structure and formatting as much as possible. Return ONLY the extracted text without additional commentary.",
-                model=cfg.ANTHROPIC_MODEL,
-                max_tokens=int(cfg.ANTHROPIC_MAX_TOKENS),
-                system=f"You are an expert at extracting text and data from documents. Your task is to extract ALL visible content from this {document_type} file and convert it to plain text."
-            )
+            user_text = f"Extract all text content from this {document_type} file. Preserve the structure and formatting as much as possible. Return ONLY the extracted text without additional commentary."
+            system = f"You are an expert at extracting text and data from documents. Your task is to extract ALL visible content from this {document_type} file and convert it to plain text."
+            if self._anthropic_config['use_direct_api']:
+                # BYOK (or the document-proxy bypass): straight to Anthropic with
+                # the content block the Cloud API's document route would build.
+                with open(file_path, 'rb') as fh:
+                    block = document_content_block(os.path.basename(file_path), fh.read())
+                response = anthropic_messages_create(
+                    client=self.anthropic_client,
+                    model=cfg.ANTHROPIC_MODEL,
+                    max_tokens=int(cfg.ANTHROPIC_MAX_TOKENS),
+                    system=system,
+                    messages=[{"role": "user", "content": [block, {"type": "text", "text": user_text}]}]
+                )
+            else:
+                client = AnthropicProxyClient()
+                response = client.messages_with_document(
+                    file_path=file_path,
+                    user_text=user_text,
+                    model=cfg.ANTHROPIC_MODEL,
+                    max_tokens=int(cfg.ANTHROPIC_MAX_TOKENS),
+                    system=system
+                )
             
             # Extract the text from response
             if isinstance(response, dict) and 'content' in response:

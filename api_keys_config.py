@@ -16,6 +16,7 @@ Usage:
 """
 
 import os
+import sys
 import json
 import logging
 from pathlib import Path
@@ -55,10 +56,40 @@ ANTHROPIC_API_KEY_SECRET = 'USER_ANTHROPIC_API_KEY'
 API_KEYS_CATEGORY = 'llm_api_keys'
 
 # Config file path for BYOK enabled state (not sensitive, just config)
+def _app_data_dir() -> Path:
+    """The platform's shared data folder: AIHUB_DATA_DIR, else {APP_ROOT}/data,
+    else (frozen) the exe's grandparent/data, else this file's folder/data.
+
+    The folder the encrypted key store (local_secrets) uses and where The Agent
+    and Browser Use read the switch. Every process resolves it the same way,
+    whatever its working folder: on installs NSSM starts each exe in its own
+    folder ({app}\\<service>), so the old cwd-relative './data' gave every
+    service a different switch and only the main app ever saw BYOK turned on.
+    """
+    if os.getenv('AIHUB_DATA_DIR'):
+        return Path(os.getenv('AIHUB_DATA_DIR'))
+    if os.getenv('APP_ROOT'):
+        return Path(os.getenv('APP_ROOT')) / 'data'
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent.parent / 'data'
+    return Path(__file__).resolve().parent / 'data'
+
+
 def _get_config_file_path() -> Path:
-    """Get path to BYOK config file."""
-    data_dir = Path(os.getenv('AIHUB_DATA_DIR', './data'))
-    return data_dir / 'byok_config.json'
+    """Get path to BYOK config file (where the switch is saved)."""
+    return _app_data_dir() / 'byok_config.json'
+
+
+def _legacy_config_file_paths():
+    """Where the switch was saved before it was anchored — read-only fallbacks,
+    never rewritten: './data' under this process's working folder, and on
+    installs the main app's working folder {app}\\app\\data."""
+    paths = [Path('./data') / 'byok_config.json']
+    root = os.getenv('APP_ROOT') or (str(Path(sys.executable).resolve().parent.parent)
+                                     if getattr(sys, 'frozen', False) else '')
+    if root:
+        paths.append(Path(root) / 'app' / 'data' / 'byok_config.json')
+    return paths
 
 
 # =============================================================================
@@ -87,16 +118,24 @@ def require_admin(f):
 # =============================================================================
 
 def _load_config() -> Dict[str, Any]:
-    """Load BYOK config from file."""
+    """Load BYOK config from file: the anchored location first, then the
+    pre-anchoring locations (read-only), so a box that turned BYOK on before
+    keeps it until the next toggle saves it to the anchored location."""
     config_file = _get_config_file_path()
-    
-    if config_file.exists():
-        try:
-            with open(config_file, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Error reading BYOK config: {e}")
-    
+    seen = set()
+    for candidate in [config_file] + _legacy_config_file_paths():
+        key = os.path.normcase(os.path.abspath(candidate))
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.exists():
+            try:
+                with open(candidate, 'r') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                logger.error(f"Error reading BYOK config: {e}")
+            break
+
     return {'byok_enabled': False}
 
 
@@ -180,17 +219,39 @@ def get_byok_status() -> Dict[str, Any]:
     return result
 
 
+# BYOK OpenAI calls must never ride the Cloud API relay. The aihub2.1 openai SDK
+# is patched to relay every request unless BYPASS_PROXY is true, and only the
+# main app used to set it, so the Agent API, Executor and Knowledge API posted
+# the customer's key and prompt to the relay. Rule: once a process hands out
+# the customer's OpenAI key it goes direct until it restarts. Turning BYOK off
+# does not switch it back, because clients built with that key stay cached
+# (agents) and would then carry the customer's key through the relay.
+_direct_transport_latched = False
+
+
+def _latch_direct_transport():
+    global _direct_transport_latched
+    os.environ['BYPASS_PROXY'] = 'true'
+    if not _direct_transport_latched:
+        _direct_transport_latched = True
+        logger.info("BYOK: OpenAI calls in this process go direct (BYPASS_PROXY=true) until restart")
+
+
 def apply_byok_environment():
     """
     Apply BYOK configuration to environment variables.
-    
-    Sets BYPASS_PROXY=true if BYOK is enabled AND user has configured their own OpenAI key.
+
+    Sets BYPASS_PROXY=true if BYOK is enabled AND user has configured their own
+    OpenAI key. Once set it stays true until restart (see _latch_direct_transport).
     """
     status = get_byok_status()
-    
+
     if status['byok_enabled'] and status['openai_configured']:
-        os.environ['BYPASS_PROXY'] = 'true'
+        _latch_direct_transport()
         logger.info("BYOK: Enabled with user OpenAI key - setting BYPASS_PROXY=true")
+    elif _direct_transport_latched:
+        os.environ['BYPASS_PROXY'] = 'true'
+        logger.info("BYOK: Turned off - OpenAI calls stay direct until this service restarts")
     else:
         os.environ['BYPASS_PROXY'] = 'false'
         if not status['byok_enabled']:
@@ -199,13 +260,26 @@ def apply_byok_environment():
             logger.info("BYOK: Enabled but no OpenAI key configured - setting BYPASS_PROXY=false")
 
 
+def init_byok_transport():
+    """Startup hook for the services other than the main app (Agent API,
+    Executor, Knowledge API; the main app runs init_byok()). With BYOK on and an
+    OpenAI key saved, the service goes direct from the start. With BYOK off it
+    changes nothing: BYPASS_PROXY stays whatever .env says. Never raises."""
+    try:
+        if is_using_byok_openai():
+            _latch_direct_transport()
+    except Exception as e:
+        logger.error(f"BYOK transport check failed: {e}")
+
+
 def get_active_openai_key() -> Optional[str]:
     """
     Get the active OpenAI API key.
-    
+
     Returns user's key if BYOK is enabled and key is configured, None otherwise.
     """
     if is_byok_enabled() and has_local_secret(OPENAI_API_KEY_SECRET):
+        _latch_direct_transport()
         return get_local_secret(OPENAI_API_KEY_SECRET)
     return None
 
@@ -295,6 +369,7 @@ def get_openai_config(use_alternate_api: bool = False, use_mini: bool = False,
     # Priority 1: BYOK with user's key
     if is_byok_enabled() and has_local_secret(OPENAI_API_KEY_SECRET):
         user_key = get_local_secret(OPENAI_API_KEY_SECRET)
+        _latch_direct_transport()
         config = {
             'api_type': 'open_ai',
             'api_key': user_key,
@@ -579,6 +654,110 @@ class ByokRelayClient:
 
     def __init__(self):
         self.messages = _ByokRelayMessages()
+
+
+# ---------------------------------------------------------------------------
+# BYOK for callers that only knew the Cloud API proxy (AnthropicProxyClient)
+# ---------------------------------------------------------------------------
+# Claude quick prompts (legacy NLQ), document search, workflow document
+# extraction and the Documents API's generic-file reader called the proxy
+# whatever the BYOK setting, so with BYOK on they still sent the customer's
+# data to our cloud, on our key. They now ask these helpers first; None means
+# BYOK Anthropic is off and the caller keeps its proxy path, unchanged.
+
+def byok_anthropic_messages(model, max_tokens, messages, system=None, temperature=None, **kwargs):
+    """Run a Claude messages call on the customer's own key when BYOK is on.
+
+    Returns the Messages API response as a dict, or None when BYOK Anthropic is
+    not active. With BYOK on it never falls back to the proxy: a failure raises
+    rather than moving the call, and the customer's data, onto our cloud and
+    our key.
+    """
+    if get_anthropic_config().get('source') != 'byok':
+        return None
+    client, _config = create_anthropic_client()
+    if isinstance(client, ByokRelayClient):
+        params = {'model': model, 'max_tokens': int(max_tokens), 'messages': messages, **kwargs}
+        if system:
+            params['system'] = system
+        if temperature is not None:
+            params['temperature'] = temperature
+        return client.messages.create(**params)
+    # This process has the anthropic package: the streaming-safe helper the
+    # document engine uses (it also drops temperature for models that reject it).
+    from anthropic_streaming_helper import anthropic_messages_create
+    response = anthropic_messages_create(client=client, model=model, max_tokens=int(max_tokens),
+                                         messages=messages, system=system,
+                                         temperature=temperature, **kwargs)
+    return response if isinstance(response, dict) else response.model_dump()
+
+
+def document_content_block(file_name: str, data: bytes) -> Dict[str, Any]:
+    """The content block the Cloud API's document route builds from an upload:
+    PDF -> document, JPEG/PNG -> image, anything else -> a base64 document
+    (application/octet-stream). Built here so a BYOK document call can go
+    straight to Anthropic. Also recognises PDF/JPEG/PNG by their first bytes,
+    for callers that pass bytes without a usable file name."""
+    import base64
+    name = (file_name or '').lower()
+    if name.endswith('.pdf') or data[:5] == b'%PDF-':
+        kind, media_type = 'document', 'application/pdf'
+    elif name.endswith(('.jpg', '.jpeg')) or data[:3] == b'\xff\xd8\xff':
+        kind, media_type = 'image', 'image/jpeg'
+    elif name.endswith('.png') or data[:8] == b'\x89PNG\r\n\x1a\n':
+        kind, media_type = 'image', 'image/png'
+    else:
+        kind, media_type = 'document', 'application/octet-stream'
+    return {'type': kind, 'source': {'type': 'base64', 'media_type': media_type,
+                                     'data': base64.b64encode(data).decode('ascii')}}
+
+
+class ByokDocumentClient:
+    """Stands in for CommonUtils.AnthropicProxyClient's document calls when BYOK
+    is on: builds the content block the Cloud API's document route would build
+    and sends it straight to Anthropic on the customer's key. Same arguments and
+    the same contract as the proxy: the Messages JSON as a dict, or
+    {"error": ..., "details": ...} instead of raising."""
+
+    def _set_tracking_params(self, module_name=None, request_id=None):
+        """The proxy passes these to the cloud's usage log; a direct call has none."""
+
+    def messages_with_document(self, file_path="", file_bytes=None, user_text="", model=None,
+                               max_tokens=None, system=None, temperature=0.0, **_unused):
+        import config as cfg
+        try:
+            if file_path:
+                with open(file_path, 'rb') as fh:
+                    data = fh.read()
+                name = os.path.basename(file_path)
+            elif file_bytes:
+                data, name = file_bytes, ''
+            else:
+                return {"error": "No file path for bytes specified.", "details": "Missing file input"}
+            content = [document_content_block(name, data)]
+            if user_text:
+                content.append({'type': 'text', 'text': user_text})
+            # The proxy lets the cloud fill in an empty model; direct, it must be named.
+            response = byok_anthropic_messages(
+                model=model or cfg.ANTHROPIC_MODEL,
+                max_tokens=int(max_tokens or cfg.ANTHROPIC_MAX_TOKENS),
+                messages=[{'role': 'user', 'content': content}],
+                system=system, temperature=temperature)
+            if response is None:
+                return {"error": "BYOK is no longer on", "details": "Retry the request"}
+            return response
+        except Exception as e:
+            logger.error(f"BYOK document call failed: {e}")
+            return {"error": str(e), "details": "BYOK direct Anthropic call"}
+
+    # The proxy streams to stay inside its timeouts; both direct routes already
+    # stream under the hood, so one call serves both.
+    messages_with_document_stream = messages_with_document
+
+
+def byok_document_client():
+    """A ByokDocumentClient when BYOK Anthropic is on, else None (keep the proxy)."""
+    return ByokDocumentClient() if get_anthropic_config().get('source') == 'byok' else None
 
 
 def create_pandasai_llm(use_alternate_api=True):

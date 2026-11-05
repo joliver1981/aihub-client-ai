@@ -66,13 +66,22 @@ def _llm(prompt: str, system: str, max_tokens: int = 800, model: str = None) -> 
     per-document map step passes DOC_SWEEP_MODEL instead: it runs once PER DOCUMENT, so
     it is ~190x the call volume of everything else here combined and is where the cost
     of a fan-out question actually lives.
+
+    With BYOK on, the call goes straight to Anthropic on the customer's own key
+    instead of through the proxy.
     """
     import config as cfg
-    from CommonUtils import AnthropicProxyClient
-    client = AnthropicProxyClient()
-    resp = client.messages_create(
-        messages=[{"role": "user", "content": [{"type": "text", "text": prompt}]}],
-        model=model or cfg.ANTHROPIC_MODEL, max_tokens=max_tokens, system=system)
+    from api_keys_config import byok_anthropic_messages
+    messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+    # temperature 0.0 = the proxy client's default, so both routes sample alike
+    resp = byok_anthropic_messages(model=model or cfg.ANTHROPIC_MODEL, max_tokens=max_tokens,
+                                   system=system, messages=messages, temperature=0.0)
+    if resp is None:
+        from CommonUtils import AnthropicProxyClient
+        client = AnthropicProxyClient()
+        resp = client.messages_create(
+            messages=messages,
+            model=model or cfg.ANTHROPIC_MODEL, max_tokens=max_tokens, system=system)
     content = resp.get('content') if isinstance(resp, dict) else None
     if not content:
         raise RuntimeError(f"LLM call failed: {str(resp)[:200]}")

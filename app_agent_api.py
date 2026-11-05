@@ -67,6 +67,11 @@ rotate_logs_on_startup(os.getenv('AGENT_API_LOG', get_log_path('agent_api_log.tx
 
 logger = setup_logging()
 
+# BYOK: with the customer's own OpenAI key on, this service's OpenAI calls go
+# straight to OpenAI, never through the Cloud API relay (main app: init_byok()).
+from api_keys_config import init_byok_transport
+init_byok_transport()
+
 logger.info(f'Cloud Config: {_tenant_settings}')
 
 
