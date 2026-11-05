@@ -50,7 +50,7 @@ try:
 except ImportError:
     pass
 
-from api_keys_config import get_openai_config
+from api_keys_config import get_openai_config, reasoning_effort_for_tools
 
 
 # ─── AI Hub Connection ──────────────────────────────────────────────────
@@ -625,6 +625,11 @@ def get_llm(mini: bool = False, streaming: bool = True):
         }
         if api_base and "openai.com" not in api_base:
             kwargs["base_url"] = api_base
+        if config.get("reasoning_effort"):
+            # Function tools get bound to this LLM, and gpt-5.6-terra rejects
+            # tools plus any reasoning effort but 'none' on /chat/completions
+            # (400) - the same rule GeneralAgent and WorkflowAgent follow.
+            kwargs["reasoning_effort"] = reasoning_effort_for_tools(config["reasoning_effort"])
         return ChatOpenAI(**kwargs)
     else:
         from langchain_openai import AzureChatOpenAI
