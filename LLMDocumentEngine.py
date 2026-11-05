@@ -143,6 +143,37 @@ database_name = cfg.DATABASE_NAME
 username = cfg.DATABASE_UID
 password = cfg.DATABASE_PWD
 
+# Every column that stores a document type is 100 characters wide (Documents,
+# DocumentTypeCategories, AgentDocumentTypes, DocumentJobs,
+# DocumentJobExecutionDetails).
+DOCUMENT_TYPE_MAX_LEN = 100
+
+
+def clean_detected_document_type(reply, log=None):
+    """The classifier's reply as a storable type name: lower case, every
+    character other than a letter, digit or underscore turned into '_', one
+    leading '_' dropped.
+
+    A result longer than the type columns cannot be a type name: for a document
+    that matches no known type, the classifier sometimes explains itself instead
+    of naming one. That becomes 'unknown_document', the pseudo-type for "no
+    type" that is never schema-learned or category-assigned. Storing the
+    sentence used to fail the whole upload ("String or binary data would be
+    truncated").
+    """
+    document_type = ''.join(c if c.isalnum() or c == '_' else '_'
+                            for c in (reply or '').strip().lower())
+    if document_type.startswith('_'):
+        document_type = document_type[1:]
+    if len(document_type) > DOCUMENT_TYPE_MAX_LEN:
+        (log or logger).warning(
+            f"Document type reply is not a type name ({len(document_type)} chars; the "
+            f"type columns hold {DOCUMENT_TYPE_MAX_LEN}) - using unknown_document: "
+            f"{document_type[:120]!r}")
+        return 'unknown_document'
+    return document_type
+
+
 class MultiPagePDFHandler:
     """
     Handles extraction of text from multi-page PDF documents using Claude's vision capabilities.
@@ -1449,10 +1480,9 @@ class LLMDocumentProcessor:
                 except Exception as cleanup_error:
                     self.logger.warning(f"Failed to delete temporary PDF file {temp_pdf_file}: {str(cleanup_error)}")
 
-            # Remove any non-alphanumeric characters and replace spaces with underscores
-            document_type = ''.join(c if c.isalnum() or c == '_' else '_' for c in document_type)
-            if document_type.startswith('_'):
-                document_type = document_type[1:]
+            # Letters, digits and underscores only; a reply too long to be a type
+            # name becomes unknown_document instead of failing the upload.
+            document_type = clean_detected_document_type(document_type, self.logger)
 
             if cfg.ANTHROPIC_API_THROTTLE_CALLS:
                 print('API throttling active, waiting before submitting next request...')
