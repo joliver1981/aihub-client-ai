@@ -218,6 +218,49 @@ def test_summary_exposes_key_source():
         assert "sk-ant" not in json.dumps(s)  # never the value itself
 
 
+def _write_switch(path, enabled):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"byok_enabled": enabled}, fh)
+
+
+def test_byok_switch_path_prefers_the_anchored_file():
+    """The main app saves the switch to {app}\\data. Before 2026-11 the
+    installed main app saved it under its own working folder {app}\\app\\data;
+    that old file is read only while the anchored one does not exist."""
+    saved_root = agent_config.APP_ROOT
+    saved_dir = os.environ.pop("AIHUB_DATA_DIR", None)
+    with tempfile.TemporaryDirectory() as root:
+        try:
+            agent_config.APP_ROOT = root
+            anchored = os.path.join(root, "data", "byok_config.json")
+            legacy = os.path.join(root, "app", "data", "byok_config.json")
+            assert agent_config.byok_switch_path() == anchored     # neither exists
+            _write_switch(legacy, True)
+            assert agent_config.byok_switch_path() == legacy       # only the old one
+            _write_switch(anchored, False)
+            assert agent_config.byok_switch_path() == anchored     # anchored wins
+        finally:
+            agent_config.APP_ROOT = saved_root
+            if saved_dir is not None:
+                os.environ["AIHUB_DATA_DIR"] = saved_dir
+
+
+def test_upgraded_install_keeps_byok_from_the_old_main_app_folder():
+    with _Sandbox(byok_key="sk-ant-client-own-key"):
+        os.environ.pop("AIHUB_DATA_DIR", None)
+        saved_root = agent_config.APP_ROOT
+        with tempfile.TemporaryDirectory() as root:
+            try:
+                agent_config.APP_ROOT = root
+                _write_switch(os.path.join(root, "app", "data", "byok_config.json"), True)
+                assert agent_config.ensure_anthropic_key()
+                assert agent_config.anthropic_key_source() == "byok"
+                assert "ANTHROPIC_BASE_URL" not in os.environ
+            finally:
+                agent_config.APP_ROOT = saved_root
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

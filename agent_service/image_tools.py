@@ -25,7 +25,7 @@ import httpx
 
 from claude_agent_sdk import tool
 
-from agent_config import APP_ROOT, logger, display_model, mask_model_ids
+from agent_config import APP_ROOT, logger, display_model, mask_model_ids, byok_switch_path
 from platform_tools import CURRENT_USER, _text
 
 OPENAI_IMAGES_URL = os.getenv("AGENT_OPENAI_IMAGES_URL", "https://api.openai.com/v1/images/generations")
@@ -84,9 +84,7 @@ def build_request(model: str, prompt: str, size: str) -> dict:
 def resolve_openai_key() -> tuple:
     """(key, source) — BYOK > env > encrypted; ('', 'none') when nothing is set."""
     try:
-        path = os.path.join(os.getenv("AIHUB_DATA_DIR") or os.path.join(APP_ROOT, "data"),
-                            "byok_config.json")
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(byok_switch_path(), "r", encoding="utf-8") as fh:
             byok_on = bool(json.load(fh).get("byok_enabled", False))
     except Exception:
         byok_on = False

@@ -328,6 +328,20 @@ def describe_llm_model_source():
 LLM_MODEL = resolve_llm_model()
 
 
+def _byok_switch_path():
+    """Where the BYOK on/off switch lives: {AIHUB_DATA_DIR or APP_ROOT\\data}
+    \\byok_config.json, the folder the main app saves it to
+    (api_keys_config._app_data_dir). Before 2026-11 the installed main app
+    saved it under its own working folder, {app}\\app\\data: read that while
+    the anchored file does not exist yet, never rewrite it."""
+    anchored = os.path.join(os.getenv("AIHUB_DATA_DIR") or os.path.join(APP_ROOT, "data"),
+                            "byok_config.json")
+    legacy = os.path.join(APP_ROOT, "app", "data", "byok_config.json")
+    if not os.path.exists(anchored) and os.path.exists(legacy):
+        return legacy
+    return anchored
+
+
 def resolve_openai_driver(model=None):
     """Resolve the OpenAI-stack transport for the driver LLM, mirroring the platform's
     api_keys_config.get_openai_config() priorities WITHOUT importing it (it pulls Flask,
@@ -343,9 +357,7 @@ def resolve_openai_driver(model=None):
     # 1. BYOK (same gate as ensure_llm_api_key's anthropic path)
     try:
         import json as _json
-        _byok_path = os.path.join(
-            os.getenv("AIHUB_DATA_DIR") or os.path.join(APP_ROOT, "data"), "byok_config.json")
-        with open(_byok_path, "r") as _fh:
+        with open(_byok_switch_path(), "r") as _fh:
             _byok_on = bool(_json.load(_fh).get("byok_enabled", False))
     except Exception:
         _byok_on = False
@@ -404,14 +416,12 @@ def ensure_llm_api_key(model=None):
     # This is how a client install drives the LLM with NO vendor key in .env, and it
     # survives upgrades (the store is on the client machine). Mirrors
     # api_keys_config.get_active_anthropic_key(); that module imports Flask (absent from
-    # this isolated env), so replicate its two reads here. Its './data' fallback is also
-    # cwd-sensitive — anchor on APP_ROOT instead (our cwd is browser_use_service\).
+    # this isolated env), so replicate its two reads here. The switch is read from the same
+    # APP_ROOT-anchored folder the main app saves it to (_byok_switch_path), never from our
+    # cwd (browser_use_service\).
     try:
         import json as _json
-        _byok_path = os.path.join(
-            os.getenv("AIHUB_DATA_DIR") or os.path.join(APP_ROOT, "data"),
-            "byok_config.json")
-        with open(_byok_path, "r") as _fh:
+        with open(_byok_switch_path(), "r") as _fh:
             _byok_on = bool(_json.load(_fh).get("byok_enabled", False))
     except Exception:
         _byok_on = False

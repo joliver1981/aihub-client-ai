@@ -482,19 +482,31 @@ def anthropic_key_source() -> str:
     return _anthropic_key_source
 
 
+def byok_switch_path() -> str:
+    """Where the BYOK on/off switch lives: {AIHUB_DATA_DIR or APP_ROOT\\data}
+    \\byok_config.json, the folder the main app saves it to
+    (api_keys_config._app_data_dir). Before 2026-11 the installed main app
+    saved it under its own working folder, {app}\\app\\data: read that while
+    the anchored file does not exist yet, never rewrite it."""
+    anchored = os.path.join(os.getenv("AIHUB_DATA_DIR") or os.path.join(APP_ROOT, "data"),
+                            "byok_config.json")
+    legacy = os.path.join(APP_ROOT, "app", "data", "byok_config.json")
+    if not os.path.exists(anchored) and os.path.exists(legacy):
+        return legacy
+    return anchored
+
+
 def _byok_anthropic_key():
     """BYOK reads, reimplemented from api_keys_config (which imports Flask —
     absent from the isolated aihub-agent env): the data/byok_config.json gate
     plus USER_ANTHROPIC_API_KEY (api_keys_config.ANTHROPIC_API_KEY_SECRET)
-    from the encrypted local store. api_keys_config._get_config_file_path()
-    falls back to a RELATIVE './data', which only works from the Flask app's
-    cwd — The Agent runs from data/agent/workspace, so anchor on APP_ROOT.
+    from the encrypted local store. The switch is anchored on APP_ROOT
+    (byok_switch_path), never on the working folder — The Agent runs from
+    data/agent/workspace.
     Returns (byok_enabled, key_or_empty); never raises.
     """
     try:
-        path = os.path.join(
-            os.getenv("AIHUB_DATA_DIR") or os.path.join(APP_ROOT, "data"),
-            "byok_config.json")
+        path = byok_switch_path()
         with open(path, "r", encoding="utf-8") as fh:
             enabled = bool(json.load(fh).get("byok_enabled", False))
     except Exception:
