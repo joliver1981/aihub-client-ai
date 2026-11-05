@@ -95,7 +95,7 @@ tailwind.config = {
             <!-- Upload progress / queue (kept; drop-zone removed — drag anywhere on the page) -->
             <div id="documentUploadCard" style="display:none;">
                 <div class="sidebar-section">
-                    <!-- Hidden file input still here so the paperclip button (#attach-btn) keeps working -->
+                    <!-- Hidden file input behind the paperclip (#attach-btn); its change listener is bound once in DOMContentLoaded -->
                     <input type="file" id="contextFileInput" multiple
                         accept=".pdf,.docx,.doc,.txt,.csv,.jpg,.jpeg,.png{% if ALLOW_EXCEL_UPLOADS %},.xlsx,.xls{% endif %}"
                         style="display:none;">
@@ -442,6 +442,13 @@ document.addEventListener('DOMContentLoaded', function () {
             hideAgentQuickActions();
             currentConversationId = null;
         }
+    });
+
+    // Paperclip (#attach-btn) → hidden file input → same upload queue as drag & drop.
+    // Bound once here, not in initializeDocumentUpload(), which runs on every agent switch.
+    document.getElementById('contextFileInput').addEventListener('change', function (e) {
+        addFilesToQueue(e.target.files);
+        this.value = '';   // so picking the same file again still fires 'change'
     });
 
     // Enter key on textarea — send on Enter, shift+Enter for newline
@@ -1256,51 +1263,10 @@ function formatTimeAgo(timestamp) {
 function initializeDocumentUpload(agentId) {
     document.getElementById('documentUploadCard').style.display = 'block';
     document.getElementById('attach-btn').style.display = '';
-    setupDocumentUploadZone();
     uploadQueue = [];
     updateUploadQueue();
     loadExistingDocuments(agentId);
     if (typeof refreshChatFilesSidebar === 'function') refreshChatFilesSidebar();
-}
-
-function setupDocumentUploadZone() {
-    var uploadZone = document.getElementById('documentUploadZone');
-    var fileInput = document.getElementById('contextFileInput');
-    if (!uploadZone || !fileInput) return;
-
-    // Remove existing listeners by cloning
-    uploadZone.replaceWith(uploadZone.cloneNode(true));
-    var newUploadZone = document.getElementById('documentUploadZone');
-
-    newUploadZone.addEventListener('click', function (e) {
-        if (e.target === newUploadZone || e.target.parentElement === newUploadZone) {
-            fileInput.click();
-        }
-    });
-
-    newUploadZone.addEventListener('dragover', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.classList.add('dragover');
-    });
-
-    newUploadZone.addEventListener('dragleave', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.classList.remove('dragover');
-    });
-
-    newUploadZone.addEventListener('drop', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.classList.remove('dragover');
-        addFilesToQueue(e.dataTransfer.files);
-    });
-
-    fileInput.addEventListener('change', function (e) {
-        addFilesToQueue(e.target.files);
-        this.value = '';
-    });
 }
 
 // Server-driven gate (config.ALLOW_EXCEL_UPLOADS, surfaced via inject_config).
