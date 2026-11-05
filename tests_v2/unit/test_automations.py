@@ -291,11 +291,17 @@ class StubRunner(AutomationRunner):
         self.connection_string = "stub"
         self.runs: Dict[str, Dict] = {}
         self.live_run = False
+        self.live_dirs = []     # working folders of the live runs (or an Exception to raise)
         self.connections = {"ERPDB": "Driver={SQL Server};Server=t;PWD=injected;"}
         self.secrets = {"ACME_SFTP": "sftp-secret-value"}
 
     def _db_has_live_run(self, automation_id, max_age_seconds):
         return self.live_run
+
+    def _db_live_run_dirs(self, automation_id, max_age_seconds):
+        if isinstance(self.live_dirs, Exception):
+            raise self.live_dirs
+        return list(self.live_dirs)
 
     def _db_get_run_field(self, run_id, field):
         run = self.runs.get(run_id) or {}
@@ -434,6 +440,50 @@ class TestRunner:
         result = runner.run(aid, trigger="schedule")
         assert result["status"] == "skipped"
         assert runner.runs[result["run_id"]]["status"] == "skipped"
+
+    @staticmethod
+    def _run_folder(tmp_path, name, waiting):
+        d = tmp_path / name
+        d.mkdir()
+        if waiting:
+            (d / "_waiting_for_decisions").write_text("1")
+        return str(d)
+
+    def test_starts_while_the_live_run_only_waits_for_decisions(self, mgr, tmp_path):
+        """james 2026-11-05: a run that said aihub.waiting_for_decisions()
+        no longer holds up the next run of the same automation."""
+        aid = _make_automation(mgr, "print(1)\n", {"name": "waiter"})
+        runner = StubRunner(mgr)
+        runner.live_run = True
+        runner.live_dirs = [self._run_folder(tmp_path, "earlier", waiting=True)]
+        result = runner.run(aid, trigger="schedule")
+        assert result["status"] == "success", result
+
+    def test_still_skips_while_any_live_run_is_busy(self, mgr, tmp_path):
+        aid = _make_automation(mgr, "print(1)\n", {"name": "busy2"})
+        runner = StubRunner(mgr)
+        runner.live_run = True
+        runner.live_dirs = [self._run_folder(tmp_path, "waits", waiting=True),
+                            self._run_folder(tmp_path, "works", waiting=False)]
+        assert runner.run(aid, trigger="schedule")["status"] == "skipped"
+
+    @pytest.mark.parametrize("dirs", [[], [None], RuntimeError("db down")])
+    def test_any_doubt_keeps_skip_if_running(self, mgr, dirs):
+        """No rows, a run with no folder, or a failed lookup = the old rule."""
+        aid = _make_automation(mgr, "print(1)\n", {"name": "doubt"})
+        runner = StubRunner(mgr)
+        runner.live_run = True
+        runner.live_dirs = dirs
+        assert runner.run(aid, trigger="schedule")["status"] == "skipped"
+
+    def test_waiting_marker_from_a_real_run_is_not_an_output(self, mgr):
+        code = ("import aihub_runtime as aihub\n"
+                "assert aihub.waiting_for_decisions(True)\n")
+        aid = _make_automation(mgr, code, {"name": "marks"})
+        result = StubRunner(mgr).run(aid)
+        assert result["status"] == "success", result
+        assert os.path.isfile(os.path.join(result["workdir"], "_waiting_for_decisions"))
+        assert "_waiting_for_decisions" not in result["output_files"]
 
     def test_dry_run_allowed_while_running_and_seeds_samples(self, mgr):
         code = (
@@ -1872,6 +1922,38 @@ class TestReviewItems:
         r2 = client.post("/automations/api/runtime/review_item",
                          json={"token": tok, "message": "x", "files": ["../evil"]})
         assert r2.status_code == 400
+
+        # james 2026-11-05: no upper bound on one status poll. The old 1..200
+        # cap failed every poll of a bigger batch, and the SDK reads a failed
+        # poll as "still pending", so that batch never saw a decision.
+        ids = [rid] + [f"other-{i}" for i in range(250)]
+        r3 = client.post("/automations/api/runtime/review_items_status",
+                         json={"token": tok, "request_ids": ids})
+        assert r3.status_code == 200, r3.get_json()
+        statuses = r3.get_json()["statuses"]
+        assert len(statuses) == 251
+        assert statuses[rid]["status"] == "pending"
+        assert statuses["other-0"]["status"] == "missing"
+        r4 = client.post("/automations/api/runtime/review_items_status",
+                         json={"token": tok, "request_ids": []})
+        assert r4.status_code == 400
+
+    def test_sdk_waiting_for_decisions_marks_the_run_folder(self, monkeypatch, tmp_path):
+        import importlib
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "automations" / "sdk"))
+        import aihub_runtime
+        importlib.reload(aihub_runtime)
+        import automations.runner as runner_mod
+        assert aihub_runtime._WAITING_MARKER_NAME == runner_mod._WAITING_MARKER_NAME
+        (tmp_path / "_inputs.json").write_text("{}")
+        monkeypatch.setenv("AIHUB_INPUTS_PATH", str(tmp_path / "_inputs.json"))
+        marker = tmp_path / runner_mod._WAITING_MARKER_NAME
+        assert aihub_runtime.waiting_for_decisions(True) is True and marker.is_file()
+        assert aihub_runtime.waiting_for_decisions(False) is True and not marker.exists()
+        assert aihub_runtime.waiting_for_decisions(False) is True      # already clear
+        monkeypatch.delenv("AIHUB_INPUTS_PATH")
+        assert aihub_runtime.waiting_for_decisions(True) is False      # not inside a run
 
     def test_app_decide_settles_review_without_run_decide(self):
         src = Path(__file__).resolve().parents[2].joinpath("app.py").read_text(

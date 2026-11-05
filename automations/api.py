@@ -1717,9 +1717,12 @@ def runtime_review_items_status():
     run, _claims, fail = _live_run_from_token(data.get("token"))
     if fail:
         return fail
+    # No upper bound (james 2026-11-05): a cap of 200 made every poll of a
+    # bigger batch fail, and the SDK reads a failed poll as "still pending",
+    # so that batch never saw a single decision.
     ids = data.get("request_ids")
-    if not isinstance(ids, list) or not ids or len(ids) > 200:
-        return jsonify({"error": "request_ids must be a list of 1..200 ids"}), 400
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "request_ids must be a non-empty list of ids"}), 400
 
     from . import approval_store
     out = {}

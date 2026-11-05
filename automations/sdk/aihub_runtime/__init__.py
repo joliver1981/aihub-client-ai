@@ -37,7 +37,7 @@ import urllib.request as _urlrequest
 
 __all__ = ["connection", "secret", "input", "inputs", "log", "checkpoint", "query",
            "review_item", "review_decisions", "review_decisions_detailed",
-           "review_outcome", "send_email", "llm", "ai_extract", "help",
+           "waiting_for_decisions", "review_outcome", "send_email", "llm", "ai_extract", "help",
            "AutomationRuntimeError", "AutomationAborted"]
 
 _RESOLVE_PATH = "/automations/api/runtime/resolve"
@@ -220,6 +220,7 @@ def help():  # noqa: A001 - deliberate, reads naturally in scripts
         "  aihub.checkpoint(message, files=None, assignee=None) -> pause for human approval",
         "  aihub.review_item(message, ...) / aihub.review_decisions(ids) -> My Approvals bridge",
         "  aihub.review_outcome(request_id, code, note=, label=) -> write back what the decision did",
+        "  aihub.waiting_for_decisions(True) -> only waiting on reviewers now: the next run may start",
         "  aihub.llm(prompt, system=None, images=None) -> str  |  aihub.ai_extract(prompt, schema=None, ...)",
         "  aihub.skill(name)               -> body of a tenant/product SKILL.md (pass as system= to llm/ai_extract)",
         "",
@@ -593,6 +594,42 @@ def review_decisions_detailed(request_ids):
     except Exception as e:
         log(f"review_decisions poll failed (treating as pending): {e}")
         return None
+
+
+# Spelled the same as automations/runner.py _WAITING_MARKER_NAME.
+_WAITING_MARKER_NAME = "_waiting_for_decisions"
+
+
+def waiting_for_decisions(waiting=True):
+    """Tell AI Hub this run is now only waiting for people to decide its
+    review items (waiting=True), or is busy again (waiting=False).
+
+    While every live run of an automation is only waiting, the next run of
+    the same automation (scheduled or manual) STARTS instead of being
+    skipped, so a batch that waits on its reviewers does not hold up the
+    next batch. Call it once your intake is done, just before you start
+    polling decisions. Two runs can then be alive at once: keeping their
+    files apart is the automation's job.
+
+    Returns True when recorded, False when there is no run folder to write
+    to. AI Hub builds older than this function do not have it; call it as
+    getattr(aihub, "waiting_for_decisions", None) to stay compatible."""
+    import time as __time
+    inputs_path = _os.environ.get("AIHUB_INPUTS_PATH")
+    workdir = _os.path.dirname(inputs_path) if inputs_path else None
+    if not workdir or not _os.path.isdir(workdir):
+        return False
+    marker = _os.path.join(workdir, _WAITING_MARKER_NAME)
+    try:
+        if waiting:
+            with open(marker, "w", encoding="utf-8") as f:
+                f.write(str(__time.time()))
+        elif _os.path.exists(marker):
+            _os.remove(marker)
+        return True
+    except OSError as e:
+        log(f"waiting_for_decisions({waiting}) not recorded: {e}")
+        return False
 
 
 def review_outcome(request_id, outcome, note=None, label=None, batch=None, detail=None):

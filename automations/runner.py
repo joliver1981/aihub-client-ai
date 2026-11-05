@@ -5,7 +5,11 @@ dedicated agent environment, with honest tri-state outcomes.
 Execution contract (P0):
   * skip-if-running: if a live run exists for the automation, the trigger is
     recorded as status='skipped' and nothing executes (James's decision:
-    no concurrency handling, keep it simple).
+    no concurrency handling, keep it simple). One opt-in exception (james
+    2026-11-05): when EVERY live run has said it is only waiting for people
+    to decide its review items (aihub.waiting_for_decisions()), the new run
+    starts, so a batch waiting on its reviewers does not hold up the next
+    one. A run that never says so keeps the old rule.
   * scheduled/API runs execute the PINNED version; dry-runs execute
     current_version (or an explicit version) and seed the version's samples/.
   * credentials are injected as subprocess env vars resolved just-in-time —
@@ -63,6 +67,10 @@ _STATUS_POLL_SECONDS = 2.0
 # supervisor anywhere (main app, scheduler engine, or executor — whichever
 # process supervises writes the same file) and is safe to reap.
 _HEARTBEAT_NAME = "_heartbeat"
+# Written into <workdir> by aihub.waiting_for_decisions() (the SDK spells the
+# same name): the run is now only waiting for people's decisions, so the
+# skip-guard lets the next run of the automation start.
+_WAITING_MARKER_NAME = "_waiting_for_decisions"
 _REAP_GRACE_SECONDS = 300      # never reap a run younger than this
 _REAP_STALE_SECONDS = 180      # heartbeat older than this = supervisor is dead
 
@@ -346,6 +354,37 @@ class AutomationRunner:
         count = cursor.fetchone()[0]
         conn.close()
         return count > 0
+
+    def _db_live_run_dirs(self, automation_id: str, max_age_seconds: int) -> List[Optional[str]]:
+        """Working folders of the runs _db_has_live_run counts (same query);
+        None for a row that has no log path."""
+        conn = self._db_conn()
+        cursor = conn.cursor()
+        placeholders = ", ".join("?" for _ in LIVE_STATUSES)
+        cursor.execute(
+            f"""SELECT log_path FROM AutomationRuns
+               WHERE automation_id = ? AND status IN ({placeholders})
+                 AND started_at > DATEADD(SECOND, -?, GETUTCDATE())""",
+            automation_id, *LIVE_STATUSES, max_age_seconds,
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [os.path.dirname(r.log_path) if r.log_path else None for r in rows]
+
+    def _live_runs_only_waiting(self, automation_id: str, max_age_seconds: int) -> bool:
+        """True when every live run of the automation has said it is only
+        waiting for people to decide its review items (the marker
+        aihub.waiting_for_decisions() writes into its working folder). Any
+        doubt (no rows, a folder this host cannot see, a DB error) is False,
+        which keeps the old skip-if-running rule."""
+        try:
+            dirs = self._db_live_run_dirs(automation_id, max_age_seconds)
+        except Exception as e:
+            logger.warning(f"automation {automation_id}: could not check whether the live run is "
+                           f"only waiting for decisions ({e}) — skip-if-running applies")
+            return False
+        return bool(dirs) and all(
+            d and os.path.isfile(os.path.join(d, _WAITING_MARKER_NAME)) for d in dirs)
 
     def _db_get_run_field(self, run_id: str, field: str) -> Optional[str]:
         """Read one column of a run row (supervision-loop status poll)."""
@@ -718,7 +757,12 @@ class AutomationRunner:
         with _run_locks_guard:
             lock = _run_locks.setdefault(automation_id, threading.Lock())
         with lock:
-            if not dry_run and self._db_has_live_run(automation_id, timeout + _SKIP_GRACE_SECONDS):
+            live = not dry_run and self._db_has_live_run(automation_id, timeout + _SKIP_GRACE_SECONDS)
+            if live and self._live_runs_only_waiting(automation_id, timeout + _SKIP_GRACE_SECONDS):
+                logger.info(f"automation {automation_id}: starting while the earlier run(s) "
+                            "only wait for review decisions")
+                live = False
+            if live:
                 self._db_insert_run({
                     "run_id": run_id, "automation_id": automation_id, "version": version,
                     "trigger_source": trigger, "status": "skipped",
@@ -916,7 +960,7 @@ class AutomationRunner:
                 # ${step_files[0]} could hand a timestamp to the next step).
                 if (rel not in pre_run_files
                         and rel not in (_RUN_LOG_NAME, _EGRESS_LOG_NAME, _EVENTS_FILE,
-                                        _HEARTBEAT_NAME)
+                                        _HEARTBEAT_NAME, _WAITING_MARKER_NAME)
                         and not os.path.basename(rel).startswith("checkpoint_")):
                     output_files.append(rel)
         output_files.sort()
