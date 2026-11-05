@@ -698,6 +698,8 @@
    also overrides the mobile media-query default safely.
    ========================================================================== */
 body:has(.chat-send-btn) .ua-container.ua-bottom-right,
-body:has(.chat-send-btn) .ua-container.ua-bottom-left {
+body:has(.chat-send-btn) .ua-container.ua-bottom-left,
+body:has(.de-send-btn) .ua-container.ua-bottom-right,
+body:has(.de-send-btn) .ua-container.ua-bottom-left {
     bottom: 96px;
 }
