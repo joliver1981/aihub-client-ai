@@ -73,8 +73,11 @@ DEV = {"user_id": 717172, "role": 2, "username": "codename-dev",
        "name": "Codename Dev", "tenant_id": None}
 
 # /api/me's keys before code names existed — without the setting, unchanged
+# (email_hidden joined 2026-11-12 with the Email screen visibility setting;
+# Admins also get email_visibility — test_agent_email_visibility.py)
 ME_KEYS = {"user", "model", "model_default", "model_role1", "model_role1_default",
-           "turns_per_day", "app_version", "main_port", "server_timezone"}
+           "turns_per_day", "app_version", "main_port", "server_timezone",
+           "email_hidden"}
 
 
 def codenames(mapping):
@@ -273,7 +276,8 @@ def test_me_payload_with_the_setting_shows_only_code_names():
         assert d["model_role1"] == d["model_role1_default"] == "the-agent-standard", d
         assert d["model_suggestions"] == ["the-agent-basic", "the-agent-standard",
                                           "the-agent-pro"], d
-        assert set(d) == ME_KEYS | {"model_suggestions"}, sorted(d)
+        assert set(d) == (ME_KEYS | {"model_suggestions"}
+                          | ({"email_visibility"} if user is ADMIN else set())), sorted(d)
         body = json.dumps(d)
         for real in MAP:
             assert real not in body, (real, body)

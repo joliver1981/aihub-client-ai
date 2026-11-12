@@ -213,7 +213,8 @@ async def health():
 async def me(request: Request):
     user = _verify_request(request)
     from agent_config import (get_effective_model, get_turn_cap, APP_VERSION,
-                              AGENT_MODEL_ROLE1, display_model, model_suggestions)
+                              AGENT_MODEL_ROLE1, display_model, model_suggestions,
+                              email_hidden_for, get_email_hidden)
     # Model ids go out as their code names when AGENT_MODEL_CODENAMES is set
     # (james 2026-10-10: Admins too); the Admin pickers then suggest the code
     # names and a picked one is stored as its real id (resolve_model).
@@ -228,11 +229,60 @@ async def me(request: Request):
            # the same hostname the browser used, on the main app's port.
            "main_port": int(os.getenv("HOST_PORT", "5001")),
            # the zone the service falls back to when the browser sends none
-           "server_timezone": __import__("work_tools").server_zone_label()}
+           "server_timezone": __import__("work_tools").server_zone_label(),
+           # an Admin can hide the Email screen per group (settings below)
+           "email_hidden": email_hidden_for(user)}
+    # Behind a reverse proxy that port is not reachable from the browser:
+    # the links back must point at the main app's published address.
+    main_url = _main_public_url()
+    if main_url:
+        out["main_url"] = main_url
+    if int(user.get("role") or 0) >= 3:
+        out["email_visibility"] = get_email_hidden()
     suggestions = model_suggestions()
     if suggestions:
         out["model_suggestions"] = suggestions
     return out
+
+
+def _main_public_url() -> str:
+    """The address users reach the main AI Hub app at when the install is
+    published through a reverse proxy: APP_PUBLIC_BASE_URL, and only while
+    USE_REVERSE_PROXY is on (the main app's own switch, read the same way).
+    "" otherwise — a direct install keeps "this hostname, the main app's
+    port" even where APP_PUBLIC_BASE_URL is set for emailed links, because
+    the user's sign-in lives on the address they browsed to, which need not
+    be that one. Anything that is not an http(s) address is ignored and
+    logged, never handed to a browser."""
+    if os.getenv("USE_REVERSE_PROXY", "false").strip().lower() not in ("true", "1", "yes"):
+        return ""
+    raw = os.getenv("APP_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if not raw:
+        return ""
+    if not raw.lower().startswith(("http://", "https://")):
+        logger.warning("APP_PUBLIC_BASE_URL ignored for links back to AI Hub: "
+                       "it must start with http:// or https://")
+        return ""
+    return raw
+
+
+@app.get("/api/main-app")
+async def main_app_location():
+    """Where the main AI Hub app is, for the sign-in bounce. Unauthenticated
+    on purpose: a browser with no token yet (first visit, new PC, expired
+    session) asks this BEFORE it can sign in, and the answer is only the
+    address users sign in at."""
+    return {"main_url": _main_public_url(),
+            "main_port": int(os.getenv("HOST_PORT", "5001"))}
+
+
+def _require_email_screen(user: dict) -> None:
+    """403 when an Admin has hidden the Email screen from this user — the
+    rail hides the entry; this keeps the screen's data behind the same rule."""
+    from agent_config import email_hidden_for
+    if email_hidden_for(user):
+        raise HTTPException(403, "The Email screen is turned off for your "
+                                 "account by an administrator.")
 
 
 def _service_key_ok(request: Request) -> bool:
@@ -1492,6 +1542,7 @@ async def views_rename(request: Request):
 @app.get("/api/email/address")
 async def email_address_get(request: Request):
     user = _verify_request(request)
+    _require_email_screen(user)
     import email_store
     import email_client
     import email_poller
@@ -1517,6 +1568,7 @@ async def email_address_set(request: Request):
     legacy config page: user picks the prefix, the suffix is fixed per
     install (numeric TenantId + domain from the cloud — readonly)."""
     user = _verify_request(request)
+    _require_email_screen(user)
     import email_store
     import email_client
     body = await request.json()
@@ -1631,6 +1683,46 @@ async def settings_turn_cap(request: Request):
     return {"turns_per_day": cap}
 
 
+@app.get("/api/settings/email-visibility")
+async def settings_email_visibility_get(request: Request):
+    """Who the Email screen is hidden from, plus the platform's groups to
+    choose from. Admin only. A group list that cannot be read comes back
+    empty WITH the reason, so the editor says so instead of showing none."""
+    user = _verify_request(request)
+    if int(user.get("role") or 0) < 3:
+        raise HTTPException(403, "Email screen visibility requires an admin.")
+    from agent_config import get_email_hidden
+    import readthrough
+    out = dict(get_email_hidden(), groups=[], groups_error="")
+    try:
+        out["groups"] = readthrough.all_groups()
+    except Exception as e:
+        logger.warning(f"email visibility: group list unavailable: {e}")
+        out["groups_error"] = "The group list could not be read right now."
+    return out
+
+
+@app.post("/api/settings/email-visibility")
+async def settings_email_visibility_set(request: Request):
+    """Hide the Email screen from everyone and/or the members of chosen
+    groups (both empty = shown to everyone, the default). Admin only; applies
+    to each user's next page load and to the very next API call."""
+    user = _verify_request(request)
+    if int(user.get("role") or 0) < 3:
+        raise HTTPException(403, "Email screen visibility requires an admin.")
+    from agent_config import set_email_hidden, email_hidden_for
+    body = await request.json()
+    try:
+        saved = set_email_hidden(body.get("everyone", False),
+                                 body.get("group_ids", []))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    logger.info(f"Email screen visibility changed by user {user['user_id']} "
+                f"({user.get('username')}) -> {saved}")
+    # email_hidden = what it now means for the Admin who just saved it
+    return dict(saved, email_hidden=email_hidden_for(user))
+
+
 # ---------------------------------------------------------------------------
 # File handoff (James 2026-08-09): download links in chat
 # ---------------------------------------------------------------------------
@@ -1724,6 +1816,7 @@ async def portal_watches(request: Request):
 @app.get("/api/email/log")
 async def email_log(request: Request):
     user = _verify_request(request)
+    _require_email_screen(user)
     import email_store
     row = email_store.get_address(int(user["user_id"] or 0))
     if not row:
@@ -1755,6 +1848,7 @@ async def email_log_detail(event_id: int, request: Request):
     content by design). retained=false when the body is gone; metadata and
     the agent's outcome still come back from the ledger row."""
     user = _verify_request(request)
+    _require_email_screen(user)
     import email_client
     entry = _own_ledger_row(user, event_id)
     key = str(entry.get("message_key") or "")
@@ -1796,6 +1890,7 @@ async def email_log_attachment(event_id: int, attachment_id: int,
     checked before any bytes are proxied, so an attachment id can never be
     fetched through someone else's (or no) email."""
     user = _verify_request(request)
+    _require_email_screen(user)
     import email_client
     _own_ledger_row(user, event_id)
     atts = await email_client.attachments_for(int(event_id))

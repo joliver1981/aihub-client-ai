@@ -358,6 +358,81 @@ def set_turn_cap(value) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Email screen visibility (james 2026-11-12). An Admin can hide the Email
+# screen from everyone, or from the members of chosen platform groups. Stored
+# in the runtime settings as {"everyone": bool, "group_ids": [int]}; absent
+# (the default) = shown to everyone = exactly the prior behavior, with no
+# group lookup at all. Hidden means: no Email entry in the rail, the screen's
+# API answers 403, and chat will not create an agent address for that user.
+# It is NOT a mail kill switch — an address that already exists keeps
+# receiving mail. No role exemption: an Admin in a hidden group loses the
+# screen too, and changes the setting from the Admin rows in the rail.
+# ---------------------------------------------------------------------------
+
+def get_email_hidden() -> dict:
+    """The stored setting, normalized: {"everyone": bool, "group_ids": [int]}."""
+    raw = _read_runtime_settings().get("email_hidden")
+    raw = raw if isinstance(raw, dict) else {}
+    gids = []
+    for g in raw.get("group_ids") or []:
+        try:
+            g = int(g)
+        except (TypeError, ValueError):
+            continue
+        if g > 0 and g not in gids:
+            gids.append(g)
+    return {"everyone": raw.get("everyone") is True, "group_ids": gids}
+
+
+def set_email_hidden(everyone, group_ids) -> dict:
+    """Hide the Email screen from everyone and/or from the given groups; both
+    empty clears the setting (shown to everyone). Returns the stored setting.
+    Raises ValueError on anything that is not a true/false and a list of
+    positive group ids — a half-understood request must never be saved."""
+    if not isinstance(everyone, bool):
+        raise ValueError("everyone must be true or false")
+    if not isinstance(group_ids, (list, tuple)):
+        raise ValueError("group_ids must be a list of group ids")
+    gids = []
+    for g in group_ids:
+        if isinstance(g, bool) or not isinstance(g, int) or g <= 0:
+            raise ValueError(f"not a group id: {g!r}")
+        if g not in gids:
+            gids.append(g)
+    settings = _read_runtime_settings()
+    if everyone or gids:
+        settings["email_hidden"] = {"everyone": everyone, "group_ids": gids}
+    else:
+        settings.pop("email_hidden", None)
+    _write_runtime_settings(settings)
+    logger.info("Email screen "
+                + ("hidden for EVERYONE" if everyone
+                   else f"hidden for groups {gids}" if gids
+                   else "shown to everyone"))
+    return {"everyone": everyone, "group_ids": gids}
+
+
+def email_hidden_for(user) -> bool:
+    """Is the Email screen hidden for this user? Fails CLOSED: when groups are
+    configured and this user's membership cannot be read, the answer is yes
+    (an Admin asked for it hidden; a lookup failure must not show it)."""
+    cfg = get_email_hidden()
+    if cfg["everyone"]:
+        return True
+    if not cfg["group_ids"]:
+        return False
+    try:
+        import readthrough  # lazy: readthrough imports this module
+        mine = readthrough.user_group_ids(
+            int((user or {}).get("user_id") or 0), strict=True)
+    except Exception as e:
+        logger.warning("email visibility: group membership unreadable, "
+                       f"treating the Email screen as hidden: {e}")
+        return True
+    return bool(set(cfg["group_ids"]) & {int(g) for g in mine})
+
+
+# ---------------------------------------------------------------------------
 # Model code names (james 2026-10-10). With AGENT_MODEL_CODENAMES set, every
 # user-facing model id passes through display_model() — /api/me, the Admin
 # pickers, /health, chat events, error text — so nobody (Admins included)

@@ -150,7 +150,10 @@ def _db():
     return conn
 
 
-def user_group_ids(user_id: int) -> list:
+def user_group_ids(user_id: int, *, strict: bool = False) -> list:
+    """The platform groups a user belongs to; [] when membership cannot be
+    read. strict=True RAISES instead — for a caller that must tell "in no
+    group" from "could not look" (the Email screen's visibility rule)."""
     def _sql():
         conn = _db()
         try:
@@ -163,6 +166,8 @@ def user_group_ids(user_id: int) -> list:
     try:
         return [int(g) for g in (fetch_or_sql("user_group_ids", _sql, user_id=int(user_id)) or [])]
     except Exception as e:
+        if strict:
+            raise
         logger.warning(f"user_group_ids unavailable: {e}")
         return []
 

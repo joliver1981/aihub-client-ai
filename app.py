@@ -2026,6 +2026,17 @@ def the_agent_redirect():
         'name': current_user.name,
     })
 
+    # Published through a reverse proxy (HTTPS), the browser cannot follow a
+    # plain-http link to the service port. AGENT_PUBLIC_BASE_URL is the full
+    # address users reach The Agent at through the proxy; unset (every direct
+    # install) the link below is exactly what it always was.
+    agent_public = os.environ.get('AGENT_PUBLIC_BASE_URL', '').strip().rstrip('/')
+    if agent_public.lower().startswith(('http://', 'https://')):
+        return redirect(f'{agent_public}/?token={token}')
+    if agent_public:
+        logger.warning('AGENT_PUBLIC_BASE_URL ignored: it must start with '
+                       'http:// or https://')
+
     agent_port = os.environ.get('AGENT_SERVICE_PORT', '') or str(
         int(os.environ.get('HOST_PORT', '5001')) + 110)
     agent_host = os.environ.get('AGENT_SERVICE_HOST_PUBLIC', '') or request.host.split(':')[0]

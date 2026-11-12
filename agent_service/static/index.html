@@ -749,11 +749,34 @@
       const draft = document.getElementById("input");
       if (draft && draft.value) localStorage.setItem("agent_draft", draft.value);
     } catch (e) {}
-    const mp = localStorage.getItem("agent_main_port") || mainPort;
     gate("For your security you've been signed out. Sign in to AI Hub again to keep working — anything you'd typed will be waiting for you.",
          "Your session has expired",
          { label: "Sign in again",
-           href: `${location.protocol}//${location.hostname}:${mp}/logout?then=agent` });
+           href: `${mainAppBase()}/logout?then=agent` });
+  }
+  // Where the main AI Hub app is, for the sign-in bounce (the saved values
+  // come from the last /api/me, or from learnMainApp when there is no token
+  // yet). Direct installs: this hostname on the main app's port. Published
+  // behind a reverse proxy that port is not reachable from the browser, so
+  // the service sends the app's public address instead (main_url).
+  function mainAppBase() {
+    const url = localStorage.getItem("agent_main_url");
+    if (url) return url;
+    const mp = localStorage.getItem("agent_main_port") || mainPort;
+    return `${location.protocol}//${location.hostname}:${mp}`;
+  }
+  // No usable token: nothing saved can be trusted to be current (first
+  // visit, new PC, an address that changed), so ask the service — this one
+  // route answers without a token. Unreachable = keep what is saved.
+  async function learnMainApp() {
+    try {
+      const r = await fetch("/api/main-app");
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d.main_port) localStorage.setItem("agent_main_port", String(d.main_port));
+      if (d.main_url) localStorage.setItem("agent_main_url", d.main_url);
+      else localStorage.removeItem("agent_main_url");
+    } catch (e) {}
   }
   function reauth(detail) {
     const why = String(detail || "");
@@ -766,9 +789,8 @@
       const draft = document.getElementById("input");
       if (draft && draft.value) localStorage.setItem("agent_draft", draft.value);
     } catch (e) {}
-    const mp = localStorage.getItem("agent_main_port") || mainPort;
     gate("Reconnecting to AI Hub…");
-    location.href = `${location.protocol}//${location.hostname}:${mp}/the-agent`;
+    location.href = `${mainAppBase()}/the-agent`;
     return true;
   }
 
@@ -1187,10 +1209,20 @@
     try { u = new URL(String(raw || "")); } catch { return null; }
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
     if (u.username || u.password) return null;
-    const port = u.port || (u.protocol === "https:" ? "443" : "80");
-    let mp = "";
-    try { mp = String(mainPort || localStorage.getItem("agent_main_port") || ""); } catch {}
-    if (!mp || port !== mp) return null;
+    let pub = "";
+    try { pub = mainUrl || ""; } catch {}
+    if (pub) {
+      // published behind a reverse proxy: the link must be on the main
+      // app's public address (the port rule below cannot match there)
+      let base;
+      try { base = new URL(pub); } catch { return null; }
+      if (u.origin !== base.origin) return null;
+    } else {
+      const port = u.port || (u.protocol === "https:" ? "443" : "80");
+      let mp = "";
+      try { mp = String(mainPort || localStorage.getItem("agent_main_port") || ""); } catch {}
+      if (!mp || port !== mp) return null;
+    }
     if (!RB_COBROWSE_PATH.test(u.pathname)) return null;
     return u.href;
   }
@@ -1343,7 +1375,16 @@
                  schedules: document.getElementById("nav-schedules"),
                  email: document.getElementById("nav-email"),
                  skills: document.getElementById("nav-skills") };
+  // An Admin can hide the Email screen from this user (email_hidden on
+  // /api/me; the service refuses the screen's data under the same rule).
+  let emailHidden = false;
+  function applyEmailHidden(hidden) {
+    emailHidden = !!hidden;
+    navs.email.style.display = emailHidden ? "none" : "";
+    if (emailHidden && views.email.classList.contains("on")) show("chat");
+  }
   function show(v) {
+    if (v === "email" && emailHidden) v = "chat";
     for (const k of Object.keys(views)) {
       views[k].classList.toggle("on", k === v);
       navs[k].classList.toggle("on", k === v);
@@ -1615,7 +1656,10 @@
 
   // ---------- platform deep links (rail + Playbooks header) ----------
   let mainPort = 5001;
-  const platUrl = (path) => `${location.protocol}//${location.hostname}:${mainPort}${path}`;
+  let mainUrl = "";   // the main app's public address when the service sends one (reverse proxy)
+  const platUrl = (path) => mainUrl
+    ? mainUrl + path
+    : `${location.protocol}//${location.hostname}:${mainPort}${path}`;
   // The classic app's surfaces, grouped like its nav. Admin group (role>=3)
   // holds create/manage areas The Agent can't drive inline — Integrations,
   // Solutions promotion, users/groups, environments, etc. minRole gates a
@@ -4230,6 +4274,125 @@
     row.appendChild(label);
     box.appendChild(row);
   }
+  // Admin: who the Email screen is hidden from — everyone, or the members
+  // of chosen platform groups. The service enforces it (the screen's data
+  // and chat set-up are refused), so this is more than a hidden menu entry.
+  // The editor floats beside the rail like the platform flyout, so a long
+  // group list never changes the rail's height.
+  let emailFly = null;
+  function closeEmailFly() {
+    if (emailFly) { emailFly.remove(); emailFly = null; }
+  }
+  document.addEventListener("pointerdown", e => {
+    if (!emailFly || emailFly.contains(e.target)) return;
+    if (e.target.closest && e.target.closest("[data-emailrow]")) return;
+    closeEmailFly();
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") closeEmailFly();
+  });
+  function emailRow(box, d) {
+    const row = el("div", "");
+    row.dataset.emailrow = "1";
+    const v = d.email_visibility || { everyone: false, group_ids: [] };
+    const n = (v.group_ids || []).length;
+    const label = el("span", "", "email screen: "
+      + (v.everyone ? "hidden for everyone"
+         : n ? "hidden for " + n + " group" + (n === 1 ? "" : "s")
+         : "shown to everyone"));
+    label.style.cursor = "pointer";
+    label.title = "Admin: hide the Email screen from everyone or from the "
+                + "members of chosen groups (applies when they next open The Agent)";
+    label.onclick = async () => {
+      if (emailFly) { closeEmailFly(); return; }
+      const fly = emailFly = el("div", "platfly", "loading groups…");
+      fly.style.cssText = "display:flex;flex-direction:column;overflow:hidden;" +
+        "width:min(290px,calc(100vw - 214px));font-size:12px;color:var(--text2)";
+      document.body.appendChild(fly);
+      let cur;
+      try {
+        const r = await fetch("/api/settings/email-visibility", { headers: H() });
+        cur = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(cur.detail || "failed");
+      } catch (e) {
+        if (emailFly === fly) fly.textContent = e.message || "failed";
+        return;
+      }
+      if (emailFly !== fly) return;        // closed while the groups loaded
+      fly.textContent = "";
+      const line = (text, checked) => {
+        const lab = document.createElement("label");
+        lab.style.cssText = "display:flex;align-items:flex-start;gap:7px;" +
+                            "cursor:pointer;padding:2px 0";
+        const cb = document.createElement("input");
+        cb.type = "checkbox"; cb.checked = !!checked;
+        cb.style.cssText = "margin:2px 0 0;flex:none;accent-color:var(--accent)";
+        lab.append(cb, el("span", "", text));
+        return { lab, cb };
+      };
+      const head = el("div", "pgroup", "Hide the Email screen for");
+      head.style.marginTop = "0";
+      fly.appendChild(head);
+      const all = line("everyone", cur.everyone);
+      fly.appendChild(all.lab);
+      const sub = el("div", "pgroup", "or the members of");
+      fly.appendChild(sub);
+      const list = el("div", "");
+      list.style.cssText = "flex:1;min-height:0;overflow-y:auto;margin:2px 0 8px;" +
+        "padding:4px 8px;border:1px solid var(--line);border-radius:8px";
+      // a saved group that is no longer in the list still shows, so it can be unticked
+      const known = new Set((cur.groups || []).map(g => g.id));
+      const rows = (cur.groups || []).map(g => ({ id: g.id, name: g.name }))
+        .concat((cur.group_ids || []).filter(id => !known.has(id))
+          .map(id => ({ id, name: "group " + id + " (not in the list)" })));
+      const picks = rows.map(g => {
+        const p = line(g.name, (cur.group_ids || []).includes(g.id));
+        list.appendChild(p.lab);
+        return { id: g.id, cb: p.cb };
+      });
+      if (cur.groups_error) list.appendChild(el("div", "", cur.groups_error));
+      else if (!rows.length) list.appendChild(el("div", "", "No groups exist yet."));
+      fly.appendChild(list);
+      // "everyone" outranks the groups: grey them out but keep the ticks
+      const sync = () => {
+        picks.forEach(p => { p.cb.disabled = all.cb.checked; });
+        list.style.opacity = all.cb.checked ? ".5" : "";
+      };
+      all.cb.onchange = sync; sync();
+      const bar = el("div", "");
+      bar.style.cssText = "display:flex;align-items:center;gap:6px;flex:none";
+      const save = el("button", "btn primary", "Save");
+      save.style.cssText = "padding:5px 13px;font-size:11.5px";
+      const cancel = el("button", "btn", "Cancel");
+      cancel.style.cssText = save.style.cssText;
+      const msg = el("span", "", "");
+      msg.style.cssText = "font-size:11px;color:var(--red)";
+      cancel.onclick = closeEmailFly;
+      save.onclick = async () => {
+        save.disabled = true; msg.textContent = "";
+        let r, res = {};
+        try {
+          r = await fetch("/api/settings/email-visibility", { method: "POST",
+            headers: H(), body: JSON.stringify({ everyone: all.cb.checked,
+              group_ids: picks.filter(p => p.cb.checked).map(p => p.id) }) });
+          res = await r.json().catch(() => ({}));
+        } catch (e) { r = null; }
+        if (!r || !r.ok) {
+          save.disabled = false;
+          msg.textContent = res.detail || "Not saved — try again.";
+          return;
+        }
+        d.email_visibility = { everyone: res.everyone, group_ids: res.group_ids };
+        applyEmailHidden(res.email_hidden);
+        closeEmailFly();
+        renderModelNote(d);
+      };
+      bar.append(save, cancel, msg);
+      fly.appendChild(bar);
+    };
+    row.appendChild(label);
+    box.appendChild(row);
+  }
   function renderModelNote(d) {
     const box = document.getElementById("model");
     box.innerHTML = "";
@@ -4247,11 +4410,13 @@
     pickModelRow(box, d, "users: ", "model_role1", "model_role1_default",
                  "/api/settings/role1-model", "model_role1");
     capRow(box, d);
+    emailRow(box, d);
   }
 
   // ---------- boot ----------
   async function boot() {
     if (!token()) {
+      await learnMainApp();
       if (reauth("no access token")) return;
       gate("Automatic sign-in is not completing — this is a platform configuration problem, not your session. An administrator should check the AI Hub and The Agent services.");
       return;
@@ -4260,6 +4425,7 @@
       const r = await fetch("/api/me", { headers: { Authorization: "Bearer " + token() } });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
+        await learnMainApp();
         if (reauth(d.detail)) return;
         gate(d.detail || "Automatic sign-in is not completing — this is a platform configuration problem, not your session. An administrator should check that AI Hub and The Agent share the same signing configuration.");
         return;
@@ -4267,6 +4433,10 @@
       const d = await r.json(); me = d.user;
       if (d.main_port) { mainPort = d.main_port;
                          localStorage.setItem("agent_main_port", String(d.main_port)); }
+      mainUrl = d.main_url || "";
+      if (mainUrl) localStorage.setItem("agent_main_url", mainUrl);
+      else localStorage.removeItem("agent_main_url");
+      applyEmailHidden(d.email_hidden);
       if (d.app_version) document.getElementById("ver").textContent = "v" + d.app_version;
       const savedDraft = localStorage.getItem("agent_draft");
       if (savedDraft) { input.value = savedDraft; localStorage.removeItem("agent_draft"); }

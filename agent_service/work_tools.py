@@ -1308,6 +1308,15 @@ async def setup_agent_email(args: dict[str, Any]) -> dict[str, Any]:
     import email_client
     user = CURRENT_USER.get()
     uid = int(user.get("user_id") or 0)
+    # An Admin can hide the Email screen from this user (or their group):
+    # chat must not hand out the address the screen would have refused.
+    from agent_config import email_hidden_for
+    if email_hidden_for(user):
+        return _text("Agent email is turned off for this user by an "
+                     "administrator — no address was created, and none can "
+                     "be from chat. Tell them plainly and do not offer it "
+                     "again; an AI Hub administrator can turn it back on.",
+                     is_error=True)
     existing = email_store.get_address(uid)
     if existing and existing.get("is_active") and not args.get("prefix"):
         return _text(f"Already set up: {existing['email_address']} is ACTIVE — "
@@ -1404,6 +1413,14 @@ async def get_agent_email_status(args: dict[str, Any]) -> dict[str, Any]:
                          "read_email); read_attachment / save_attachment "
                          "handle attachments.")
     else:
+        # Hidden by an Admin (Email screen visibility): nothing to offer.
+        from agent_config import email_hidden_for
+        if email_hidden_for(user):
+            return _text("Agent email is turned off for this user by an "
+                         "administrator: they have no agent address and one "
+                         "cannot be created. Say so plainly and do NOT offer "
+                         "to set it up; an AI Hub administrator can turn it "
+                         "back on.")
         default = email_store.sanitize_prefix(user.get("username")) or str(uid)
         lines.append("No agent email address set up yet for this user. OFFER "
                      "TO SET IT UP: with their permission you can create it "
