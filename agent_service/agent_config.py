@@ -228,6 +228,26 @@ def email_tools_enabled() -> bool:
 CHAT_BUSY_WAIT_SECONDS = int(os.getenv("AGENT_CHAT_BUSY_WAIT_SECONDS", "90"))
 
 
+# The chat stream sends nothing while a tool step runs, and a reverse proxy in
+# front of The Agent drops a connection that stays idle past its read timeout
+# (commonly 60-120 s) — the turn is then lost mid-flight. So whenever the stream
+# has been quiet for this many seconds it carries an SSE comment line
+# (": keepalive"), which every reader skips: the events themselves are
+# unchanged. Keep it well under the proxy's idle timeout. 0 turns it off (the
+# stream is then byte-for-byte what it was before this setting existed).
+def _chat_keepalive_seconds() -> float:
+    raw = (os.getenv("AGENT_CHAT_KEEPALIVE_SECONDS") or "15").strip()
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        logger.warning(f"AGENT_CHAT_KEEPALIVE_SECONDS={raw!r} is not a number "
+                       f"— using the default (15)")
+        return 15.0
+
+
+CHAT_KEEPALIVE_SECONDS = _chat_keepalive_seconds()
+
+
 # ---------------------------------------------------------------------------
 # Anthropic key for the SDK — same fail-soft decrypt-and-export pattern as
 # browser_use_config.ensure_llm_api_key(): AI Hub stores the key only as
@@ -681,6 +701,7 @@ def summary() -> dict:
         "app_root": APP_ROOT,
         "main_app": get_base_url(),
         "allow_all_users": AGENT_ALLOW_ALL_USERS,
+        "chat_keepalive_seconds": CHAT_KEEPALIVE_SECONDS,   # 0 = off
         "anthropic_key_present": bool(os.getenv("ANTHROPIC_API_KEY")
                                       or os.getenv("ANTHROPIC_API_KEY_ENCRYPTED")),
         # byok | relay | env | encrypted | none — reflects the LAST

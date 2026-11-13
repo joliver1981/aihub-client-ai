@@ -19,7 +19,7 @@ import sys
 import agent_config  # noqa: F401  (must be first: APP_ROOT, .env, secure_config)
 from agent_config import (
     HOST, PORT, DEBUG, AGENT_MODEL, AGENT_ALLOW_ALL_USERS, logger, summary,
-    defer_to_chat_enabled, CHAT_BUSY_WAIT_SECONDS,
+    defer_to_chat_enabled, CHAT_BUSY_WAIT_SECONDS, CHAT_KEEPALIVE_SECONDS,
 )
 
 from contextlib import asynccontextmanager
@@ -598,6 +598,67 @@ async def wf_files_action(wid: int, action: str, request: Request):
     return await _wf_files_call(request, "POST", f"/api/workflow-files/{wid}/{action}", body=body)
 
 
+# An SSE comment line: starts with ":" and carries no event. Browsers' own
+# EventSource, the UI's reader and every script that reads this stream skip it.
+SSE_KEEPALIVE = ": keepalive\n\n"
+
+
+class KeepaliveStreamingResponse(StreamingResponse):
+    """A StreamingResponse that also sends SSE_KEEPALIVE whenever nothing has
+    gone out for `keepalive` seconds.
+
+    Why: the chat stream is silent while a tool step runs (or a long reply is
+    being written), and a reverse proxy drops a connection that is idle past
+    its read timeout — the turn is lost.
+
+    The body (the turn) is produced and sent exactly as StreamingResponse does
+    it, in the same task, so its events, their order and the way a turn is
+    stopped when the client goes away are untouched. The only addition is a
+    side timer that writes the comment line when the connection has been
+    quiet; a lock keeps its write from landing inside, or after, a real one.
+    The timer needs the event loop: a tool that blocks the loop for its whole
+    run also holds the keepalive back for that long.
+    """
+
+    def __init__(self, content, keepalive: float, **kwargs):
+        super().__init__(content, **kwargs)
+        self.keepalive = float(keepalive)
+
+    async def stream_response(self, send) -> None:
+        loop = asyncio.get_running_loop()
+        interval = self.keepalive
+        lock = asyncio.Lock()
+        state = {"last": loop.time(), "open": False}
+
+        async def send_one(message):
+            async with lock:
+                await send(message)
+                state["last"] = loop.time()
+                if message["type"] == "http.response.start":
+                    state["open"] = True
+                elif not message.get("more_body", False):
+                    state["open"] = False       # final chunk: nothing may follow
+
+        async def ticker():
+            beat = {"type": "http.response.body", "more_body": True,
+                    "body": SSE_KEEPALIVE.encode("utf-8")}
+            try:
+                while True:
+                    await asyncio.sleep(max(state["last"] + interval - loop.time(), 0.05))
+                    async with lock:            # re-checked under the lock
+                        if state["open"] and loop.time() - state["last"] >= interval:
+                            await send(beat)
+                            state["last"] = loop.time()
+            except Exception as e:              # a failed write ends the timer, never the turn
+                logger.debug(f"chat keepalive stopped: {e}")
+
+        timer = asyncio.create_task(ticker())
+        try:
+            await super().stream_response(send_one)
+        finally:
+            timer.cancel()
+
+
 @app.post("/api/chat")
 async def chat(request: Request):
     user = _verify_request(request)
@@ -651,9 +712,12 @@ async def chat(request: Request):
         chat_history.touch(int(user["user_id"] or 0), final_sid or "", message, opened=True)
         yield "data: {\"type\": \"done\"}\n\n"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache",
-                                      "X-Accel-Buffering": "no"})
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    if CHAT_KEEPALIVE_SECONDS > 0:
+        return KeepaliveStreamingResponse(event_stream(), CHAT_KEEPALIVE_SECONDS,
+                                          media_type="text/event-stream", headers=headers)
+    return StreamingResponse(event_stream(), media_type="text/event-stream",   # 0 = off:
+                             headers=headers)                # the response as it always was
 
 
 # ---------------------------------------------------------------------------
