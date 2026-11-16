@@ -2179,15 +2179,23 @@ def get_connection_string_by_name(connection_name):
     connection_id = None
     database_type = None
 
+    # Connections saved through the current UI/API keep the password as a
+    # {{LOCAL_SECRET:CONN_PWD_<id>}} reference (in the password column and/or
+    # inside a stored connection string). Resolve it here as get_connection_string
+    # does: unresolved, the braces end up in the ODBC string and every automation
+    # (aihub.connection / aihub.query) and {CONN:name} placeholder on that
+    # connection fails to connect. Plain-text passwords pass through unchanged.
+    from connection_secrets import resolve_connection_string_secrets
+
     # Construct or use the connection string
     for row in rows:
         temp_server, temp_database_name, temp_user_name, temp_password, connection_string, temp_database_type, port, temp_connection_id = row
-        
+
         connection_id = temp_connection_id
         database_type = temp_database_type
 
         if connection_string:
-            connections.append(connection_string)
+            connections.append(resolve_connection_string_secrets(connection_string))
         else:
             if database_type == "SQL Server":
                 constructed_connection_string = (
@@ -2232,7 +2240,7 @@ def get_connection_string_by_name(connection_name):
                     f"PWD={temp_password};"
                 )
 
-            connections.append(constructed_connection_string)
+            connections.append(resolve_connection_string_secrets(constructed_connection_string))
 
     cursor.close()
     main_conn.close()
