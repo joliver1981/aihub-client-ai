@@ -247,7 +247,7 @@ async def _run_action(action: str, automation_ref: str, inputs_json: str,
             "⏸️ RUN PAUSED — human approval required (this is not a failure).\n"
             f"run_id {data.get('run_id')} | checkpoint_id {cp.get('checkpoint_id')}\n"
             f"Checkpoint message: {cp.get('message', '')}\n"
-            "The approval is also waiting in My Approvals. To decide it here, "
+            "The approval is also waiting in My Work. To decide it here, "
             "call decide_automation_checkpoint with proceed or abort.")
 
     if data.get("inline_wait_elapsed"):
@@ -378,7 +378,7 @@ async def create_automation(args: dict[str, Any]) -> dict[str, Any]:
     "  aihub.query('CONNECTION_NAME', 'SELECT ...', [params]) -> list of dicts\n"
     "  aihub.connection(name) / aihub.secret(name) -> resolved values\n"
     "  aihub.input(name, default) | aihub.log(msg) | print() for output\n"
-    "  aihub.checkpoint('message') -> BLOCKS until a human approves in My Approvals\n"
+    "  aihub.checkpoint('message') -> BLOCKS until a human approves in My Work\n"
     "  aihub.send_email(to, subject, body) | aihub.llm(prompt) | aihub.ai_extract(...)\n"
     "  aihub.skill(name) -> body of a tenant/product skill (pass as system= to llm/ai_extract)\n"
     "Every connection/secret used MUST be declared in the manifest, e.g. "
@@ -546,7 +546,7 @@ async def check_automation_run(args: dict[str, Any]) -> dict[str, Any]:
     cp = data.get("pending_checkpoint")
     if cp:
         lines.append(f"⏸️ waiting on checkpoint {cp.get('checkpoint_id')}: "
-                     f"{cp.get('message', '')} (also in My Approvals)")
+                     f"{cp.get('message', '')} (also in My Work)")
     events = data.get("events") or []
     for ev in events[-5:]:
         lines.append(f"  event: {json.dumps(ev)[:200]}")

@@ -124,7 +124,7 @@ async def _run_automation_tile(t: dict, tile: dict) -> None:
         else:
             aborted = (f"abort FAILED (HTTP {astatus}: "
                        f"{adata.get('error', adata)}) — an approval may still "
-                       "be pending in My Approvals")
+                       "be pending in My Work")
         tile["run_id"] = data.get("run_id")
         tile["error"] = ("this automation pauses at a human checkpoint — a "
                          "View refresh cannot wait on approvals; remove the "

@@ -281,7 +281,7 @@ async def _run_and_report(wid: int, name: str, wait_seconds) -> dict:
             break
     if rec is None:
         await _call("POST", f"/api/workflow-files/{wid}/runs/{eid}/notify")
-        why = ("it is waiting for a Human Approval (My Approvals)" if run_status == "paused"
+        why = ("it is waiting for a Human Approval (My Work)" if run_status == "paused"
                else "it was still running when the wait ended")
         return _text(f"Run {eid} of '{name}' started; {why}. It keeps going, and the user gets the "
                      f"results in My Work when it finishes (list_workflow_files shows progress). "

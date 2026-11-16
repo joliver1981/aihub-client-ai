@@ -470,7 +470,7 @@ async def run_workflow(args: dict[str, Any]) -> dict[str, Any]:
                else "it was still running when the wait ended")
         return _text(f"Workflow '{name}' (id {wid}) run {eid} started; {why}. It keeps running — read "
                      f"the outcome later with get_workflow_run_report. So far:\n\n{text}")
-    note = " It is PAUSED waiting for a Human Approval (My Approvals)." if st == "paused" else ""
+    note = " It is PAUSED waiting for a Human Approval (My Work)." if st == "paused" else ""
     return _text(f"Workflow '{name}' (id {wid}) run {eid} finished with status {st}.{note}\n\n{text}")
 
 

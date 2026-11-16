@@ -347,7 +347,7 @@ Code runs in a sandboxed subprocess. START EVERY SCRIPT WITH THE EXPLICIT IMPORT
   import aihub_runtime as aihub
   rows = aihub.query("CONNECTION_NAME", "SELECT ...", [params])  # list of dicts
   aihub.input("name", default) | aihub.log(msg) | print(...)
-  aihub.checkpoint("message")   # BLOCKS until a human approves (My Approvals)
+  aihub.checkpoint("message")   # BLOCKS until a human approves (My Work)
   aihub.send_email(to, subject, body) | aihub.llm(prompt) | aihub.ai_extract(...)
   aihub.skill("name")  # body of a tenant/product skill — pass as system= instead of hard-coding rules
 Declare every connection/secret the code uses in the manifest (save_automation_code

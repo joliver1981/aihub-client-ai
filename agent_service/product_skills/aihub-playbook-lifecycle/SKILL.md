@@ -21,8 +21,8 @@ Start every script with the explicit import (`aihub` is not pre-bound):
 - `aihub.query("CONNECTION_NAME", "SELECT ...", [params])` → list of dicts.
   Use `?` placeholders; never format values into SQL.
 - `aihub.input(name, default)`, `aihub.log(msg)`, `print()` for output.
-- `aihub.checkpoint("message")` blocks until a human decides in My Approvals /
-  My Work — a paused run is neither failed nor timed out.
+- `aihub.checkpoint("message")` blocks until a human decides in My Work — a
+  paused run is neither failed nor timed out.
 - `aihub.send_email(to, subject, body)`, `aihub.llm(prompt)`,
   `aihub.ai_extract(...)` are the governed AI/comms seams.
 - `aihub.skill("name")` returns the body of a tenant or product skill (the
