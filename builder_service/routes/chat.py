@@ -27,6 +27,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 
+def _main_app_headers() -> dict:
+    """Headers for this service's own calls to the main app.
+
+    The main app's sign-in guard lets a server-to-server call through only
+    with the platform API key (the Command Center sends it the same way).
+    The token check below used to go out without it, so the guard answered
+    401 before the token was ever looked at and nobody who opened the
+    Builder through /builder was signed in.
+    """
+    headers = {"Content-Type": "application/json"}
+    try:
+        from builder_config import AI_HUB_API_KEY
+        if AI_HUB_API_KEY:
+            headers["X-API-Key"] = AI_HUB_API_KEY
+    except Exception as e:
+        logger.warning(f"Platform API key unavailable for the token check: {e}")
+    return headers
+
+
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
@@ -463,7 +482,7 @@ async def validate_token(request: TokenValidationRequest):
             response = await client.post(
                 validation_url,
                 json={"token": request.token},
-                headers={"Content-Type": "application/json"}
+                headers=_main_app_headers()
             )
 
             if response.status_code == 200:
@@ -513,7 +532,7 @@ async def create_session_with_user(token: str, title: Optional[str] = "New Chat"
             response = await client.post(
                 validation_url,
                 json={"token": token},
-                headers={"Content-Type": "application/json"}
+                headers=_main_app_headers()
             )
 
             if response.status_code == 200:
