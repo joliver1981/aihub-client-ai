@@ -17,14 +17,17 @@ so export_data and manipulate_pdf (export_tools.py) run through the SAME
 sandbox, policy files, SDK token and file delivery — one lane, three tools.
 """
 
+import functools
 import json
 import os
 import shutil
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
 
+from anyio import to_thread
 from claude_agent_sdk import tool
 
 from agent_config import APP_ROOT, logger
@@ -33,6 +36,7 @@ from platform_tools import CURRENT_USER, _text
 
 _TIMEOUT_ENV = "AGENT_RUN_PYTHON_TIMEOUT"
 _SDK_ENV = "AGENT_RUN_PYTHON_SDK"
+_OFFLOAD_ENV = "AGENT_RUN_PYTHON_OFFLOAD"
 
 
 def _workdir_root() -> str:
@@ -108,6 +112,10 @@ async def execute_python(uid: int, code: str, *, extra_files: Optional[list] = N
                 "error": NOT_CONFIGURED_MSG}
 
     workdir = tempfile.mkdtemp(prefix="run_", dir=_workdir_root())
+    # Who removes the work dir: this coroutine, unless it is stopped while the
+    # script is still running in its thread — then the thread does, when the
+    # script ends. (Guarded by the lock; see the finally below.)
+    script = {"lock": threading.Lock(), "started": False, "ended": False, "orphaned": False}
     try:
         staged_names = []
 
@@ -169,8 +177,32 @@ async def execute_python(uid: int, code: str, *, extra_files: Optional[list] = N
 
         baseline = snapshot(workdir)
         started = time.time()
-        res = run_script(code or "", workdir, python_exe,
-                         timeout=timeout, env=env, preamble=preamble)
+        # The script runs in a worker thread, so the service keeps answering
+        # while it runs: other users' turns, the UI's own calls and the chat
+        # stream's keepalive all need the event loop, and run inline the
+        # script held it for its whole run. If the turn is stopped mid-script
+        # the script still ends (or times out) before its work dir is removed,
+        # as it did inline: the wait is not abandoned on cancel, and where a
+        # cancel interrupts it anyway the thread removes the work dir itself.
+        # Kill switch: AGENT_RUN_PYTHON_OFFLOAD=false runs it inline, as before.
+        run = functools.partial(run_script, code or "", workdir, python_exe,
+                                timeout=timeout, env=env, preamble=preamble)
+
+        def run_in_thread():
+            with script["lock"]:
+                script["started"] = True
+            try:
+                return run()
+            finally:
+                with script["lock"]:
+                    script["ended"] = True
+                    if script["orphaned"]:
+                        shutil.rmtree(workdir, ignore_errors=True)
+
+        if os.getenv(_OFFLOAD_ENV, "true").strip().lower() != "false":
+            res = await to_thread.run_sync(run_in_thread)
+        else:
+            res = run()
 
         if res["timed_out"]:
             return {"configured": True, "ok": False, "timed_out": True, "returncode": None,
@@ -219,7 +251,11 @@ async def execute_python(uid: int, code: str, *, extra_files: Optional[list] = N
                 "produced": produced_names, "manifest": visibility_manifest,
                 "error": None}
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+        with script["lock"]:
+            if script["started"] and not script["ended"]:
+                script["orphaned"] = True      # still running: its thread cleans up
+            else:
+                shutil.rmtree(workdir, ignore_errors=True)
 
 
 @tool(
