@@ -377,7 +377,10 @@ async def health():
 @router.get("/auth/config")
 async def auth_config():
     """Return the main app URL so the frontend can auto-authenticate."""
-    return {"main_app_url": get_base_url()}
+    # Behind a reverse proxy the browser needs the published address;
+    # otherwise the address this service has always handed out.
+    from builder_config import get_main_app_public_url
+    return {"main_app_url": get_main_app_public_url() or get_base_url()}
 
 
 # ─── Agent Conversations ──────────────────────────────────────

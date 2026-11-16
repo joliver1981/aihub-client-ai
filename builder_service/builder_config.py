@@ -194,6 +194,20 @@ def get_service_url(service: str) -> str:
     return getter()
 
 
+def get_main_app_public_url() -> str:
+    """Where a BROWSER reaches the main AI Hub app when the install is
+    published through a reverse proxy: APP_PUBLIC_BASE_URL, and only while
+    USE_REVERSE_PROXY is on (the rule The Agent follows for its own links
+    back). "" on a direct install, where callers keep the address they
+    already build. Never use this for service-to-service calls; those stay
+    on get_base_url()."""
+    try:
+        from published_addresses import published_address
+    except ImportError:
+        return ""
+    return published_address('APP_PUBLIC_BASE_URL')
+
+
 # Legacy compatibility
 AI_HUB_BASE_URL = get_base_url()
 

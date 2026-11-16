@@ -91,6 +91,15 @@ const CC = {
         // Start proactive token refresh (keeps role/permissions current)
         this._startTokenRefresh();
 
+        // Published behind a reverse proxy, the main app is not at "this
+        // hostname, port 5001"; ask the service for its published address.
+        // Empty on a direct install (openAutomations then builds the address
+        // as before). Not awaited: nothing on this page waits for it.
+        fetch('/api/main-app')
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d && typeof d.url === 'string') this._mainAppUrl = d.url; })
+            .catch(() => {});
+
         // Initialize memory/suggestions
         CCMemory.init(this.userId);
 
@@ -630,7 +639,11 @@ const CC = {
     // 5001; override via window.CC_MAIN_APP_PORT for nonstandard installs).
     openAutomations() {
         const port = window.CC_MAIN_APP_PORT || 5001;
-        const url = location.protocol + '//' + location.hostname + ':' + port + '/automations';
+        // Behind a reverse proxy the published main-app address (see init);
+        // otherwise the sibling URL described above.
+        const url = this._mainAppUrl
+            ? this._mainAppUrl.replace(/\/$/, '') + '/automations'
+            : location.protocol + '//' + location.hostname + ':' + port + '/automations';
         // Two-arg form ONLY: a third 'noopener' features argument makes this a
         // POPUP request, which browsers block silently ("nothing happens").
         const w = window.open(url, '_blank');

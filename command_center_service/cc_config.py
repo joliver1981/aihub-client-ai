@@ -156,6 +156,20 @@ def get_command_center_api_base_url():
     return _build_service_url(port_offset=90, default_port=5000)
 
 
+def get_main_app_public_url() -> str:
+    """Where a BROWSER reaches the main AI Hub app when the install is
+    published through a reverse proxy: APP_PUBLIC_BASE_URL, and only while
+    USE_REVERSE_PROXY is on (the rule The Agent follows for its own links
+    back). "" on a direct install, where callers keep the address they
+    already build. Never use this for service-to-service calls; those stay
+    on get_base_url()."""
+    try:
+        from published_addresses import published_address
+    except ImportError:
+        return ""
+    return published_address('APP_PUBLIC_BASE_URL')
+
+
 # Service name constants for data client routing
 class ServiceTarget:
     MAIN = "main"

@@ -38,6 +38,19 @@ async def validate_token(body: dict):
         return {"valid": False, "error": str(e)}
 
 
+@router.get("/main-app")
+async def main_app_address():
+    """Where the browser reaches the main AI Hub app when the install is
+    published through a reverse proxy; "" on a direct install, where the page
+    keeps building "this hostname, the main app's port" itself."""
+    try:
+        from cc_config import get_main_app_public_url
+        return {"url": get_main_app_public_url()}
+    except Exception as e:
+        logger.error(f"Main app address lookup failed: {e}")
+        return {"url": ""}
+
+
 @router.post("/auth/refresh-token")
 async def refresh_token(body: dict):
     """

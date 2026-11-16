@@ -88,6 +88,7 @@ _SEARCH_GATE = InflightGate(
 )
 from tier_template_context import create_tier_context_processor
 from role_decorators import admin_required, developer_required, internal_api_key_required
+from published_addresses import behind_proxy, published_address
 
 # Telemetry
 from telemetry import (
@@ -1823,6 +1824,15 @@ def builder_redirect():
         'expires': dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)
     }
 
+    # Published through a reverse proxy (HTTPS), the browser cannot follow a
+    # link to the Builder's own port: the port speaks plain HTTP. With
+    # USE_REVERSE_PROXY on, BUILDER_PUBLIC_BASE_URL is the full address users
+    # reach the Builder at through the proxy. Unset (every direct install)
+    # the link below is built exactly as it always was.
+    builder_public = published_address('BUILDER_PUBLIC_BASE_URL')
+    if builder_public:
+        return redirect(f'{builder_public}/?token={token}')
+
     # Builder service port. Host defaults to whatever hostname the user's
     # browser used to reach this app — hardcoding 'localhost' works on the
     # server console but breaks every remote user, because their browser
@@ -1981,6 +1991,15 @@ def command_center_redirect():
         'username': current_user.username,
         'name': current_user.name,
     })
+
+    # Published through a reverse proxy (HTTPS), the plain-http link to the
+    # Command Center's port below would take the browser off HTTPS. With
+    # USE_REVERSE_PROXY on, CC_PUBLIC_BASE_URL is the full address users reach
+    # the Command Center at through the proxy. Unset (every direct install)
+    # the link below is built exactly as it always was.
+    cc_public = published_address('CC_PUBLIC_BASE_URL')
+    if cc_public:
+        return redirect(f'{cc_public}/?token={token}')
 
     # Get command center service URL from config or use default
     cc_port = os.environ.get('CC_SERVICE_PORT', '5091')
@@ -9529,12 +9548,90 @@ def get_document_config():
     base_url = f"{protocol}://{host}:{document_port}"
     
     # Return configuration as JSON
-    return jsonify({
+    document_config = {
         'port': document_port,
         'baseUrl': base_url,
         'protocol': protocol,
         'host': host
-    })
+    }
+    # Published through a reverse proxy the browser cannot reach the Document
+    # API's port, so the workflow designer is told to send its Document step
+    # calls to this app instead (designer_document_relay below). The key is
+    # only present while USE_REVERSE_PROXY is on; without it the designer
+    # keeps calling the Document API port directly, as it always has.
+    if behind_proxy():
+        document_config['designerBase'] = '/designer'
+    return jsonify(document_config)
+
+
+# The Document API calls the workflow designer makes from the browser, and the
+# HTTP method each one uses. Nothing else is relayed.
+_DESIGNER_DOCUMENT_CALLS = {
+    'types': 'GET',
+    'save': 'POST',
+    'process': 'POST',
+    'extract': 'POST',
+    'analyze': 'POST',
+}
+
+
+@app.route('/designer/document/<operation>', methods=['GET', 'POST'])
+@developer_required(api=True)
+def designer_document_relay(operation):
+    """Relay a workflow designer Document step call to the Document API.
+
+    The designer normally calls the Document API straight from the browser on
+    its own port. Behind an HTTPS reverse proxy that port is not published,
+    and should not be: the Document API has no sign-in of its own. So while
+    USE_REVERSE_PROXY is on the designer sends the same request here, where
+    the caller must be a signed-in Developer (the level the designer page
+    itself needs), and it is passed on over the internal address unchanged:
+    same body, same content type, and the Document API's own status and
+    reply come back as they are.
+
+    With USE_REVERSE_PROXY off this route answers 404 and nothing calls it.
+    """
+    if not behind_proxy() or _DESIGNER_DOCUMENT_CALLS.get(operation) != request.method:
+        abort(404)
+
+    import requests as _requests
+    from CommonUtils import get_document_api_base_url
+
+    headers = {}
+    if request.content_type:
+        # Multipart bodies carry their boundary here, so it must travel as is.
+        headers['Content-Type'] = request.content_type
+    try:
+        upstream = _requests.request(
+            request.method,
+            f"{get_document_api_base_url()}/document/{operation}",
+            params=request.args.to_dict(flat=False),
+            data=request.get_data() if request.method == 'POST' else None,
+            headers=headers,
+            timeout=cfg.DOC_PROCESSING_TIMEOUT_MINUTES * 60,
+        )
+    except _requests.exceptions.Timeout:
+        logger.error(f"Designer document relay: timed out waiting for /document/{operation}")
+        return jsonify({
+            'status': 'error',
+            'message': 'The document service did not answer in time. The operation may still be running.'
+        }), 504
+    except _requests.exceptions.ConnectionError:
+        logger.error(f"Designer document relay: could not connect for /document/{operation}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Could not connect to the document processing service.'
+        }), 503
+
+    relayed = Response(
+        upstream.content,
+        status=upstream.status_code,
+        content_type=upstream.headers.get('Content-Type', 'application/json'),
+    )
+    # A busy Document API answers 503 with Retry-After; keep the hint.
+    if upstream.headers.get('Retry-After'):
+        relayed.headers['Retry-After'] = upstream.headers['Retry-After']
+    return relayed
 
 
 ###########################################

@@ -441,18 +441,25 @@ function loadConnections() {
         });
 }
 
+// Set from /document/config when AI Hub is published behind a reverse proxy:
+// the path on THIS app that relays Document step calls, because the browser
+// cannot reach the Document API's own port there. Empty on every direct
+// install, where the calls keep going to that port as they always have.
+let documentDesignerBase = '';
+
 async function getDocumentPort() {
     try {
       const response = await fetch('/document/config');
       console.log('Response received:', response);
-      
+
       if (!response.ok) {
         throw new Error('Network response was not ok ' + response.statusText);
       }
-      
+
       const data = await response.json();
       console.log('Fetched config (data):', data);
       console.log(`Port: ${data.port}`);
+      documentDesignerBase = (typeof data.designerBase === 'string') ? data.designerBase : '';
       return data.port;
     } catch (error) {
       console.error('Error fetching document port:', error);
@@ -462,6 +469,11 @@ async function getDocumentPort() {
 
 async function getDocumentURL(documentRoute) {
     const API_PORT = await getDocumentPort(); // Fallback to 3011 if not set
+
+    // Behind a reverse proxy: same address as this page, relayed by the app.
+    if (documentDesignerBase) {
+        return documentDesignerBase + documentRoute;
+    }
 
     // Create a URL object based on the current window.location
     const url = new URL(documentRoute, window.location.origin);
@@ -5190,15 +5202,11 @@ async function processDocument(config, prev_data) {
     
     try {
         console.log('Calling document process api...');
-        const API_PORT = await getDocumentPort(); // Fallback to 3011 if not set
-        console.log(`DOC API PORT: ${API_PORT}`);
+        // Direct install: this page's address with the Document API's port.
+        // Behind a reverse proxy: the relay path on this app (getDocumentURL).
+        const docProcessRoute = await getDocumentURL('/document/process');
 
-        // Create a URL object based on the current window.location
-        const url = new URL('/document/process', window.location.origin);
-        // Replace just the port
-        url.port = API_PORT;
-
-        const response = await fetch(url.toString(), {
+        const response = await fetch(docProcessRoute, {
             method: 'POST',
             body: formData
         });

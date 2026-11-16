@@ -69,8 +69,10 @@ async def studio_state_get(request: Request, session_id: str = ""):
         return err
     import studio_state
     try:
-        from cc_config import get_base_url
-        main_app_url = get_base_url()
+        from cc_config import get_base_url, get_main_app_public_url
+        # Behind a reverse proxy the browser needs the published address;
+        # otherwise the address this service has always handed out.
+        main_app_url = get_main_app_public_url() or get_base_url()
     except Exception:
         main_app_url = ""
     return {"state": studio_state.get(session_id), "main_app_url": main_app_url}
