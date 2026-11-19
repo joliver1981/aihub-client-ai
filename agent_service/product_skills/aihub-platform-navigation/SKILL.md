@@ -75,7 +75,7 @@ already point there).
   (`portal_fetch`) — send users here to hand-edit recorded steps or schedule.
 - **Admin areas** — Users `/users`, Groups `/groups`, MCP Servers
   `/mcp_servers`, Environments `/environments/`, API Keys `/admin/api-keys`,
-  Identity `/admin/identity`, Compliance `/compliance`, System Logs,
+  Identity `/admin/identity/settings`, Compliance `/compliance`, System Logs,
   Feedback Analysis. All reachable from the rail's grouped Platform menu
   (Admin group shows for admins only) or via `/?classic=1`.
 
