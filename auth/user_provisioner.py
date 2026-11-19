@@ -44,9 +44,21 @@ class UserProvisioner:
         default_role: int = 1,
         group_role_mapping: Optional[Dict[str, int]] = None,
         tenant_id: Optional[int] = None,
+        alt_usernames: Optional[list] = None,
+        match_email: bool = False,
+        relink_external: bool = False,
     ) -> Optional[Any]:
         """
         Find an existing user by external identity, or create a new one.
+
+        The last three arguments are for redirect sign-in (SAML) and leave
+        directory (LDAP) sign-in exactly as it was when omitted:
+            alt_usernames: other AI Hub user names this person may already
+                have (for example the full sign-in name next to the short one).
+            match_email: also match an existing user by email address.
+            relink_external: an existing user found by user name or email is
+                linked to this identity whatever it was linked to before
+                (local or another directory), instead of local users only.
 
         Args:
             auth_provider: Provider type ('ldap', 'azure_ad', 'saml')
@@ -108,10 +120,22 @@ class UserProvisioner:
 
             # Also check if there's a local user with the same username
             # (handles migration from local to LDAP auth)
-            existing_local = self._user_class.query.filter_by(
-                username=username,
-                auth_provider='local'
-            ).first()
+            if relink_external:
+                existing_local, matched_by = self._find_linkable_user(
+                    [username] + list(alt_usernames or []),
+                    email if match_email else None,
+                )
+                if existing_local is not None:
+                    logger.info(
+                        f"Linking AI Hub user '{existing_local.username}' "
+                        f"(was {existing_local.auth_provider}) to {auth_provider} "
+                        f"identity, matched by {matched_by}"
+                    )
+            else:
+                existing_local = self._user_class.query.filter_by(
+                    username=username,
+                    auth_provider='local'
+                ).first()
 
             if existing_local:
                 # Link the existing local account to the external identity
@@ -130,6 +154,26 @@ class UserProvisioner:
                 session.commit()
                 logger.info(f"Linked local user '{username}' to {auth_provider} identity")
                 return existing_local
+
+            # The same user name already belongs to a user linked to a
+            # DIFFERENT kind of directory (for example they have since signed
+            # in with SAML and were re-linked to it). It is the same person
+            # on the same install, so let them in as that user and leave the
+            # link alone. Without this the insert below fails on the unique
+            # user name and a directory password that was just accepted is
+            # reported as a failed sign-in. Two providers of the same kind
+            # are deliberately not covered: that stays refused, as before.
+            if not relink_external:
+                same_name = self._user_class.query.filter_by(username=username).first()
+                if (same_name is not None
+                        and same_name.auth_provider not in ('local', auth_provider)):
+                    same_name.last_sso_login = datetime.utcnow()
+                    session.commit()
+                    logger.info(
+                        f"{auth_provider} sign-in for '{username}' matched the existing "
+                        f"{same_name.auth_provider} user of that name; link left unchanged"
+                    )
+                    return same_name
 
             # User not found — auto-provision if enabled
             if not auto_provision:
@@ -242,6 +286,104 @@ class UserProvisioner:
             logger.error(f"User provisioning error for {username}: {str(e)}")
             session.rollback()
             return None
+
+    def _find_linkable_user(self, usernames: list, email: Optional[str]):
+        """
+        An existing AI Hub user for someone signing in through a redirect
+        provider for the first time: by user name first (each candidate in
+        order), then by email address. Returns (user, 'user name' | 'email')
+        or (None, None).
+
+        An email address shared by more than one AI Hub user matches nobody:
+        guessing between accounts would hand one person another's access.
+        """
+        for candidate in usernames:
+            if not candidate:
+                continue
+            user = self._user_class.query.filter_by(username=candidate).first()
+            if user is not None:
+                return user, 'user name'
+
+        if email:
+            from sqlalchemy import or_
+            matches = self._user_class.query.filter(or_(
+                self._user_class.email == email,
+                self._user_class.external_email == email,
+            )).limit(2).all()
+            if len(matches) == 1:
+                return matches[0], 'email'
+            if len(matches) > 1:
+                logger.warning(
+                    f"More than one AI Hub user has the email address {email}; "
+                    f"not matching by email"
+                )
+        return None, None
+
+    def preview(
+        self,
+        auth_provider: str,
+        external_id: str,
+        username: str,
+        email: Optional[str] = None,
+        groups: Optional[list] = None,
+        auto_provision: bool = True,
+        default_role: int = 1,
+        group_role_mapping: Optional[Dict[str, int]] = None,
+        alt_usernames: Optional[list] = None,
+        match_email: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        What find_or_create_user would do for this identity, without changing
+        anything. For the administrator's test sign-in.
+
+        Returns {'outcome': 'existing' | 'link' | 'create' | 'refuse',
+                 'username': str, 'role': int | None, 'reason': str}.
+        """
+        from sqlalchemy import text
+
+        session = self._db.session
+        try:
+            api_key = os.getenv('API_KEY')
+            if api_key:
+                session.execute(
+                    text("EXEC tenant.sp_setTenantContext :api_key"),
+                    {'api_key': api_key}
+                )
+
+            user = self._user_class.query.filter_by(
+                auth_provider=auth_provider,
+                external_id=external_id
+            ).first()
+            if user is not None:
+                return {'outcome': 'existing', 'username': user.username, 'role': user.role,
+                        'reason': 'Already linked to this identity.'}
+
+            user, matched_by = self._find_linkable_user(
+                [username] + list(alt_usernames or []),
+                email if match_email else None,
+            )
+            if user is not None:
+                return {'outcome': 'link', 'username': user.username, 'role': user.role,
+                        'reason': f'Matches an existing AI Hub user by {matched_by} '
+                                  f'(currently {user.auth_provider}). It would be linked '
+                                  f'to this identity and keep its role and groups.'}
+
+            if not auto_provision:
+                return {'outcome': 'refuse', 'username': username, 'role': None,
+                        'reason': 'No AI Hub user matches, and creating users on first '
+                                  'sign-in is switched off.'}
+
+            role = default_role
+            if group_role_mapping:
+                role = self._resolve_role(groups or [], group_role_mapping, default_role)
+                if role is None:
+                    return {'outcome': 'refuse', 'username': username, 'role': None,
+                            'reason': 'No AI Hub user matches, and this person is not in '
+                                      'any group listed under Group-to-Role Mapping.'}
+            return {'outcome': 'create', 'username': username, 'role': role,
+                    'reason': 'A new AI Hub user would be created.'}
+        finally:
+            session.rollback()
 
     @staticmethod
     def _resolve_role(groups: list, group_role_mapping: Dict[str, int], default_role: int):

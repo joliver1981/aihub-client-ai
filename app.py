@@ -14339,6 +14339,16 @@ except Exception as _ch_err:
 from auth_identity_routes import identity_bp
 app.register_blueprint(identity_bp)
 
+# SAML sign-in (auth/saml_routes.py). A second way in next to the password
+# form, live only while a SAML provider is switched on under Identity &
+# Security. Registered defensively: a problem here must never stop the app,
+# and without it sign-in is exactly as before.
+try:
+    from auth.saml_routes import create_saml_blueprint
+    app.register_blueprint(create_saml_blueprint(db=db, user_class=User, bcrypt_instance=bcrypt))
+except Exception as _saml_err:
+    logging.getLogger(__name__).error(f"SAML sign-in unavailable: {_saml_err}")
+
 # Import the integrations blueprint
 from integration_routes import integrations_bp
 

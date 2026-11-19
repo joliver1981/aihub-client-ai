@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {# Self-contained on purpose: this page is shown in answer to the identity
+       provider's cross-site POST, where the app shell (base.html) must not be
+       rendered. See auth/saml_routes.py. #}
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>{{ title }} - AI Hub</title>
+    <style>
+        :root { color-scheme: light dark; }
+        body { margin: 0; font-family: "Segoe UI", system-ui, -apple-system, sans-serif; background: #f3f5f7; color: #1f2933; }
+        .wrap { max-width: 760px; margin: 8vh auto; padding: 0 16px; }
+        .card { background: #fff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 28px 32px; }
+        .card.ok { border-top: 4px solid #2f7d46; }
+        .card.bad { border-top: 4px solid #b3261e; }
+        h1 { font-size: 1.35rem; margin: 0 0 8px; }
+        p { margin: 0 0 14px; line-height: 1.5; }
+        .detail { background: #fff6e0; border-left: 3px solid #c77700; padding: 10px 12px; font-size: 0.9rem; word-break: break-word; }
+        table { border-collapse: collapse; width: 100%; margin: 6px 0 18px; font-size: 0.9rem; }
+        th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid #e3e8ed; word-break: break-word; }
+        th { width: 34%; font-weight: 600; }
+        h2 { font-size: 1rem; margin: 18px 0 4px; }
+        .muted { color: #5b6770; font-size: 0.85rem; }
+        a.btn { display: inline-block; margin-top: 6px; padding: 8px 16px; border-radius: 6px; background: #0b5cab; color: #fff; text-decoration: none; }
+        @media (prefers-color-scheme: dark) {
+            body { background: #14181d; color: #e6eaee; }
+            .card { background: #1d232a; border-color: #333c46; }
+            th, td { border-bottom-color: #333c46; }
+            .detail { background: #3a2f12; }
+            .muted { color: #9aa5b1; }
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="card {{ 'ok' if ok else 'bad' }}">
+        <h1>{{ title }}</h1>
+        <p>{{ message }}</p>
+        {% if detail %}
+        <p class="detail"><strong>Reason:</strong> {{ detail }}</p>
+        {% endif %}
+
+        {% if facts %}
+        <table>
+            {% for label, value in facts %}
+            <tr><th>{{ label }}</th><td>{{ value }}</td></tr>
+            {% endfor %}
+        </table>
+        {% endif %}
+
+        {% if claims %}
+        <h2>Everything the identity provider sent</h2>
+        <p class="muted">Use these names under Advanced on the Identity &amp; Security screen if a value above is empty or wrong.</p>
+        <table>
+            {% for name, values in claims.items() %}
+            <tr><th>{{ name }}</th><td>{{ values | join(', ') }}</td></tr>
+            {% endfor %}
+        </table>
+        {% endif %}
+
+        {% if ok %}
+        <p class="muted">You can close this tab.</p>
+        {% else %}
+        <a class="btn" href="{{ sign_in_url }}">Back to sign-in</a>
+        {% endif %}
+    </div>
+</div>
+</body>
+</html>

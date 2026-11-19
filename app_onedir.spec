@@ -58,6 +58,11 @@ packages_to_collect = [
     'langchain_community',
     'langchain_text_splitters',
     'langsmith',
+    # SAML sign-in: XML signature checking. Its schema files are data read at
+    # run time through importlib.resources, so the package must be collected
+    # whole (a plain import leaves 'signxml.schemas' out and every signature
+    # check then fails with ModuleNotFoundError).
+    'signxml',
 ]
 
 all_collected_datas = []
@@ -211,6 +216,10 @@ a = Analysis(
         'auth.ldap_provider',
         'auth.user_provisioner',
         'auth.provider_chain',
+        'auth.saml_provider',
+        'auth.saml_routes',
+        'signxml',
+        'signxml.schemas',
         'auth_identity_routes',
         # Agent environments module imports
         'agent_environments',

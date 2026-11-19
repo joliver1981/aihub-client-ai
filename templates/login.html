@@ -38,6 +38,21 @@
         margin-bottom: 1rem;
         display: block;
     }
+    .login-sso-divider {
+        display: flex;
+        align-items: center;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        margin: 0.25rem 0 1rem;
+    }
+    .login-sso-divider::before,
+    .login-sso-divider::after {
+        content: "";
+        flex: 1;
+        border-top: 1px solid var(--border-subtle);
+    }
+    .login-sso-divider span { padding: 0 0.75rem; }
+    .login-sso .btn { color: var(--text-primary); border-color: var(--border-subtle); }
 </style>
 
 <div class="doc-page" id="docPage">
@@ -67,6 +82,19 @@
                     {{ form.submit(class="btn btn-primary btn-lg btn-block") }}
                 </div>
             </form>
+            {# Single sign-on: one button per SAML provider switched on under
+               Identity & Security. Nothing is shown when there is none. #}
+            {% set sso_options = saml_sign_in_options() if saml_sign_in_options is defined else [] %}
+            {% if sso_options %}
+            <div class="login-sso">
+                <div class="login-sso-divider"><span>or</span></div>
+                {% for option in sso_options %}
+                <a class="btn btn-outline-light btn-lg btn-block" href="{{ option.url }}">
+                    <i class="fas fa-building mr-2"></i>Sign in with {{ option.name }}
+                </a>
+                {% endfor %}
+            </div>
+            {% endif %}
         </div>
     </div>
 

@@ -95,7 +95,7 @@
     <div class="compact-header d-flex justify-content-between align-items-center">
         <div>
             <h5 class="mb-0">Identity & Security</h5>
-            <small class="opacity-75">Configure enterprise identity providers (LDAP/Active Directory)</small>
+            <small class="opacity-75">Configure how people sign in: Active Directory (LDAP) or SAML single sign-on</small>
         </div>
     </div>
 
@@ -133,6 +133,7 @@
                             <label for="providerType">Provider Type</label>
                             <select class="custom-select" id="providerType" onchange="onProviderTypeChange()">
                                 <option value="ldap">LDAP / Active Directory</option>
+                                <option value="saml">SAML single sign-on (Microsoft Entra ID)</option>
                             </select>
                         </div>
                     </div>
@@ -218,6 +219,128 @@
                     </div>
                 </div>
 
+                <!-- SAML Configuration -->
+                <div id="samlConfig" style="display: none;">
+                    <hr>
+                    <h6 class="mb-2">SAML single sign-on</h6>
+                    <div class="alert alert-warning py-2" id="samlNotice" style="display: none;"></div>
+
+                    <p class="form-text text-muted mb-2"><strong>Step 1.</strong> In Microsoft Entra open your Enterprise application, then <em>Single sign-on</em>, then <em>Basic SAML Configuration</em>, and enter these two values.</p>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="samlSpEntityIdShow">Identifier (Entity ID)</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="samlSpEntityIdShow" readonly>
+                                    <div class="input-group-append">
+                                        <button type="button" class="btn btn-outline-secondary" onclick="copyField('samlSpEntityIdShow', this)">Copy</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="samlAcsUrlShow">Reply URL (Assertion Consumer Service URL)</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="samlAcsUrlShow" readonly>
+                                    <div class="input-group-append">
+                                        <button type="button" class="btn btn-outline-secondary" onclick="copyField('samlAcsUrlShow', this)">Copy</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <p class="form-text text-muted mb-2"><strong>Step 2.</strong> From the <em>SAML Certificates</em> section in Entra, paste the <em>App Federation Metadata Url</em> and click Load. Or fill in the three fields below by hand.</p>
+                    <div class="form-group">
+                        <label for="samlMetadataUrl">App Federation Metadata Url</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="samlMetadataUrl" placeholder="https://login.microsoftonline.com/.../federationmetadata/2007-06/federationmetadata.xml?appid=...">
+                            <div class="input-group-append">
+                                <button type="button" class="btn btn-outline-info" onclick="loadSamlMetadata()">
+                                    <span id="samlMetadataSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+                                    Load
+                                </button>
+                            </div>
+                        </div>
+                        <small class="form-text" id="samlMetadataResult"></small>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="samlIdpEntityId">Microsoft Entra Identifier</label>
+                                <input type="text" class="form-control" id="samlIdpEntityId" placeholder="https://sts.windows.net/&lt;tenant id&gt;/">
+                                <small class="form-text text-muted">Who issues the sign-in. Responses from anyone else are refused.</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="samlSsoUrl">Login URL</label>
+                                <input type="text" class="form-control" id="samlSsoUrl" placeholder="https://login.microsoftonline.com/&lt;tenant id&gt;/saml2">
+                                <small class="form-text text-muted">Where AI Hub sends people to sign in.</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="samlCerts">Signing certificate (Base64)</label>
+                        <textarea class="form-control" id="samlCerts" rows="5" style="font-family: Consolas, monospace; font-size: 0.8rem;" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+                        <small class="form-text text-muted" id="samlCertInfo">Paste the certificate, or more than one while the identity provider is changing to a new one. When Entra renews its certificate, load the metadata again.</small>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="samlUsernameDomain">User name domain <small class="text-muted">(optional)</small></label>
+                                <input type="text" class="form-control" id="samlUsernameDomain" placeholder="company.com">
+                                <small class="form-text text-muted">With <code>company.com</code> here, <code>jsmith@company.com</code> is the AI Hub user <code>jsmith</code>, the same name directory sign-in uses. Leave empty to use the full sign-in name.</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="samlAllowIdpInitiated">Sign-in started in Entra</label>
+                                <div class="custom-control custom-switch mt-1">
+                                    <input type="checkbox" class="custom-control-input" id="samlAllowIdpInitiated">
+                                    <label class="custom-control-label" for="samlAllowIdpInitiated">Allow opening AI Hub from the My Apps portal</label>
+                                </div>
+                                <small class="form-text text-muted">Off: people must start from the AI Hub sign-in page, which is the safer setting.</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <p class="mb-2"><a href="#" onclick="toggleSamlAdvanced(event)">Advanced: claim names and identifier</a></p>
+                    <div id="samlAdvanced" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="samlSpEntityId">Identifier (Entity ID) override</label>
+                                    <input type="text" class="form-control" id="samlSpEntityId" placeholder="Leave empty to use the value shown in Step 1" onchange="loadSamlSpInfo()">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="samlClockSkew">Clock tolerance (seconds)</label>
+                                    <input type="number" min="0" class="form-control" id="samlClockSkew" placeholder="180">
+                                </div>
+                            </div>
+                        </div>
+                        <p class="form-text text-muted mb-2">Which claim carries each value. The defaults are what Entra sends. Run a test sign-in to see every claim your identity provider sends.</p>
+                        <div class="row">
+                            <div class="col-md-6"><div class="form-group"><label for="samlAttrUsername">User name claim</label><input type="text" class="form-control" id="samlAttrUsername"></div></div>
+                            <div class="col-md-6"><div class="form-group"><label for="samlAttrEmail">Email claim</label><input type="text" class="form-control" id="samlAttrEmail"></div></div>
+                            <div class="col-md-6"><div class="form-group"><label for="samlAttrDisplayName">Display name claim</label><input type="text" class="form-control" id="samlAttrDisplayName"></div></div>
+                            <div class="col-md-6"><div class="form-group"><label for="samlAttrGroups">Groups claim</label><input type="text" class="form-control" id="samlAttrGroups"></div></div>
+                            <div class="col-md-6"><div class="form-group"><label for="samlAttrExternalId">Unique ID claim</label><input type="text" class="form-control" id="samlAttrExternalId"></div></div>
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <button type="button" class="btn btn-sm btn-outline-info" id="samlTestBtn" onclick="testSamlSignIn()">Test sign-in</button>
+                        <span id="samlTestHint" class="ml-2 text-muted" style="font-size: 0.85rem;"></span>
+                    </div>
+                </div>
+
                 <hr>
                 <h6 class="mb-3">User Provisioning</h6>
 
@@ -254,7 +377,7 @@
                 </div>
 
                 <h6 class="mb-2">Group-to-Role Mapping <small class="text-muted">(optional)</small></h6>
-                <p class="form-text text-muted mb-2">Map AD group names to AI Hub roles. Users will get the highest matched role.</p>
+                <p class="form-text text-muted mb-2" id="groupMappingHint">Map AD group names to AI Hub roles. Users will get the highest matched role.</p>
                 <div id="groupMappingContainer"></div>
                 <button type="button" class="btn btn-sm btn-outline-secondary mb-3" onclick="addMappingRow()">+ Add Mapping</button>
 
@@ -309,6 +432,7 @@
                                 <small class="text-muted">
                                     Type: ${escapeHtml(p.provider_type.toUpperCase())}
                                     ${p.config && p.config.server ? ' | Server: ' + escapeHtml(p.config.server) : ''}
+                                    ${p.config && p.config.idp_entity_id ? ' | Identity provider: ' + escapeHtml(p.config.idp_entity_id) : ''}
                                     ${p.auto_provision ? ' | Auto-provision: On' : ' | Auto-provision: Off'}
                                 </small>
                             </div>
@@ -317,7 +441,7 @@
                     </div>
                 `).join('');
             } else {
-                noMsg.textContent = 'No identity providers configured. Click "Add Provider" to set up LDAP/Active Directory.';
+                noMsg.textContent = 'No identity providers configured. Click "Add Provider" to set up LDAP/Active Directory or SAML single sign-on.';
                 noMsg.style.display = 'block';
                 list.querySelectorAll('.provider-card').forEach(el => el.remove());
             }
@@ -342,6 +466,8 @@
         document.getElementById('isEnabled').checked = false;
         document.getElementById('groupMappingContainer').innerHTML = '';
         document.getElementById('testResult').textContent = '';
+        fillSamlFields({});
+        onProviderTypeChange();
 
         document.getElementById('providerFormCard').style.display = 'block';
         document.getElementById('providerFormCard').scrollIntoView({ behavior: 'smooth' });
@@ -377,6 +503,9 @@
             document.getElementById('ldapSearchFilter').value = config.user_search_filter || '(sAMAccountName={username})';
             document.getElementById('ldapSearchBase').value = config.user_search_base || '';
 
+            // SAML config
+            fillSamlFields(provider.provider_type === 'saml' ? config : {});
+
             // Group role mapping
             const container = document.getElementById('groupMappingContainer');
             container.innerHTML = '';
@@ -402,7 +531,158 @@
 
     function onProviderTypeChange() {
         const type = document.getElementById('providerType').value;
-        document.getElementById('ldapConfig').style.display = type === 'ldap' ? 'block' : 'none';
+        const isLdap = type === 'ldap';
+        const isSaml = type === 'saml';
+        document.getElementById('ldapConfig').style.display = isLdap ? 'block' : 'none';
+        document.getElementById('samlConfig').style.display = isSaml ? 'block' : 'none';
+        // A hidden required field would block Save with no visible reason.
+        document.getElementById('ldapServer').required = isLdap;
+        document.getElementById('ldapBaseDN').required = isLdap;
+        document.getElementById('groupMappingHint').textContent = isSaml
+            ? 'Map groups to AI Hub roles. Entra sends each group as its Object ID unless it is set to send names, so enter the Object ID. Users get the highest matched role. With any mapping here, only people in a mapped group get a new account.'
+            : 'Map AD group names to AI Hub roles. Users will get the highest matched role.';
+        if (isSaml) {
+            loadSamlSpInfo();
+            updateSamlTestHint();
+        }
+    }
+
+    // ---------------- SAML ----------------
+    const SAML_DEFAULT_ATTRS = {
+        attr_username: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name',
+        attr_email: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress',
+        attr_display_name: 'http://schemas.microsoft.com/identity/claims/displayname',
+        attr_groups: 'http://schemas.microsoft.com/ws/2008/06/identity/claims/groups',
+        attr_external_id: 'http://schemas.microsoft.com/identity/claims/objectidentifier'
+    };
+    const SAML_ATTR_FIELDS = {
+        attr_username: 'samlAttrUsername',
+        attr_email: 'samlAttrEmail',
+        attr_display_name: 'samlAttrDisplayName',
+        attr_groups: 'samlAttrGroups',
+        attr_external_id: 'samlAttrExternalId'
+    };
+
+    function fillSamlFields(config) {
+        config = config || {};
+        document.getElementById('samlMetadataUrl').value = '';
+        document.getElementById('samlMetadataResult').textContent = '';
+        document.getElementById('samlIdpEntityId').value = config.idp_entity_id || '';
+        document.getElementById('samlSsoUrl').value = config.idp_sso_url || '';
+        const certs = config.idp_certificates || [];
+        document.getElementById('samlCerts').value = Array.isArray(certs) ? certs.join('\n') : String(certs);
+        document.getElementById('samlUsernameDomain').value = config.username_domain || '';
+        document.getElementById('samlAllowIdpInitiated').checked = !!config.allow_idp_initiated;
+        document.getElementById('samlSpEntityId').value = config.sp_entity_id || '';
+        document.getElementById('samlClockSkew').value =
+            (config.clock_skew_seconds === undefined || config.clock_skew_seconds === null) ? '' : config.clock_skew_seconds;
+        Object.entries(SAML_ATTR_FIELDS).forEach(([key, id]) => {
+            document.getElementById(id).value = config[key] || SAML_DEFAULT_ATTRS[key];
+        });
+        document.getElementById('samlAdvanced').style.display = 'none';
+    }
+
+    function buildSamlConfig() {
+        const config = {
+            idp_entity_id: document.getElementById('samlIdpEntityId').value.trim(),
+            idp_sso_url: document.getElementById('samlSsoUrl').value.trim(),
+            idp_certificates: document.getElementById('samlCerts').value.trim(),
+            username_domain: document.getElementById('samlUsernameDomain').value.trim(),
+            allow_idp_initiated: document.getElementById('samlAllowIdpInitiated').checked,
+            sp_entity_id: document.getElementById('samlSpEntityId').value.trim()
+        };
+        const skew = document.getElementById('samlClockSkew').value.trim();
+        if (skew !== '') config.clock_skew_seconds = skew;
+        Object.entries(SAML_ATTR_FIELDS).forEach(([key, id]) => {
+            config[key] = document.getElementById(id).value.trim() || SAML_DEFAULT_ATTRS[key];
+        });
+        return config;
+    }
+
+    async function loadSamlSpInfo() {
+        const notice = document.getElementById('samlNotice');
+        try {
+            const override = document.getElementById('samlSpEntityId').value.trim();
+            const response = await fetch('/admin/identity/saml/sp-info?sp_entity_id=' + encodeURIComponent(override));
+            const data = await response.json();
+            if (data.status !== 'success') throw new Error(data.message || 'unavailable');
+            document.getElementById('samlSpEntityIdShow').value = data.entity_id;
+            document.getElementById('samlAcsUrlShow').value = data.acs_url;
+            const problems = [];
+            if (!data.available) problems.push('SAML sign-in is not included in this build of AI Hub.');
+            if (!data.https) problems.push('AI Hub is being reached over http. SAML sign-in needs AI Hub published over HTTPS, and the two values below must show the https address your users open.');
+            notice.textContent = problems.join(' ');
+            notice.style.display = problems.length ? 'block' : 'none';
+        } catch (e) {
+            notice.textContent = 'Could not load the values for Step 1: ' + e.message;
+            notice.style.display = 'block';
+        }
+    }
+
+    async function loadSamlMetadata() {
+        const result = document.getElementById('samlMetadataResult');
+        const spinner = document.getElementById('samlMetadataSpinner');
+        const url = document.getElementById('samlMetadataUrl').value.trim();
+        if (!url) {
+            result.textContent = 'Paste the App Federation Metadata Url first.';
+            result.className = 'form-text text-danger';
+            return;
+        }
+        spinner.classList.remove('d-none');
+        result.textContent = 'Loading...';
+        result.className = 'form-text text-muted';
+        try {
+            const response = await fetch('/admin/identity/saml/metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url })
+            });
+            const data = await response.json();
+            if (data.status !== 'success') throw new Error(data.message || 'Could not read the metadata.');
+            document.getElementById('samlIdpEntityId').value = data.idp_entity_id || '';
+            document.getElementById('samlSsoUrl').value = data.idp_sso_url || '';
+            document.getElementById('samlCerts').value = (data.idp_certificates || []).join('\n');
+            const info = (data.certificate_info || []).map(c => 'expires ' + c.expires + (c.expired ? ' (EXPIRED)' : ''));
+            result.textContent = 'Loaded. ' + (data.idp_certificates || []).length + ' signing certificate(s): ' + info.join('; ') + '. Save the provider to keep these values.';
+            result.className = 'form-text text-success';
+        } catch (e) {
+            result.textContent = e.message;
+            result.className = 'form-text text-danger';
+        } finally {
+            spinner.classList.add('d-none');
+        }
+    }
+
+    function copyField(id, button) {
+        const field = document.getElementById(id);
+        field.select();
+        const done = () => { const t = button.textContent; button.textContent = 'Copied'; setTimeout(() => { button.textContent = t; }, 1500); };
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(field.value).then(done).catch(() => { document.execCommand('copy'); done(); });
+        } else {
+            document.execCommand('copy');
+            done();
+        }
+    }
+
+    function toggleSamlAdvanced(event) {
+        if (event) event.preventDefault();
+        const box = document.getElementById('samlAdvanced');
+        box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function updateSamlTestHint() {
+        const saved = currentProviderId > 0;
+        document.getElementById('samlTestBtn').disabled = !saved;
+        document.getElementById('samlTestHint').textContent = saved
+            ? 'Opens a new tab and signs in at the identity provider using the saved settings. Nobody is signed in to AI Hub and nothing is changed. The provider does not need to be Active.'
+            : 'Save the provider first. The test uses the saved settings, and the provider does not need to be Active.';
+    }
+
+    function testSamlSignIn() {
+        if (currentProviderId > 0) {
+            window.open('/auth/saml/login?provider=' + currentProviderId + '&test=1', '_blank');
+        }
     }
 
     function onSSLChange() {
@@ -420,7 +700,7 @@
         const row = document.createElement('div');
         row.className = 'mapping-row';
         row.innerHTML = `
-            <input type="text" class="form-control form-control-sm mapping-group" placeholder="AD Group Name" value="${escapeHtml(groupName || '')}">
+            <input type="text" class="form-control form-control-sm mapping-group" placeholder="Group name (Object ID for SAML)" value="${escapeHtml(groupName || '')}">
             <select class="custom-select custom-select-sm mapping-role">
                 <option value="1" ${role == 1 ? 'selected' : ''}>User</option>
                 <option value="2" ${role == 2 ? 'selected' : ''}>Developer</option>
@@ -458,6 +738,9 @@
                 connect_timeout: 10,
                 receive_timeout: 10
             };
+        }
+        if (type === 'saml') {
+            return buildSamlConfig();
         }
         return {};
     }

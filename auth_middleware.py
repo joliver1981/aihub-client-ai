@@ -80,7 +80,13 @@ UNPROTECTED_ENDPOINTS = {
     # === Authentication Flow ===
     'login',
     'logout',
-    
+    # SAML sign-in: the browser is not signed in yet when it is sent to the
+    # identity provider, nor when the provider posts its signed answer back.
+    # The answer is verified by the route itself (auth/saml_routes.py).
+    'saml.login',
+    'saml.acs',
+    'saml.metadata',
+
     # === Public Pages ===
     'home',
     'index',
