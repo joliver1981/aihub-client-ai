@@ -66,11 +66,11 @@
                 {{ form.hidden_tag() }}
                 <div class="form-group">
                     {{ form.username.label(class="form-control-label") }}
-                    {{ form.username(class="form-control form-control-lg") }}
+                    {{ form.username(class="form-control form-control-lg", autocomplete="username") }}
                 </div>
                 <div class="form-group">
                     {{ form.password.label(class="form-control-label") }}
-                    {{ form.password(class="form-control form-control-lg") }}
+                    {{ form.password(class="form-control form-control-lg", autocomplete="current-password") }}
                 </div>
                 <div class="form-group">
                     <div class="form-check">
@@ -97,6 +97,55 @@
             {% endif %}
         </div>
     </div>
+
+<!-- Remember Me also remembers the username on this browser, so the form
+     comes back filled in. Only the username is kept (in this browser's local
+     storage); the password is never stored here: that is left to the
+     browser's own password manager, which the autocomplete hints above help.
+     Unticking the box and signing in forgets the saved name.
+
+     A failed attempt changes nothing: the page can only save at the moment
+     the form is sent, so when the form comes back refused it puts the
+     previous name back. Without that, a mistyped name (or a password typed
+     into the username field by mistake) would stay saved in the browser. -->
+<script>
+(function () {
+    var KEY = 'aihub_login_username';
+    var PREV = 'aihub_login_username_before';
+    var form = document.querySelector('.login-card form');
+    if (!form) return;
+    var user = form.querySelector('[name=username]');
+    var pwd = form.querySelector('[name=password]');
+    var box = form.querySelector('[name=remember]');
+    if (!user || !box) return;
+    try {
+        // Only the server writes the value ATTRIBUTE, and only when it sends
+        // the form back after a refused attempt (browser autofill and
+        // restored form fields change the property, not the attribute).
+        var refused = !!user.getAttribute('value');
+        var before = sessionStorage.getItem(PREV);
+        sessionStorage.removeItem(PREV);
+        if (refused && before !== null) {
+            if (before) localStorage.setItem(KEY, before);
+            else localStorage.removeItem(KEY);
+        }
+        var saved = localStorage.getItem(KEY);
+        if (saved && !refused && !user.value) {
+            user.value = saved;
+            box.checked = true;
+            if (pwd) pwd.focus();
+        }
+    } catch (e) {}
+    form.addEventListener('submit', function () {
+        try {
+            var name = user.value.trim();
+            sessionStorage.setItem(PREV, localStorage.getItem(KEY) || '');
+            if (box.checked && name) localStorage.setItem(KEY, name);
+            else localStorage.removeItem(KEY);
+        } catch (e) {}
+    });
+})();
+</script>
 
 <!-- Theme Toggle Script -->
 <script>
