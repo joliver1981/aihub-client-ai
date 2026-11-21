@@ -6919,6 +6919,30 @@ def _rt_knowledge_row(params):
             "is_active": bool(r["is_active"]) if r.get("is_active") is not None else True}
 
 
+def _rt_knowledge_agents(params):
+    """Per agent: how many ACTIVE knowledge documents a user's questions can draw
+    on (agent-level ones plus that user's own — the rule the agent's knowledge
+    search applies) and the names of the newest ones. Twin of
+    agent_service/agent_builder_tools._q_knowledge_agents: lets The Agent see
+    which agents hold knowledge, so it asks them instead of answering 'not found'."""
+    uid = int(params.get("user_id") or 0)
+    names_shown = 6
+    out = {}
+    for r in query_app_database("""
+            SELECT ak.agent_id, d.filename
+            FROM [dbo].[AgentKnowledge] ak
+            JOIN [dbo].[Documents] d ON d.document_id = ak.document_id
+            WHERE ak.is_active = 1
+              AND (ISNULL(ak.added_by, 'USER') = 'USER' OR ISNULL(ak.added_by, 'USER') = ?)
+            ORDER BY ak.agent_id, ak.knowledge_id DESC""", (str(uid),)) or []:
+        row = out.setdefault(int(r["agent_id"]),
+                             {"agent_id": int(r["agent_id"]), "documents": 0, "names": []})
+        row["documents"] += 1
+        if len(row["names"]) < names_shown:
+            row["names"].append(str(r.get("filename") or ""))
+    return list(out.values())
+
+
 def _rt_user_group_ids(params):
     uid = int(params.get("user_id"))
     return [int(g["group_id"]) for g in query_app_database(
@@ -7001,6 +7025,7 @@ _READTHROUGH_OPS = {
     "user_group_ids": _rt_user_group_ids, "workflow_pending": _rt_workflow_pending,
     "workflow_decided": _rt_workflow_decided,
     "users": _rt_users,
+    "knowledge_agents": _rt_knowledge_agents,
 }
 
 

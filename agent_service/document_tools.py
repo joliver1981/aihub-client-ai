@@ -580,16 +580,37 @@ def _pick(row: dict, *keys, default=None):
     return default
 
 
+async def _knowledge_agents_note() -> str:
+    """Text added to a search_documents result: the agents this user can ask that
+    hold their own knowledge documents ('' when there are none, or when the
+    directory cannot be read — the search result itself is never lost to it)."""
+    try:
+        import agent_builder_tools as abt
+        sources = await abt.knowledge_sources_for_user()
+        if not sources:
+            return ""
+        return ("\n\nNOT SEARCHED HERE — agents that hold their own knowledge documents:\n"
+                + abt.format_knowledge_sources(sources, limit=abt._KNOWLEDGE_INLINE_AGENTS)
+                + "\nIf one of them covers the subject of the question, ask it with ask_agent "
+                  "(give it the complete question — it does not see this conversation) before "
+                  "you conclude that the answer is not in the documents.")
+    except Exception as e:
+        logger.warning(f"knowledge agents note unavailable: {e}")
+        return ""
+
+
 @tool(
     "search_documents",
     "Search the AI Hub document library and get the most relevant passages to "
-    "answer a question about imported documents. It searches every document "
-    "this user can access (semantic + field search) — you do NOT need a "
-    "knowledge agent or an API key. Use it to answer any question about "
-    "documents that were imported. Returns matching passages with their source "
-    "filename and page so you can cite them. If it returns nothing, say you "
-    "found nothing among the documents you can search and suggest importing "
-    "the documents first.",
+    "answer a question about imported documents. It searches every document in "
+    "the LIBRARY that this user can access (semantic + field search) — no API "
+    "key needed. Returns matching passages with their source filename and page "
+    "so you can cite them. It does NOT search the knowledge documents that "
+    "belong to an agent (manuals, policies, customer requirements given to a "
+    "General Agent): the result names the agents that hold such documents, and "
+    "when one of them covers the subject you ask it with ask_agent. Only when "
+    "the library has no passage AND no agent covers the subject, say you found "
+    "nothing among the documents you can search and suggest importing them.",
     {
         "type": "object",
         "properties": {
@@ -637,12 +658,19 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
 
     rows = result.get("passages") or []
     qa = result.get("query_analysis") or {}
+    # Agents that hold their own knowledge documents — a source this search
+    # does not cover. Named in EVERY result (hit or miss), so the model sees
+    # who else can answer at the moment it would otherwise say "not found".
+    agents_note = await _knowledge_agents_note()
     if not rows:
         # The engine may synthesize a text answer with no structured passages,
         # or genuinely find nothing — surface either honestly.
         answer = (result.get("answer") or result.get("text") or "").strip()
         if answer:
-            return _text(f"Results for \"{query}\":\n{answer[:4000]}")
+            return _text(f"Results for \"{query}\":\n{answer[:4000]}{agents_note}")
+        if agents_note:
+            return _text(f"No document in the library matched \"{query}\". That is the "
+                         "document library only." + agents_note)
         return _text(f"No documents matched \"{query}\". If you expected hits, "
                      "the documents may not be imported yet — check with "
                      "list_documents or import them with import_documents.")
@@ -699,7 +727,7 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
     ambiguity = result.get("ambiguity_hint")
     if ambiguity:
         body += f"\n\n{ambiguity}"
-    return _text(body)
+    return _text(body + agents_note)
 
 
 # ---------------------------------------------------------------------------

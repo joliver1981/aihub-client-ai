@@ -215,6 +215,133 @@ async def _all_agents() -> list:
     return await _rt("agents", _q_agents)
 
 
+# ---------------------------------------------------------------------------
+# Agents as sources of knowledge (2026-11-21)
+# ---------------------------------------------------------------------------
+# WHY: a General Agent can hold its OWN knowledge documents (manuals, policies,
+# customer requirements). search_documents does not search them — they belong to
+# the agent — and list_agents showed a name and nothing about what an agent
+# knows. So a question whose answer sits in an agent's knowledge ended with "I
+# found nothing among the documents" after a document and database hunt, and the
+# agent that holds the answer was never asked (measured: a question answered
+# correctly by a compliance agent, 142 s of other tools, no ask_agent).
+# This is the missing directory: which agents the signed-in user can ask, what
+# each is about, and what documents it holds. list_agents shows it, and
+# search_documents adds it to every result, so it is in front of the model at
+# the moment it would otherwise conclude "not found".
+
+_KNOWLEDGE_NAMES_SHOWN = 6        # document names shown per agent (the count is always exact)
+_KNOWLEDGE_INLINE_AGENTS = 25     # agents spelled out inside a search result; the rest are counted and listable
+_ABOUT_CHARS = 220
+
+_UPLOAD_PREFIX_LEN = 37           # "<uuid4>_" that the knowledge upload puts before the file name
+
+
+def display_filename(name: str) -> str:
+    """File name as the user knows it: without the '<uuid>_' the knowledge upload
+    route prefixes to keep stored names unique."""
+    s = str(name or "").strip()
+    head = s[:_UPLOAD_PREFIX_LEN]
+    if (len(s) > _UPLOAD_PREFIX_LEN and head[-1] == "_"
+            and [len(p) for p in head[:-1].split("-")] == [8, 4, 4, 4, 12]
+            and all(c in "0123456789abcdefABCDEF-" for c in head[:-1])):
+        return s[_UPLOAD_PREFIX_LEN:]
+    return s
+
+
+def about_line(objective: str) -> str:
+    """Start of an agent's objective, on one line — what the agent says it is for."""
+    s = " ".join(str(objective or "").split())
+    return s if len(s) <= _ABOUT_CHARS else s[:_ABOUT_CHARS].rstrip() + "…"
+
+
+def knowledge_sources(agents: list, knowledge: list, role: int, user_group_ids: set) -> list:
+    """Agents the user can ask that hold knowledge documents: enabled General
+    Agents, visible to this user, with at least one document. Most documents
+    first. `knowledge` = [{agent_id, documents, names}] (see _q_knowledge_agents)."""
+    by_agent = {int(k["agent_id"]): k for k in (knowledge or []) if int(k.get("documents") or 0) > 0}
+    out = []
+    for a in agents or []:
+        k = by_agent.get(int(a["id"]))
+        if not k or a.get("is_data_agent") or not a.get("enabled"):
+            continue
+        if not visible_to(a, role, user_group_ids):
+            continue
+        out.append({"id": int(a["id"]), "name": a.get("name") or "", "about": about_line(a.get("objective")),
+                    "documents": int(k["documents"]),
+                    "names": [display_filename(n) for n in (k.get("names") or [])]})
+    out.sort(key=lambda s: (-s["documents"], s["id"]))
+    return out
+
+
+def knowledge_line(src: dict) -> str:
+    """'<N> knowledge documents (e.g. a; b; … +M more)' for one agent."""
+    n = int(src["documents"])
+    names = [x for x in (src.get("names") or []) if x]
+    shown = "; ".join(names[:_KNOWLEDGE_NAMES_SHOWN])
+    more = n - min(len(names), _KNOWLEDGE_NAMES_SHOWN)
+    tail = ""
+    if shown:
+        tail = f" ({'e.g. ' if more > 0 else ''}{shown}{f'; +{more} more' if more > 0 else ''})"
+    return f"{n} knowledge document{'s' if n != 1 else ''}{tail}"
+
+
+def format_knowledge_sources(sources: list, limit: Optional[int] = None) -> str:
+    """One block of lines, one agent each: id, name, what it is about, its documents."""
+    rows = sources if limit is None else sources[:limit]
+    lines = []
+    for s in rows:
+        line = f"- id {s['id']} — {s['name']}: {knowledge_line(s)}"
+        if s.get("about"):
+            line += f"\n    about: {s['about']}"
+        lines.append(line)
+    if limit is not None and len(sources) > limit:
+        lines.append(f"… {len(sources) - limit} more agents hold knowledge documents — "
+                     "list_agents with with_knowledge=true shows all of them.")
+    return "\n".join(lines)
+
+
+def _q_knowledge_agents(user_id):
+    """Per agent: how many ACTIVE knowledge documents this user's questions can
+    draw on (agent-level ones plus the user's own — the same rule the agent's
+    knowledge search applies) and the names of the newest ones."""
+    def fn(cur):
+        cur.execute("""
+            SELECT ak.agent_id, d.filename
+            FROM [dbo].[AgentKnowledge] ak
+            JOIN [dbo].[Documents] d ON d.document_id = ak.document_id
+            WHERE ak.is_active = 1
+              AND (ISNULL(ak.added_by, 'USER') = 'USER' OR ISNULL(ak.added_by, 'USER') = ?)
+            ORDER BY ak.agent_id, ak.knowledge_id DESC""", str(user_id))
+        out: dict = {}
+        for aid, fname in cur.fetchall():
+            row = out.setdefault(int(aid), {"agent_id": int(aid), "documents": 0, "names": []})
+            row["documents"] += 1
+            if len(row["names"]) < _KNOWLEDGE_NAMES_SHOWN:
+                row["names"].append(str(fname or ""))
+        return list(out.values())
+    return fn
+
+
+async def knowledge_sources_for_user() -> list:
+    """The knowledge directory for the signed-in user. Never raises: a directory
+    that cannot be read is an empty one (logged), not a failed turn."""
+    try:
+        user = CURRENT_USER.get() or {}
+        role = int(user.get("role") or 0)
+        uid = int(user.get("user_id") or 0)
+        groups: set = set()
+        if role < 2:
+            import readthrough
+            groups = set(await asyncio.to_thread(readthrough.user_group_ids, uid))
+        agents = await _all_agents()
+        knowledge = await _rt("knowledge_agents", _q_knowledge_agents(uid), user_id=uid)
+        return knowledge_sources(agents, knowledge, role, groups)
+    except Exception as e:
+        logger.warning(f"knowledge directory unavailable: {e}")
+        return []
+
+
 def _q_agent_detail(agent_id: int):
     def fn(cur):
         cur.execute("""
@@ -490,9 +617,15 @@ async def _email_status(agent_id: int) -> dict:
     "List AI Hub's agents: the General Agents built on the Agent Builder page "
     "and, with kind='data' or 'all', the SQL-bound data agents (shown with the "
     "connections they query, e.g. 'data: ERPDB'). Shows id, name, enabled state "
-    "and the groups each is shared with. Call this BEFORE ask_agent or before "
+    "and the groups each is shared with, and for an agent that holds its own "
+    "knowledge documents how many and which. Call this BEFORE ask_agent or before "
     "referring to an agent by name — never assume an id. Developers/admins see "
-    "every agent; regular users see only agents shared with their groups.",
+    "every agent; regular users see only agents shared with their groups.\n"
+    "with_knowledge=true answers 'WHO KNOWS ABOUT THIS?': it lists only the "
+    "agents that hold their own knowledge documents (manuals, policies, "
+    "procedures, customer requirements — documents search_documents does NOT "
+    "search), each with what it is about and its documents. Use it to find the "
+    "agent to ask before you tell a user that something is not in the documents.",
     {
         "type": "object",
         "properties": {
@@ -502,6 +635,9 @@ async def _email_status(agent_id: int) -> dict:
                               "description": "Case-insensitive substring filter on the name"},
             "include_disabled": {"type": "boolean",
                                  "description": "Include disabled agents (default true)"},
+            "with_knowledge": {"type": "boolean",
+                               "description": "Only agents that hold their own knowledge "
+                                              "documents, with what each is about and its documents"},
         },
         "additionalProperties": False,
     },
@@ -511,6 +647,16 @@ async def list_agents(args: dict[str, Any]) -> dict[str, Any]:
         kind = str(args.get("kind") or "general").lower()
         needle = str(args.get("name_contains") or "").strip().lower()
         include_disabled = args.get("include_disabled", True)
+        if args.get("with_knowledge"):
+            sources = await knowledge_sources_for_user()
+            if needle:
+                sources = [s for s in sources if needle in s["name"].lower()]
+            if not sources:
+                return _text("No agent you can ask holds knowledge documents"
+                             + (f" (name matching '{needle}')" if needle else "") + ".")
+            return _text(f"Agents that hold their own knowledge documents ({len(sources)}) — "
+                         "ask one with ask_agent (it answers from its documents and cites them):\n"
+                         + format_knowledge_sources(sources))
         user = CURRENT_USER.get() or {}
         role = int(user.get("role") or 0)
         groups: set = set()
@@ -518,6 +664,13 @@ async def list_agents(args: dict[str, Any]) -> dict[str, Any]:
             import readthrough
             groups = set(readthrough.user_group_ids(int(user.get("user_id") or 0)))
         agents = await _all_agents()
+        try:
+            held = {int(k["agent_id"]): k for k in await _rt(
+                "knowledge_agents", _q_knowledge_agents(int(user.get("user_id") or 0)),
+                user_id=int(user.get("user_id") or 0))}
+        except Exception as e:
+            logger.warning(f"knowledge counts unavailable for list_agents: {e}")
+            held = {}
         rows = []
         for a in agents:
             if kind == "general" and a["is_data_agent"]:
@@ -543,7 +696,13 @@ async def list_agents(args: dict[str, Any]) -> dict[str, Any]:
                 tag = "data" + (f": {', '.join(a['connections'])}" if a.get("connections") else "")
             st = "" if a["enabled"] else ", DISABLED"
             shared = (f", groups {a['group_ids']}" if a.get("group_ids") else "")
-            lines.append(f"- id {a['id']} — {a['name']} ({tag}{st}{shared})")
+            k = held.get(a["id"])
+            knows = ""
+            if k and not a["is_data_agent"]:
+                knows = " — " + knowledge_line({
+                    "documents": k["documents"],
+                    "names": [display_filename(n) for n in (k.get("names") or [])]})
+            lines.append(f"- id {a['id']} — {a['name']} ({tag}{st}{shared}){knows}")
         more = ""
         if len(rows) > _LIST_CAP:
             more = (f"\n… {len(rows) - _LIST_CAP} more not shown (newest first) — "
