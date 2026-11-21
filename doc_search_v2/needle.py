@@ -115,15 +115,92 @@ def _rrf_fuse(pages, lex_ranked_idx, dense_ranked_keys):
     return [idx for idx, _ in fused.most_common()]
 
 
-def _rerank(llm_call, query, pages, candidate_idx):
+_PREVIEW_LEAD = 100      # start of the page: says what the page is
+_PREVIEW_WINDOW = 400    # the part of the page that best matches the question
+_PREVIEW_STEP = 100
+
+
+def _focused_preview(text, query_tokens, idf):
+    """What the rerank sees of a page: its start plus the stretch that best matches the
+    question. A page is ranked on its relevant passage wherever that sits — showing only
+    the first characters ranked a page by its heading, so an answer in the lower half of
+    a page (after a table, a figure caption, the tail of the previous section) lost to
+    pages that merely START on the topic."""
+    flat = re.sub(r'\s+', ' ', text or '').strip()
+    if len(flat) <= _PREVIEW_LEAD + _PREVIEW_WINDOW:
+        return flat
+    wanted = {t for t in query_tokens if idf.get(t, 0.0) > 0.0}
+    best_start, best_score = 0, -1.0
+    if wanted:
+        for start in range(0, max(1, len(flat) - _PREVIEW_WINDOW + _PREVIEW_STEP), _PREVIEW_STEP):
+            found = wanted.intersection(_tokenize(flat[start:start + _PREVIEW_WINDOW]))
+            score = sum(idf[t] for t in found)
+            if score > best_score:          # strict: the earlier window wins a tie
+                best_start, best_score = start, score
+    if best_start <= _PREVIEW_LEAD:
+        return flat[:_PREVIEW_LEAD + _PREVIEW_WINDOW]
+    return flat[:_PREVIEW_LEAD] + ' … ' + flat[best_start:best_start + _PREVIEW_WINDOW]
+
+
+def _squash(text):
+    return re.sub(r'[^a-z0-9]+', '', (text or '').lower())
+
+
+_EMBED_PREFIX_RE = re.compile(r'^(\s*\[[^\]]*\])+\s*')
+_PROBE_CHARS = 60
+
+
+def _page_holding_chunk(chunk_text, labelled_page, doc_pages, pages, squashed):
+    """Page of the document that really holds a vector chunk's text.
+
+    The page number stored with a chunk can be wrong (documents indexed before the
+    page-label fix in agent_knowledge_integration._resolve_chunk_page carry the label of
+    a neighbouring page for chunks near a page break). A vote for the wrong page pushes
+    the right one out of the shortlist, so check the label against the page text and,
+    only when the chunk is demonstrably NOT on its labelled page, move the vote to the
+    nearest page that holds it.
+
+    doc_pages: {page_number(str): index into ``pages``} for the chunk's document;
+    squashed: cache {index: page text reduced to letters and digits}."""
+    labelled = str(labelled_page)
+    body = _squash(_EMBED_PREFIX_RE.sub('', chunk_text or ''))
+    if len(body) < _PROBE_CHARS // 2 or not doc_pages:
+        return labelled
+    probes = [body[:_PROBE_CHARS], body[-_PROBE_CHARS:]]
+
+    def holds(page_key):
+        idx = doc_pages.get(page_key)
+        if idx is None:
+            return False
+        if idx not in squashed:
+            squashed[idx] = _squash(pages[idx]['text'])
+        return any(p in squashed[idx] for p in probes)
+
+    if holds(labelled):
+        return labelled
+
+    def distance(page_key):
+        try:
+            return abs(int(page_key) - int(labelled))
+        except (TypeError, ValueError):
+            return 10 ** 6
+
+    for page_key in sorted(doc_pages, key=distance):
+        if page_key != labelled and holds(page_key):
+            return page_key
+    return labelled
+
+
+def _rerank(llm_call, query, pages, candidate_idx, idf=None):
     """Haiku rerank of the fused shortlist; fails OPEN to the given order."""
     if not getattr(cfg, 'DOC_NEEDLE_RERANK', True) or len(candidate_idx) <= 1:
         return candidate_idx
     try:
+        q_tokens = _tokenize(query)
         listing = []
         for i, idx in enumerate(candidate_idx):
             p = pages[idx]
-            preview = re.sub(r'\s+', ' ', p['text'])[:400]
+            preview = _focused_preview(p['text'], q_tokens, idf or {})
             listing.append(f"[id {i}] {p['filename']} p.{p['page_number']}: {preview}")
         prompt = f"Question: {query}\n\nSources:\n" + "\n".join(listing)
         raw = llm_call(prompt, system=_RERANK_SYSTEM, max_tokens=400, temp=0.0)
@@ -172,10 +249,28 @@ def knowledge_needle_v2(query, agent_id, user_id=None, documents=None):
     try:
         hits = aki.search_knowledge_vectors(query, int(agent_id), user_id=user_id,
                                             top_k=shortlist_n * 2)
+        pages_by_doc = {}
+        for i, p in enumerate(pages):
+            pages_by_doc.setdefault(p['doc_id'], {})[str(p['page_number'])] = i
+        squashed = {}
+        moved = 0
         for h in hits:
             meta = h.get('metadata') or {}
-            if meta.get('document_id') is not None:
-                dense_keys.append((str(meta.get('document_id')), str(meta.get('page_number'))))
+            if meta.get('document_id') is None:
+                continue
+            doc_id = str(meta.get('document_id'))
+            labelled = str(meta.get('page_number'))
+            try:
+                page_key = _page_holding_chunk(h.get('text') or h.get('document') or '', labelled,
+                                               pages_by_doc.get(doc_id) or {}, pages, squashed)
+            except Exception as loc_err:        # never lose a vote over the check
+                logging.debug(f"needle page check skipped ({loc_err})")
+                page_key = labelled
+            moved += page_key != labelled
+            dense_keys.append((doc_id, page_key))
+        if moved:
+            logging.info(f"needle: {moved} of {len(dense_keys)} semantic hits were on a "
+                         f"neighbouring page of the one stored with them — votes moved")
     except Exception as e:
         logging.warning(f"needle dense channel failed ({e}) — lexical-only")
 
@@ -186,20 +281,45 @@ def knowledge_needle_v2(query, agent_id, user_id=None, documents=None):
     def llm_call(prompt, system, max_tokens, temp):
         return aki._haiku_call_with_fallback(prompt, system=system, max_tokens=max_tokens, temp=temp)
 
-    final_idx = _rerank(llm_call, query, pages, fused)[:top_pages]
+    final_idx = _rerank(llm_call, query, pages, fused, idf=bm25.idf)[:top_pages]
 
+    # A source page is given whole. The limits are the ones the legacy needle uses for
+    # its parent pages (one configuration for both engines), and nothing is cut silently:
+    # a page shown in part says so, with its full length and how to get the rest, and
+    # pages left out for the total budget are listed by name.
+    per_page_cap = int(getattr(cfg, 'KNOWLEDGE_PARENT_PAGE_CHAR_CAP', 12000))
+    total_cap = int(getattr(cfg, 'KNOWLEDGE_PARENT_TOTAL_CHAR_CAP', 80000))
     lines = ["[Knowledge needle — hybrid retrieval (lexical + semantic), citation-ready]", ""]
+    used_chars, shown, omitted = 0, 0, []
     for idx in final_idx:
         p = pages[idx]
         text = p['text'].strip()
-        if len(text) > 2500:
-            text = text[:2500] + ' …[page continues]'
+        if len(text) > per_page_cap:
+            full_len = len(text)
+            text = text[:per_page_cap] + (
+                f"\n... [page {p['page_number']} shown IN PART — first {per_page_cap:,} of "
+                f"{full_len:,} chars. get_document_page_by_number(document_id="
+                f"'{p['doc_id']}', page_number={p['page_number']}) returns the full page. "
+                f"Do not conclude that something is absent from this excerpt.]"
+            )
+        if shown and used_chars + len(text) > total_cap:
+            omitted.append(f"{p['filename']} p.{p['page_number']}")
+            continue
         lines.append(f"SOURCE [{p['filename']} p.{p['page_number']}]:")
         lines.append(text)
         lines.append("")
+        used_chars += len(text)
+        shown += 1
+    if omitted:
+        lines.append(
+            f"[{len(omitted)} further matching page(s) left out to stay under the "
+            f"{total_cap:,}-char retrieval limit: {', '.join(omitted)}. Fetch any of them with "
+            f"get_document_page_by_number before saying their content is not in the documents.]"
+        )
+        lines.append("")
     lines.append(
         f"RETRIEVAL: {len(pages)} pages in scope · lexical matches {len(lex_ranked)} · "
-        f"semantic votes {len(dense_keys)} · showing top {len(final_idx)} after fusion"
+        f"semantic votes {len(dense_keys)} · showing top {shown} after fusion"
         + (" + rerank" if getattr(cfg, 'DOC_NEEDLE_RERANK', True) else "")
     )
     lines.append(

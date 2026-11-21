@@ -540,25 +540,60 @@ def _build_document_with_page_markers(pages):
     return ''.join(parts).lstrip('\n'), page_id_by_number
 
 
-def _derive_page_from_chunk(chunk_text: str, running_page):
+def _resolve_chunk_page(chunk_text: str, running_page):
     """
-    Derive the page number a chunk belongs to from any "===== PAGE N =====" marker
-    inside the chunk text. If none is present, the chunk falls entirely within the
-    previous chunk's page (carry forward).
+    Work out which page a chunk's text is on, from the "===== PAGE N =====" markers
+    inside it and the page the previous chunk ended on.
+
+    A marker says "what FOLLOWS is page N". The text splitter is free to put a marker
+    anywhere in a chunk, and very often leaves the marker of the NEXT page at the very
+    end of a chunk whose text is all from the previous page. So:
+
+      - text BEFORE the first marker is still on ``running_page`` (the page the
+        previous chunk ended on);
+      - text after a marker is on that marker's page;
+      - the chunk is labelled with the page that holds most of its text (the earlier
+        page when it is a tie);
+      - the chunks that follow carry on from the LAST marker seen.
 
     Returns:
-        Tuple of (resolved_page_number, cleaned_chunk_text) where the cleaned text
-        has all page markers stripped.
+        (label_page, cleaned_chunk_text, next_running_page). The cleaned text has all
+        page markers stripped.
     """
     matches = list(_PAGE_MARKER_RE.finditer(chunk_text))
+    label_page = running_page
+    next_running_page = running_page
     if matches:
-        # First marker in the chunk = the page where this chunk's first content lives.
-        # (If a chunk straddles a page boundary we tag it to the earlier page; the
-        # _next_ chunk will start with its own marker and update running_page.)
-        running_page = int(matches[0].group(1))
+        def _content_len(s: str) -> int:
+            return len(re.sub(r'\s+', '', s))
+
+        # (page, amount of text on that page inside this chunk), in reading order
+        segments = [(running_page, _content_len(chunk_text[:matches[0].start()]))]
+        for i, m in enumerate(matches):
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(chunk_text)
+            segments.append((int(m.group(1)), _content_len(chunk_text[m.end():end])))
+        next_running_page = int(matches[-1].group(1))
+        best_page, best_len = max(segments, key=lambda s: s[1])   # first maximum = earlier page on a tie
+        # Nothing but markers in the chunk: there is no text to place, carry on from the last marker.
+        label_page = best_page if best_len > 0 and best_page is not None else next_running_page
     cleaned = _PAGE_MARKER_RE.sub('', chunk_text)
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
-    return running_page, cleaned
+    return label_page, cleaned, next_running_page
+
+
+def _derive_page_from_chunk(chunk_text: str, running_page):
+    """
+    Page a chunk's text is on, and the chunk text without page markers.
+
+    Kept for callers that only need the label; indexing uses _resolve_chunk_page,
+    which also returns the page the NEXT chunk continues from (the two differ when a
+    chunk ends with the marker of the following page).
+
+    Returns:
+        Tuple of (resolved_page_number, cleaned_chunk_text).
+    """
+    label_page, cleaned, _next = _resolve_chunk_page(chunk_text, running_page)
+    return label_page, cleaned
 
 
 # ===== Phase 1: Embedding-cap enforcer =====
@@ -1145,7 +1180,10 @@ def index_knowledge_document(document_id: str, agent_id: int, user_id: str = Non
         running_page = first_page_number
 
         for i, chunk in enumerate(chunks):
-            running_page, cleaned_text = _derive_page_from_chunk(chunk['text'], running_page)
+            # chunk_page = the page this chunk's text is on; running_page = where the
+            # next chunk carries on (see _resolve_chunk_page: they differ when a chunk
+            # ends with the marker of the following page).
+            chunk_page, cleaned_text, running_page = _resolve_chunk_page(chunk['text'], running_page)
             if not cleaned_text:
                 continue
 
@@ -1157,8 +1195,8 @@ def index_knowledge_document(document_id: str, agent_id: int, user_id: str = Non
                 'agent_id': str(agent_id),
                 'user_id': meta_user_id,  # 'SHARED' or actual user id (see base_metadata)
                 'is_knowledge': 'true',
-                'page_number': running_page,
-                'page_id': page_id_by_number.get(running_page, ''),
+                'page_number': chunk_page,
+                'page_id': page_id_by_number.get(chunk_page, ''),
                 'chunk_index': i,
             })
 
@@ -1663,7 +1701,21 @@ def _llm_detect_named_document(
         "grand total?\" after asking about Continental).\n"
         "- If the user is asking across multiple documents, or you cannot "
         "tell which document is meant, or the question is generic, return "
-        "no match — do not guess.\n\n"
+        "no match — do not guess.\n"
+        "- A company or customer name singles out a document ONLY when exactly "
+        "one document in the list belongs to that company. When the list holds "
+        "several documents of the company the user named — different manuals or "
+        "sections, or several versions or dates of one manual — the name alone "
+        "does not say which one holds the answer: return no match, unless the "
+        "user's words also single out one of them (its file name or title, or a "
+        "section, version or date that only one listed document has). Picking "
+        "one of several candidates hides the others from the search.\n"
+        "- This is about which document the user NAMED, never about which "
+        "document probably contains the answer. Do not choose a document "
+        "because its subject seems to fit the question (for example the "
+        "'Legal' manual for a question about invoices): finding the passage is "
+        "the search's job and it looks in every document when you return no "
+        "match.\n\n"
         "Reply with this exact JSON shape:\n"
         "{\n"
         '  "doc_id": "<the document_id value from the list above, or null>",\n'
@@ -1957,6 +2009,78 @@ def fanout_knowledge_retrieval(query: str, agent_id: int, user_id: str = None,
 # LLM annotated with "matched N chunk(s) on this page" so the model knows
 # which content earned the page its slot in the bundle.
 
+_EMBED_PREFIX_RE = re.compile(r'^(\s*\[[^\]]*\])+\s*')
+_PAGE_PROBE_CHARS = 60
+
+
+def _squash_text(text: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '', (text or '').lower())
+
+
+def _pages_holding_chunks(results: list) -> Dict[int, int]:
+    """For vector hits whose stored page number is wrong, the page that really holds
+    the chunk's text: {index in results: page_number}. Hits that are on their stored
+    page (or cannot be placed) are left out, so the caller keeps the stored number.
+
+    Documents indexed before _resolve_chunk_page was fixed carry, for chunks near a
+    page break, the number of a neighbouring page. The parent-page step fetches the
+    page by that number, so the model was handed a page that does not contain the
+    passage the search matched. Checking costs one query per document in the hits and
+    is correct for old and new indexes alike. Never raises — on any error every hit
+    keeps its stored page."""
+    moved: Dict[int, int] = {}
+    try:
+        wanted = {}
+        for i, r in enumerate(results):
+            if not isinstance(r, dict):
+                continue
+            meta = r.get('metadata', {}) or {}
+            doc_id = str(meta.get('document_id') or '')
+            try:
+                page = int(meta.get('page_number'))
+            except (TypeError, ValueError):
+                continue
+            body = _squash_text(_EMBED_PREFIX_RE.sub('', r.get('document') or r.get('text') or ''))
+            if doc_id and len(body) >= _PAGE_PROBE_CHARS // 2:
+                wanted.setdefault(doc_id, []).append(
+                    (i, page, (body[:_PAGE_PROBE_CHARS], body[-_PAGE_PROBE_CHARS:])))
+        if not wanted:
+            return moved
+        conn = get_db_connection()
+        if not conn:
+            return moved
+        try:
+            cursor = conn.cursor()
+            cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+            for doc_id, hits in wanted.items():
+                cursor.execute(
+                    "SELECT page_number, full_text FROM DocumentPages WHERE document_id = ?",
+                    doc_id,
+                )
+                page_text = {}
+                for row in cursor.fetchall():
+                    try:
+                        page_text[int(row[0])] = _squash_text(row[1])
+                    except (TypeError, ValueError):
+                        continue
+                for i, page, probes in hits:
+                    if any(p in page_text.get(page, '') for p in probes):
+                        continue                      # the stored page is right
+                    for other in sorted(page_text, key=lambda n: abs(n - page)):
+                        if other != page and any(p in page_text[other] for p in probes):
+                            moved[i] = other           # nearest page that holds the text
+                            break
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    except Exception as e:
+        logging.debug(f"Chunk page check skipped ({e})")
+        return {}
+    return moved
+
+
 def _parent_child_format(results: list, agent_id: int, user_id: Optional[str],
                           query: str, documents: list = None) -> Optional[str]:
     """
@@ -1973,13 +2097,19 @@ def _parent_child_format(results: list, agent_id: int, user_id: Optional[str],
     parent_order = []                 # list of (doc_id_str, page_int)
     parent_buckets: Dict[tuple, dict] = {}
 
-    for r in results:
+    # Parent page = the page the chunk's text is really on (see _pages_holding_chunks).
+    true_pages = _pages_holding_chunks(results)
+    if true_pages:
+        _skr_trace(f"NEEDLE parent-child: {len(true_pages)} of {len(results)} chunk(s) were "
+                   f"on a different page than the number stored with them — corrected")
+
+    for result_index, r in enumerate(results):
         if not isinstance(r, dict):
             continue
         meta = r.get('metadata', {}) or {}
         text = r.get('document') or r.get('text') or ''
         doc_id = str(meta.get('document_id') or '')
-        page_raw = meta.get('page_number')
+        page_raw = true_pages.get(result_index, meta.get('page_number'))
         try:
             page = int(page_raw) if page_raw is not None else None
         except (TypeError, ValueError):

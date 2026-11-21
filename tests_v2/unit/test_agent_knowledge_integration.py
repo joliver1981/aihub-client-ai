@@ -61,6 +61,149 @@ def test_derive_page_from_chunk_keeps_running_page_when_no_marker():
     assert cleaned == "just body"
 
 
+def test_resolve_chunk_page_trailing_marker_belongs_to_the_next_chunk():
+    # What the text splitter really produces at a page break: the page's own text,
+    # then the marker of the FOLLOWING page glued to the end of the chunk. The chunk
+    # is page 4; the chunks after it are page 5.
+    chunk = "last paragraph of page four, with enough words in it\n\n===== PAGE 5 ====="
+    label, cleaned, next_running = aki._resolve_chunk_page(chunk, running_page=4)
+    assert label == 4
+    assert next_running == 5
+    assert "PAGE 5" not in cleaned and "page four" in cleaned
+
+
+def test_resolve_chunk_page_first_chunk_of_a_document():
+    # "===== PAGE 1 =====<title page>===== PAGE 2 =====" in one chunk: the text is
+    # page 1, and the next chunk (the contents page, no marker) is page 2.
+    chunk = "===== PAGE 1 =====\n\nVendor Agreement\nSection 3 of 3\n\n===== PAGE 2 ====="
+    label, _cleaned, next_running = aki._resolve_chunk_page(chunk, running_page=1)
+    assert label == 1
+    assert next_running == 2
+    label2, _c2, next2 = aki._resolve_chunk_page("Contents ...... 3", running_page=next_running)
+    assert (label2, next2) == (2, 2)
+
+
+def test_resolve_chunk_page_label_is_the_page_holding_most_of_the_text():
+    tail_of_seven = "two words"
+    body_of_eight = "a long paragraph that sits on page eight " * 5
+    chunk = f"{tail_of_seven}\n\n===== PAGE 8 =====\n\n{body_of_eight}"
+    label, _cleaned, next_running = aki._resolve_chunk_page(chunk, running_page=7)
+    assert label == 8 and next_running == 8
+
+    mostly_seven = "a long paragraph that sits on page seven " * 5
+    chunk = f"{mostly_seven}\n\n===== PAGE 8 =====\n\nshort"
+    label, _cleaned, next_running = aki._resolve_chunk_page(chunk, running_page=7)
+    assert label == 7 and next_running == 8
+
+
+def test_resolve_chunk_page_several_markers_carry_on_from_the_last():
+    chunk = "===== PAGE 2 =====\n\nshort page two\n\n===== PAGE 3 =====\n\nshort page 3\n\n===== PAGE 4 ====="
+    label, _cleaned, next_running = aki._resolve_chunk_page(chunk, running_page=1)
+    assert label == 2          # tie on length goes to the earlier page
+    assert next_running == 4
+
+
+def test_resolve_chunk_page_without_marker_keeps_the_running_page():
+    assert aki._resolve_chunk_page("just body", running_page=7) == (7, "just body", 7)
+
+
+def test_index_labels_chunks_with_the_page_their_text_is_on():
+    """End to end through index_knowledge_document: the chunk that holds page 1's
+    text and ends with page 2's marker is stored as page 1, and the unmarked chunk
+    after it as page 2 (it used to be stored as page 1)."""
+    pages = [
+        (101, 1, "title page text", "m.pdf", "vendor_guide"),
+        (102, 2, "contents page text", "m.pdf", "vendor_guide"),
+    ]
+    chunks = [
+        {"text": "===== PAGE 1 =====\n\ntitle page text\n\n===== PAGE 2 =====", "metadata": {}},
+        {"text": "contents page text", "metadata": {}},
+    ]
+    conn = MagicMock()
+    conn.cursor.return_value.fetchall.return_value = pages
+    engine = MagicMock()
+    engine.index.return_value = True
+    chunker = MagicMock()
+    chunker.chunk_text.return_value = chunks
+    with patch.object(aki, "get_db_connection", return_value=conn), \
+            patch.object(aki, "_get_knowledge_vector_engine", return_value=engine), \
+            patch.object(aki, "TextChunker", return_value=chunker), \
+            patch.object(aki, "generate_knowledge_summary", return_value=""), \
+            patch.object(aki, "_enforce_embedding_token_cap", side_effect=lambda d, m, i: (d, m, i)):
+        assert aki.index_knowledge_document("doc-1", 5, user_id="u1") is True
+    metas = engine.index.call_args.kwargs["metadatas"]
+    assert [(m["page_number"], m["page_id"]) for m in metas] == [(1, 101), (2, 102)]
+
+
+def _pages_conn(pages_by_doc):
+    """A fake DB whose DocumentPages query returns the pages of the asked document."""
+    conn = MagicMock()
+    cursor = conn.cursor.return_value
+    state = {}
+
+    def execute(sql, *params):
+        if "DocumentPages" in sql:
+            state["rows"] = list(pages_by_doc.get(params[0], {}).items())
+        else:
+            state["rows"] = []
+
+    cursor.execute.side_effect = execute
+    cursor.fetchall.side_effect = lambda: state.get("rows", [])
+    return conn
+
+
+_INVOICE_TEXT = ("Merchandise Invoice Instructions: Domestic vendors will submit all merchandise "
+                 "invoices via EDI 810 to the retailer.")
+
+
+def test_pages_holding_chunks_moves_a_hit_to_the_page_that_has_its_text():
+    # Stored as page 13 by the old indexing; the text is at the bottom of page 12.
+    hits = [{"text": "[Acme Guide] [Section: Invoices] " + _INVOICE_TEXT,
+             "metadata": {"document_id": "d1", "page_number": 13}}]
+    pages = {"d1": {12: "Carton labels.\n" + _INVOICE_TEXT, 13: "Return instructions for damaged goods."}}
+    with patch.object(aki, "get_db_connection", return_value=_pages_conn(pages)):
+        assert aki._pages_holding_chunks(hits) == {0: 12}
+
+
+def test_pages_holding_chunks_leaves_correct_and_unplaceable_hits_alone():
+    hits = [
+        {"text": _INVOICE_TEXT, "metadata": {"document_id": "d1", "page_number": 12}},      # right page
+        {"text": "A passage that is on no page of the document at all, in any form whatsoever.",
+         "metadata": {"document_id": "d1", "page_number": 13}},                              # cannot be placed
+        {"text": "short", "metadata": {"document_id": "d1", "page_number": 13}},             # too short to check
+    ]
+    pages = {"d1": {12: _INVOICE_TEXT, 13: "Return instructions for damaged goods."}}
+    with patch.object(aki, "get_db_connection", return_value=_pages_conn(pages)):
+        assert aki._pages_holding_chunks(hits) == {}
+
+
+def test_pages_holding_chunks_keeps_every_label_when_the_database_fails():
+    hits = [{"text": _INVOICE_TEXT, "metadata": {"document_id": "d1", "page_number": 13}}]
+    with patch.object(aki, "get_db_connection", side_effect=RuntimeError("db down")):
+        assert aki._pages_holding_chunks(hits) == {}
+
+
+def test_doc_detector_is_told_a_company_name_does_not_single_out_one_of_several_manuals():
+    """The lock hard-filters the search to ONE document. With three manuals of the
+    named company in the list it used to pick one by topic, hiding the manual that
+    held the answer; with two versions it could pick the superseded one."""
+    seen = {}
+
+    def fake_llm(prompt, system, max_tokens=256, temp=0.0):
+        seen["prompt"] = prompt
+        return '{"doc_id": null, "confidence": "none", "reason": "three Acme manuals"}'
+
+    docs = [{"document_id": "a", "filename": "Acme Legal 2026.pdf"},
+            {"document_id": "b", "filename": "Acme Compliance 2026.pdf"},
+            {"document_id": "c", "filename": "Acme Supply Chain 2026.pdf"}]
+    with patch.object(aki, "_haiku_call_with_fallback", side_effect=fake_llm), \
+            patch.object(aki.cfg, "KNOWLEDGE_LLM_DOC_FILTER_ENABLED", True, create=True):
+        assert aki._llm_detect_named_document([], "How do import vendors invoice Acme?", docs) is None
+    prompt = seen["prompt"]
+    assert "ONLY when exactly one document in the list belongs to that company" in prompt
+    assert "never about which document probably contains the answer" in prompt
+
+
 def test_build_embed_text_prepends_section_header_when_present():
     meta = {"document_identifier": "Acme Lease 2026",
             "section_breadcrumb": "Article 7 > HVAC"}

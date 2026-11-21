@@ -62,7 +62,15 @@ _MAP_SYSTEM = (
     "satisfies the condition) or 'NO — ' (it does not — including when the attribute belongs "
     "to a different party or is split/shared), followed by what the document actually says. "
     "Set not_found=true only when the document does not address the topic at all. "
-    "(3) Never use knowledge from outside the document."
+    "(3) Never use knowledge from outside the document. "
+    "(4) The question may cover SEVERAL documents, companies or parties at once — a "
+    "comparison, 'for each ...', a table across customers. You are shown only ONE of them: "
+    "give what THIS document states about the thing asked (its own value, rule or terms) "
+    "and whose it is. The comparison is made afterwards from every document's answer, so "
+    "the other documents or parties being absent from this one is NEVER a reason for "
+    "not_found=true, for withholding the value, or for answering that a comparison is not "
+    "possible. not_found is about the TOPIC only: true when this document says nothing "
+    "about the thing asked."
 )
 
 
@@ -108,10 +116,20 @@ def _map_one_document(llm_call, query: str, identifier: str, pages: dict):
         chunks = _doc_text_chunks(pages)
         answers, quotes, confs, any_found, first_page = [], [], [], False, None
         for chunk in chunks:
+            # The document comes first and the question LAST. With the question (and
+            # only the system rules) ahead of a 250,000-character document, the model
+            # located the answer and still replied not_found to a cross-document
+            # question ("this document cannot make the comparison") — the task
+            # statement has to be the last thing it reads.
             prompt = (
-                f"Question: {query}\n\n"
                 f"Document: {identifier}\n"
-                f"--- DOCUMENT TEXT ---\n{chunk}\n--- END DOCUMENT TEXT ---"
+                f"--- DOCUMENT TEXT ---\n{chunk}\n--- END DOCUMENT TEXT ---\n\n"
+                f"Question the user asked (it may cover several documents or companies; "
+                f"the text above is ONE of them): {query}\n\n"
+                "Reply with the JSON object for the document above: what THIS document "
+                "states about the thing asked — its own value, rule or terms. If it "
+                "states anything about that topic, not_found is false, even though the "
+                "question also names other documents or companies that are not in it."
             )
             raw = llm_call(prompt, system=_MAP_SYSTEM, max_tokens=500, temp=0.0)
             data, ok = _parse_map_json(raw or '')
