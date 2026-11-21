@@ -111,9 +111,11 @@
             </button>
         </div>
         <div class="card-body">
-            <div id="providerList">
-                <p class="text-muted" id="noProvidersMsg">Loading...</p>
-            </div>
+            {# The message sits beside the list, not inside it: the list's contents are
+               replaced on every refresh, which used to remove the message and break the
+               next refresh (a newly saved provider only appeared after a page reload). #}
+            <p class="text-muted" id="noProvidersMsg">Loading...</p>
+            <div id="providerList"></div>
         </div>
     </div>
 
@@ -443,10 +445,12 @@
             } else {
                 noMsg.textContent = 'No identity providers configured. Click "Add Provider" to set up LDAP/Active Directory or SAML single sign-on.';
                 noMsg.style.display = 'block';
-                list.querySelectorAll('.provider-card').forEach(el => el.remove());
+                list.innerHTML = '';
             }
         } catch (e) {
-            document.getElementById('noProvidersMsg').textContent = 'Error loading providers.';
+            const msg = document.getElementById('noProvidersMsg');
+            msg.textContent = 'Error loading providers.';
+            msg.style.display = 'block';
             console.error('Error loading providers:', e);
         }
     }
