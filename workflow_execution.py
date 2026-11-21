@@ -1709,11 +1709,15 @@ Guidelines:
             onMissing              (str)  — "error" or "auto_create" (dynamic mode only)
             agentOverrideId        (int)  — optional override for the agent's knowledge base
             excelTemplatePath      (str)  — optional Excel template path (literal or variable)
+            retireSupersededVersions (bool) — when the document is a newer version of a manual
+                                     the agent already holds for this retailer, take the older
+                                     version out of the agent's knowledge (default: on)
             outputVariable         (str)  — name of variable to store the result (default: complianceResult)
 
         Output variable contains:
             { version_id, version_number, retailer_id, set_id, document_id,
-              requirements_count, is_duplicate, change_summary, excel_path, error }
+              requirements_count, is_duplicate, change_summary, excel_path, error,
+              retired_versions, retired_count, superseded_by, version_check }
         """
         node_id = node['id']
         node_config = node.get('config', {})
@@ -1819,6 +1823,18 @@ Guidelines:
                 f"agent_id={agent_id}"
             )
 
+            # "Replace older versions in the agent's knowledge" — on unless the node
+            # says otherwise. A node saved before the option existed has no key and
+            # gets the platform setting (COMPLIANCE_RETIRE_SUPERSEDED_VERSIONS, on by
+            # default); an explicit false on the node always wins.
+            retire_raw = node_config.get('retireSupersededVersions')
+            if retire_raw is None or retire_raw == '':
+                retire_superseded = None
+            elif isinstance(retire_raw, str):
+                retire_superseded = retire_raw.strip().lower() not in ('false', '0', 'no', 'off')
+            else:
+                retire_superseded = bool(retire_raw)
+
             engine = ComplianceEngine()
             result = engine.process_compliance_document(
                 file_path=file_path,
@@ -1827,6 +1843,7 @@ Guidelines:
                 uploaded_by=1,
                 agent_id=agent_id,
                 excel_template_path=excel_template,
+                retire_superseded=retire_superseded,
             )
 
             # ----- 6. Build output variable payload -----
@@ -1841,6 +1858,13 @@ Guidelines:
                 "change_summary": result.change_summary,
                 "excel_path": result.excel_path,
                 "error": result.error,
+                # Older versions of the same manual this run took out of the agent's
+                # knowledge (file names), and — when the document itself was not added
+                # because the agent holds a newer version — the file that supersedes it.
+                "retired_versions": [d.get("filename") for d in (result.retired_documents or [])],
+                "retired_count": len(result.retired_documents or []),
+                "superseded_by": (result.superseded_by or {}).get("filename"),
+                "version_check": result.version_check_note,
             }
 
             # ----- 7. Store output variable -----
@@ -1867,6 +1891,14 @@ Guidelines:
                 f"{len(result.requirements)} requirements"
             )
             self.log_execution(execution_id, node_id, "info", msg)
+            if result.version_check_note:
+                # A version check that could not run is a warning: nothing was replaced,
+                # so an older version may still be answering questions.
+                self.log_execution(
+                    execution_id, node_id,
+                    "warning" if "could not run" in result.version_check_note else "info",
+                    f"Agent knowledge — {result.version_check_note}"
+                )
             return {'success': True, 'data': output_payload}
 
         except Exception as e:

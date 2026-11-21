@@ -42,6 +42,14 @@ class ProcessingResult:
     is_duplicate: bool = False
     error: Optional[str] = None
     extraction_diagnostics: Optional[Dict[str, Any]] = None
+    # Older versions of the same manual taken out of the agent's knowledge by this
+    # run: [{"document_id", "filename"}]. Empty when nothing was replaced.
+    retired_documents: Optional[List[Dict[str, Any]]] = None
+    # Set when this document was NOT added to the agent's knowledge because the agent
+    # already holds a newer version of the same manual: {"document_id", "filename"}.
+    superseded_by: Optional[Dict[str, Any]] = None
+    # One line saying what the version check did (or why it could not run).
+    version_check_note: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -163,8 +171,15 @@ class ComplianceEngine:
         uploaded_by: int = 1,
         agent_id: Optional[int] = None,
         excel_template_path: Optional[str] = None,
+        retire_superseded: Optional[bool] = None,
     ) -> ProcessingResult:
-        """Full pipeline: ingest -> extract -> version -> knowledge -> excel."""
+        """Full pipeline: ingest -> extract -> version -> knowledge -> excel.
+
+        retire_superseded: when the document is a newer version of a manual the agent
+        already holds for this retailer, take the older version out of the agent's
+        knowledge (and do not add a document that is OLDER than one the agent holds).
+        None = the platform setting COMPLIANCE_RETIRE_SUPERSEDED_VERSIONS (on by default).
+        """
         try:
             doc_hash = self._file_hash(file_path)
             dup_version = self._check_duplicate(set_id, doc_hash)
@@ -190,8 +205,37 @@ class ComplianceEngine:
             requirements = self._extract_requirements(file_path, set_info)
             self._store_requirements(version_id, requirements)
 
+            retired_documents: List[Dict[str, Any]] = []
+            superseded_by = None
+            version_check_note = None
             if agent_id:
-                self._index_to_knowledge(agent_id, document_id, uploaded_by)
+                if retire_superseded is None:
+                    retire_superseded = bool(
+                        getattr(cfg, "COMPLIANCE_RETIRE_SUPERSEDED_VERSIONS", True)
+                    )
+                check = None
+                if retire_superseded:
+                    check = self._check_manual_versions(agent_id, retailer_id, document_id)
+                    version_check_note = check.get("note")
+                    superseded_by = check.get("newer_existing")
+                if superseded_by:
+                    # The agent already answers from a newer edition of this manual:
+                    # adding this one would put superseded text back into its answers.
+                    logger.info(
+                        "Compliance document %s NOT added to agent %s knowledge: the agent "
+                        "holds a newer version of the same manual (%s)",
+                        document_id, agent_id, superseded_by.get("filename"),
+                    )
+                else:
+                    self._index_to_knowledge(agent_id, document_id, uploaded_by)
+                # Older editions leave the agent's knowledge either way (when a newer
+                # one is already held they should have left when it arrived).
+                current_name = (superseded_by or {}).get("filename") \
+                    or (check or {}).get("new_filename")
+                for old in (check or {}).get("older_existing", []):
+                    if self._retire_knowledge_for_document(
+                            agent_id, old["document_id"], replaced_by=current_name):
+                        retired_documents.append(old)
 
             excel_path = None
             if excel_template_path:
@@ -213,6 +257,9 @@ class ComplianceEngine:
                 excel_path=excel_path,
                 change_summary=change_summary,
                 extraction_diagnostics=getattr(self, "_last_extraction_diagnostics", None),
+                retired_documents=retired_documents,
+                superseded_by=superseded_by,
+                version_check_note=version_check_note,
             )
         except Exception as e:
             logger.exception("Compliance processing failed")
@@ -793,6 +840,346 @@ class ComplianceEngine:
             )
         except Exception as e:
             logger.warning("Knowledge indexing failed (non-fatal): %s", e)
+
+    # -- versions of one manual in an agent's knowledge ----------------------
+    #
+    # An agent that answers questions from compliance manuals must answer from the
+    # CURRENT edition. Without this step every edition a retailer ever sent stays in
+    # the agent's knowledge side by side, the search returns passages from all of
+    # them, and nothing marks which is current (measured 2026-11-20: half of the
+    # passages retrieved came from superseded editions, and answers were silently
+    # taken from them).
+    #
+    # "Same manual" cannot be read from the compliance set: one set often holds
+    # several different manuals of a retailer (a workflow that files everything under
+    # one category), so the set's version numbers are NOT editions of one document.
+    # It is decided from the documents themselves, by a small model that sees the
+    # file names and the first pages (title page, date, version line, contents).
+
+    _VERSION_PROFILE_CHARS = 1800       # of the first pages, per document
+    _VERSION_PROMPT_BATCH_CHARS = 60000  # existing documents per model call (batching, not a limit)
+
+    _VERSION_CHECK_SYSTEM = (
+        "You compare ONE new document with other documents of the same company and "
+        "decide, for each of the others, whether it is a different EDITION OF THE SAME "
+        "MANUAL: the same document re-issued (same title, subject and scope), usually "
+        "with a different date, year, version or revision number. Documents that belong "
+        "together but cover different things are NOT editions of each other: different "
+        "sections or parts of one agreement (Section 1 Legal and Section 2 Compliance), "
+        "different topics (packaging and routing), different programs or regions "
+        "(domestic and import), a manual and a form or template. A wrong 'true' removes "
+        "a manual that is still valid, so when the evidence is not clear answer "
+        "same_manual false or confidence low. Reply with STRICT JSON only, no prose, no "
+        "markdown fences."
+    )
+
+    def _document_profile(self, cursor, document_id: str) -> Optional[Dict[str, Any]]:
+        """File name, page count and the start of the first pages of a stored document."""
+        cursor.execute(
+            "SELECT filename, page_count FROM Documents WHERE document_id = ?",
+            document_id,
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        cursor.execute(
+            """
+            SELECT TOP 3 page_number, full_text
+            FROM DocumentPages
+            WHERE document_id = ? AND full_text IS NOT NULL AND LEN(full_text) > 0
+            ORDER BY page_number
+            """,
+            document_id,
+        )
+        parts, used = [], 0
+        for page in cursor.fetchall():
+            text = " ".join(str(page[1] or "").split())
+            if not text:
+                continue
+            room = self._VERSION_PROFILE_CHARS - used
+            if room <= 0:
+                break
+            parts.append(f"[page {page[0]}] {text[:room]}")
+            used += min(len(text), room)
+        return {
+            "document_id": str(document_id),
+            "filename": str(row[0] or ""),
+            "page_count": row[1],
+            "first_pages": "\n".join(parts),
+        }
+
+    def _check_manual_versions(
+        self, agent_id: int, retailer_id: int, new_document_id: str
+    ) -> Dict[str, Any]:
+        """Which documents in the agent's knowledge are other editions of the manual
+        that just arrived.
+
+        Returns a dict:
+            older_existing : [{"document_id", "filename"}] editions the new one replaces
+            newer_existing : {"document_id", "filename"} or None — an edition LATER than
+                             the new document that the agent already holds
+            note           : one line for the log / the workflow result
+        Never raises: when the check cannot run nothing is replaced and the note says why.
+        """
+        out: Dict[str, Any] = {"older_existing": [], "newer_existing": None, "note": None}
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv("API_KEY"))
+                cursor.execute(
+                    """
+                    SELECT DISTINCT k.document_id
+                    FROM AgentKnowledge k
+                    JOIN RetailerDocumentVersions v ON v.document_id = k.document_id
+                    JOIN RetailerDocumentSets s ON s.set_id = v.set_id
+                    WHERE k.agent_id = ? AND k.is_active = 1
+                      AND s.retailer_id = ? AND k.document_id <> ?
+                    """,
+                    agent_id, retailer_id, new_document_id,
+                )
+                candidate_ids = [str(r[0]) for r in cursor.fetchall() if r[0]]
+                if not candidate_ids:
+                    out["note"] = ("version check: the agent holds no other document of "
+                                   "this retailer")
+                    return out
+                new_doc = self._document_profile(cursor, new_document_id)
+                candidates = [p for p in (self._document_profile(cursor, c)
+                                          for c in candidate_ids) if p]
+            finally:
+                cursor.close()
+                conn.close()
+            if not new_doc or not candidates:
+                out["note"] = ("version check could not run (document text not found) — "
+                               "nothing was replaced")
+                return out
+            return self._judge_manual_versions(new_doc, candidates)
+        except Exception as e:
+            logger.warning("Version check failed (nothing replaced): %s", e)
+            return {"older_existing": [], "newer_existing": None,
+                    "note": f"version check could not run ({e}) — nothing was replaced"}
+
+    def _judge_manual_versions(
+        self, new_doc: Dict[str, Any], candidates: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Decide which of ``candidates`` are other editions of the manual ``new_doc``
+        (profiles from _document_profile). Same return shape as _check_manual_versions,
+        plus new_filename. Never raises."""
+        out: Dict[str, Any] = {"older_existing": [], "newer_existing": None, "note": None,
+                               "new_filename": new_doc.get("filename")}
+        try:
+            from agent_knowledge_integration import _haiku_call_with_fallback
+
+            def describe(label, d):
+                return (f"[{label}] file name: {d['filename']} | pages: {d['page_count']}\n"
+                        f"first pages:\n<<<\n{d['first_pages']}\n>>>")
+
+            verdicts: Dict[str, Dict[str, Any]] = {}
+            batch, batch_chars, batches = [], 0, []
+            for i, cand in enumerate(candidates, start=1):
+                block = describe(f"D{i}", cand)
+                if batch and batch_chars + len(block) > self._VERSION_PROMPT_BATCH_CHARS:
+                    batches.append(batch)
+                    batch, batch_chars = [], 0
+                batch.append((f"D{i}", cand, block))
+                batch_chars += len(block)
+            if batch:
+                batches.append(batch)
+
+            for batch in batches:
+                prompt = (
+                    "NEW DOCUMENT\n" + describe("NEW", new_doc) + "\n\n"
+                    "EXISTING DOCUMENTS OF THE SAME COMPANY\n"
+                    + "\n\n".join(block for _l, _c, block in batch) + "\n\n"
+                    "For EVERY existing document reply in this exact JSON shape:\n"
+                    '{"results": [{"id": "D1", "reason": "<one short sentence>", '
+                    '"same_manual": true, "confidence": "high"}]}\n'
+                    "- same_manual: true only when the existing document is another edition "
+                    "of the SAME manual as the NEW document.\n"
+                    '- confidence: "high" or "low".'
+                )
+                raw = _haiku_call_with_fallback(
+                    prompt, self._VERSION_CHECK_SYSTEM, max_tokens=2000, temp=0.0
+                )
+                if not raw:
+                    out["note"] = ("version check could not run (no reply from the model) — "
+                                   "nothing was replaced")
+                    return out
+                text = raw.strip()
+                start, end = text.find("{"), text.rfind("}")
+                data = json.loads(text[start:end + 1]) if start != -1 and end > start else {}
+                by_label = {label: cand for label, cand, _b in batch}
+                for item in data.get("results") or []:
+                    label = str(item.get("id") or "").strip().strip("[]")
+                    if label in by_label:
+                        verdicts[by_label[label]["document_id"]] = item
+
+            same = [
+                (c, verdicts[c["document_id"]]) for c in candidates
+                if c["document_id"] in verdicts
+                and verdicts[c["document_id"]].get("same_manual") is True
+                and str(verdicts[c["document_id"]].get("confidence", "")).lower() == "high"
+            ]
+            if not same:
+                out["note"] = (f"version check: not another version of any of the "
+                               f"{len(candidates)} other document(s) the agent holds for "
+                               f"this retailer")
+                return out
+            undated, unclear = [], []
+            for cand, _verdict in same:
+                ref = {"document_id": cand["document_id"], "filename": cand["filename"]}
+                later = self._more_recent_edition(new_doc, cand, _haiku_call_with_fallback)
+                if later == "existing":
+                    out["newer_existing"] = out["newer_existing"] or ref
+                elif later == "new":
+                    out["older_existing"].append(ref)
+                elif later == "unknown":
+                    # Neither document shows a date or a version: the one that arrived
+                    # later is taken as the current one.
+                    out["older_existing"].append(ref)
+                    undated.append(cand["filename"])
+                else:
+                    # The two readings disagree — replacing either could remove the
+                    # current manual, so both stay and the note says so.
+                    unclear.append(cand["filename"])
+            bits = []
+            if out["newer_existing"]:
+                bits.append("NOT added to the agent's knowledge: the agent holds a newer "
+                            f"version of this manual ({out['newer_existing']['filename']})")
+            if out["older_existing"]:
+                bits.append("older version(s) taken out of the agent's knowledge: "
+                            + ", ".join(o["filename"] for o in out["older_existing"]))
+            if undated:
+                bits.append("the documents show the same date and version, or none, for "
+                            + ", ".join(undated)
+                            + " — the one that arrived later was taken as current")
+            if unclear:
+                bits.append("could not run for " + ", ".join(unclear)
+                            + " (same manual, but which version is newer is unclear) — "
+                            "both versions are in the agent's knowledge, remove the old one "
+                            "by hand")
+            out["note"] = "version check: " + "; ".join(bits)
+            return out
+        except Exception as e:
+            logger.warning("Version check failed (nothing replaced): %s", e)
+            return {"older_existing": [], "newer_existing": None,
+                    "note": f"version check could not run ({e}) — nothing was replaced"}
+
+    _EDITION_ORDER_SYSTEM = (
+        "You are given two editions of the same manual, DOCUMENT A and DOCUMENT B. Decide "
+        "which is the MORE RECENT edition, from the dates, years, version numbers and "
+        "revision numbers in their file names and first pages. Reply with STRICT JSON "
+        'only, no prose, no markdown fences: {"a_edition": "<the date or version you '
+        'found for A, or none>", "b_edition": "<the date or version you found for B, or '
+        'none>", "more_recent": "A"}. more_recent is "A", "B" or "unknown"; answer '
+        '"unknown" when neither shows a date or version, or both show the same one.'
+    )
+
+    def _more_recent_edition(self, new_doc: Dict[str, Any], existing: Dict[str, Any],
+                             llm_call) -> str:
+        """Which of two editions of one manual is the later one: 'new', 'existing',
+        'unknown' (nothing in either shows it) or 'conflict'.
+
+        Taking the wrong document out of an agent's knowledge removes the CURRENT
+        manual, so the question is asked twice with the two documents in swapped
+        positions and only an answer that survives the swap is used. (A single reply
+        with a relative word — "older"/"newer" — was wrong in testing while its own
+        explanation was right; a named winner plus the swap check is what holds.)"""
+        def describe(label, d):
+            return (f"DOCUMENT {label}\nfile name: {d['filename']} | pages: {d['page_count']}\n"
+                    f"first pages:\n<<<\n{d['first_pages']}\n>>>")
+
+        def ask(first, second):
+            raw = llm_call(describe("A", first) + "\n\n" + describe("B", second),
+                           self._EDITION_ORDER_SYSTEM, max_tokens=300, temp=0.0)
+            text = (raw or "").strip()
+            start, end = text.find("{"), text.rfind("}")
+            if start == -1 or end <= start:
+                return None
+            answer = str(json.loads(text[start:end + 1]).get("more_recent", "")).strip().upper()
+            return answer if answer in ("A", "B", "UNKNOWN") else None
+
+        try:
+            straight = ask(new_doc, existing)      # A = new, B = existing
+            swapped = ask(existing, new_doc)       # A = existing, B = new
+        except Exception as e:
+            logger.warning("Edition-order check failed: %s", e)
+            return "conflict"
+        first = {"A": "new", "B": "existing", "UNKNOWN": "unknown"}.get(straight)
+        second = {"A": "existing", "B": "new", "UNKNOWN": "unknown"}.get(swapped)
+        if first and first == second:
+            return first
+        return "conflict"
+
+    @staticmethod
+    def _retire_knowledge_for_document(agent_id: int, document_id: str,
+                                       replaced_by: Optional[str] = None) -> bool:
+        """Take a document out of ONE agent's knowledge (soft delete). The document,
+        its pages and its compliance version record stay, and the knowledge row says
+        when and by what it was superseded. The vectors are removed unless another
+        agent still holds the document. Returns True when a knowledge row was retired.
+
+        Reversible without the original file: set the row's is_active back to 1 and
+        call queue_knowledge_indexing(document_id, agent_id) — the index is rebuilt
+        from the stored pages."""
+        if not document_id:
+            return False
+        note = f"Superseded {datetime.now():%Y-%m-%d}"
+        if replaced_by:
+            note += f": replaced by {replaced_by}"
+        note = note[:200]
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        retired = False
+        still_held = True
+        try:
+            cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv("API_KEY"))
+            try:
+                cursor.execute(
+                    """
+                    UPDATE AgentKnowledge SET is_active = 0, description = ?
+                    WHERE document_id = ? AND agent_id = ? AND is_active = 1
+                    """,
+                    note, document_id, agent_id,
+                )
+            except Exception as note_err:
+                # The retirement matters, the note is a courtesy: a description column
+                # that cannot take the text must not leave the old version answering.
+                logger.warning("Superseded note not stored for doc %s (%s) — retiring "
+                               "without it", document_id, note_err)
+                cursor.execute(
+                    """
+                    UPDATE AgentKnowledge SET is_active = 0
+                    WHERE document_id = ? AND agent_id = ? AND is_active = 1
+                    """,
+                    document_id, agent_id,
+                )
+            retired = cursor.rowcount > 0
+            conn.commit()
+            cursor.execute(
+                "SELECT COUNT(*) FROM AgentKnowledge WHERE document_id = ? AND is_active = 1",
+                document_id,
+            )
+            row = cursor.fetchone()
+            still_held = bool(row and row[0])
+        except Exception as e:
+            logger.warning("Retiring knowledge for doc %s (agent %s) failed: %s",
+                           document_id, agent_id, e)
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+
+        if retired:
+            logger.info("Retired superseded document %s from agent %s knowledge",
+                        document_id, agent_id)
+        if retired and not still_held:
+            try:
+                from agent_knowledge_integration import queue_knowledge_vector_delete
+                queue_knowledge_vector_delete(document_id)
+            except Exception as e:
+                logger.warning("Vector cleanup queue failed for doc %s: %s", document_id, e)
+        return retired
 
     # -- excel population ----------------------------------------------------
 

@@ -40,6 +40,15 @@ const ComplianceProcessNode = {
             objTemplate.value = currentConfig.agentObjectiveTemplate;
         }
 
+        // "Replace older versions in the agent's knowledge": on unless this node was
+        // saved with it switched off. A node saved before the option existed has no
+        // value for it and shows ticked, which is how the engine treats it.
+        const retireChk = document.getElementById('cp-retire-superseded');
+        if (retireChk) {
+            const saved = currentConfig.retireSupersededVersions;
+            retireChk.checked = !(saved === false || saved === 'false');
+        }
+
         // Show agent options if onMissing is auto_create, and the
         // retailer-agent-override row only when in per_retailer mode.
         this._toggleAgentOptions();

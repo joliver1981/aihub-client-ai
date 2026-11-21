@@ -1457,6 +1457,17 @@ const nodeConfigTemplates = {
                     <small class="form-text text-muted">Rare. Override which agent's knowledge base receives this document.</small>
                 </div>
 
+                <!-- Older versions of the same manual -->
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" name="retireSupersededVersions" id="cp-retire-superseded" checked>
+                        <label class="form-check-label fw-bold" for="cp-retire-superseded">Replace older versions in the agent's knowledge</label>
+                    </div>
+                    <small class="form-text text-muted">
+                        When this document is a newer version of a manual the agent already holds for this retailer, the older version is taken out of the agent's knowledge, so answers come from the current manual only. The older document and its version record are kept. A document that is older than the version the agent already holds is recorded but not added to the agent's knowledge. Untick to keep every version.
+                    </small>
+                </div>
+
                 <!-- Optional Excel template -->
                 <div class="mb-3">
                     <label class="form-label fw-bold">Excel Template Path <small class="text-muted">(optional)</small></label>
@@ -1473,7 +1484,8 @@ const nodeConfigTemplates = {
                     <small class="form-text text-muted">
                         Stores the result for downstream nodes. Access via
                         \${complianceResult.version_number}, \${complianceResult.requirements_count},
-                        \${complianceResult.is_duplicate}, \${complianceResult.change_summary}, etc.
+                        \${complianceResult.is_duplicate}, \${complianceResult.change_summary},
+                        \${complianceResult.retired_versions}, \${complianceResult.superseded_by}, etc.
                     </small>
                 </div>
             </div>
@@ -1490,6 +1502,7 @@ const nodeConfigTemplates = {
             retailerAgentOverrideId: '',
             agentObjectiveTemplate: '',
             agentOverrideId: '',
+            retireSupersededVersions: true,
             excelTemplatePath: '',
             outputVariable: 'complianceResult'
         }

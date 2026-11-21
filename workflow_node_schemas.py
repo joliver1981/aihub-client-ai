@@ -253,7 +253,8 @@ NODE_CONFIG_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "Compliance Process": {
         "known": {"agentMode", "agentObjectiveTemplate", "agentOverrideId", "autoCreateAgent",
                   "excelTemplatePath", "inputVariable", "onMissing", "retailerAgentOverrideId",
-                  "retailerNameVar", "routingMode", "setCategoryVar", "setId", "retailerId"},
+                  "retailerNameVar", "routingMode", "setCategoryVar", "setId", "retailerId",
+                  "retireSupersededVersions"},
     },
     "Compliance Excel Export": {
         "known": {"outputPath", "setId", "sourceMode", "versionVariable", "retailerId"},
