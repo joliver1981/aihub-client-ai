@@ -565,10 +565,14 @@ def _fmt_agent(agent: dict, knowledge: Optional[list] = None,
                 extra = ", ".join(str(x) for x in (k.get("document_type"),
                                                    f"{k.get('page_count')} pages"
                                                    if k.get("page_count") else None) if x)
+                attrs = k.get("attributes") or {}
+                attr_txt = ("; ".join(f"{n}: {v}" for n, v in attrs.items())
+                            if isinstance(attrs, dict) and attrs else "")
                 lines.append(f"  - [knowledge_id {k.get('knowledge_id')}] "
                              f"{k.get('filename')}" + (f" ({extra})" if extra else "")
                              + (f" — {k.get('description')}" if k.get("description")
-                                and k.get("description") != k.get("filename") else ""))
+                                and k.get("description") != k.get("filename") else "")
+                             + (f" [attributes — {attr_txt}]" if attr_txt else ""))
             if len(knowledge) > 40:
                 lines.append(f"  … {len(knowledge) - 40} more")
         else:
@@ -1310,7 +1314,11 @@ async def _post_multipart(path: str, fields: dict, filename: str, payload: bytes
     "a server file path, an /api/files/ link of a file delivered in this chat, "
     "or a chat attachment. Runs the document pipeline synchronously — large "
     "PDFs take minutes; a BUSY reply means a queue, not a failure. Developer+ "
-    "only. Verified by read-back (returns the knowledge_id).",
+    "only. Verified by read-back (returns the knowledge_id). Optional "
+    "`attributes` (e.g. {\"customer\": \"Acme\"}) are attached to the document: "
+    "when an agent holds documents of several customers, a question that names "
+    "one is answered from that customer's documents only — the file name does "
+    "not matter.",
     {
         "type": "object",
         "properties": {
@@ -1319,6 +1327,10 @@ async def _post_multipart(path: str, fields: dict, filename: str, payload: bytes
                      "description": "Server path, /api/files/<id> link, or attachment"},
             "description": {"type": "string",
                             "description": "Optional label shown on the Builder page"},
+            "attributes": {"type": "object",
+                           "description": "Optional name/value pairs for the document, "
+                                          "e.g. {\"customer\": \"Acme\", \"region\": \"East\"}",
+                           "additionalProperties": {"type": "string"}},
         },
         "required": ["agent", "path"],
         "additionalProperties": False,
@@ -1349,9 +1361,12 @@ async def add_agent_knowledge(args: dict[str, Any]) -> dict[str, Any]:
         description = str(args.get("description") or "").strip() or filename
         before = await _knowledge_list(agent["id"]) or []
         before_docs = {str(k.get("document_id")) for k in before}
+        fields = {"agent_id": str(agent["id"]), "description": description}
+        wanted_attrs = args.get("attributes")
+        if isinstance(wanted_attrs, dict) and wanted_attrs:
+            fields["attributes"] = json.dumps({str(k): str(v) for k, v in wanted_attrs.items()})
         data, status, retry_after = await _post_multipart(
-            "/add/agent_knowledge",
-            {"agent_id": str(agent["id"]), "description": description},
+            "/add/agent_knowledge", fields,
             filename, payload, _KNOWLEDGE_READ_TIMEOUT)
         if status == 503:
             msg = data.get("message") if isinstance(data, dict) else None
@@ -1392,10 +1407,82 @@ async def add_agent_knowledge(args: dict[str, Any]) -> dict[str, Any]:
                      f"{hit.get('knowledge_id')}, document {hit.get('document_id')}"
                      + (f" ({extra})" if extra else "")
                      + f". The agent now has {len(after)} knowledge document(s) "
-                     "(verified by read-back).")
+                     "(verified by read-back)."
+                     + _attributes_report(fields.get("attributes"), hit, data))
     except Exception as e:
         logger.error(f"add_agent_knowledge failed: {e}")
         return _text(f"Knowledge upload failed: {e}", is_error=True)
+
+
+def _attributes_report(requested_json, hit: dict, data: dict) -> str:
+    """What to say about attributes after an upload: only what the read-back shows."""
+    if not requested_json:
+        return ""
+    have = hit.get("attributes") if isinstance(hit, dict) else None
+    if isinstance(have, dict) and have:
+        return " Attributes on the document: " + "; ".join(f"{n}: {v}" for n, v in have.items()) + "."
+    warn = data.get("attributes_warning") if isinstance(data, dict) else None
+    return " Its attributes were NOT stored" + (f" ({warn})" if warn else "") + " — set them with set_agent_knowledge_attributes."
+
+
+@tool(
+    "set_agent_knowledge_attributes",
+    "Attach ATTRIBUTES to a knowledge document a General Agent already holds — "
+    "name/value pairs such as customer, region, department. Needs the "
+    "knowledge_id from get_agent_config. The attribute `customer` steers the "
+    "agent's knowledge search: when its documents belong to several customers, "
+    "a question that names one is answered from that customer's documents only, "
+    "whatever the files are called. Other attributes are stored and shown with "
+    "the document. By default the given names are set and the rest kept; give a "
+    "name an empty value to remove it; replace=true leaves exactly the given "
+    "attributes. Developer+ only. Verified by read-back.",
+    {
+        "type": "object",
+        "properties": {
+            "knowledge_id": {"type": "integer", "description": "From get_agent_config"},
+            "attributes": {"type": "object",
+                           "description": "e.g. {\"customer\": \"Acme\"}; an empty value removes that name",
+                           "additionalProperties": {"type": "string"}},
+            "replace": {"type": "boolean",
+                        "description": "true = the document ends up with exactly these attributes"},
+        },
+        "required": ["knowledge_id", "attributes"],
+        "additionalProperties": False,
+    },
+)
+async def set_agent_knowledge_attributes(args: dict[str, Any]) -> dict[str, Any]:
+    gate = _role_gate(2, "Setting attributes on knowledge")
+    if gate:
+        return gate
+    try:
+        kid = int(args.get("knowledge_id") or 0)
+        attrs = args.get("attributes")
+        if not isinstance(attrs, dict):
+            return _text("Give the attributes as an object, e.g. {\"customer\": \"Acme\"}.",
+                         is_error=True)
+        data, status = await _post(f"/api/agent_knowledge/{kid}/attributes",
+                                   {"attributes": {str(k): str(v if v is not None else "")
+                                                   for k, v in attrs.items()},
+                                    "replace": bool(args.get("replace"))}, timeout=60)
+        if status >= 400 or not isinstance(data, dict) or data.get("status") != "success":
+            msg = data.get("message", data) if isinstance(data, dict) else data
+            return _text(f"Attributes NOT changed (HTTP {status}): {msg}", is_error=True)
+        try:
+            check = await _get(f"/api/agent_knowledge/{kid}/attributes")
+        except Exception as read_err:
+            logger.warning(f"attributes read-back failed for knowledge {kid}: {read_err}")
+            check = None
+        now = check.get("attributes") if isinstance(check, dict) else None
+        if not isinstance(now, dict):
+            return _text(f"The platform reported success for knowledge_id {kid} but the "
+                         "attributes could not be read back — report as UNVERIFIED.", is_error=True)
+        steering = check.get("steering") or []
+        shown = "; ".join(f"{n}: {v}" for n, v in now.items()) or "(none)"
+        return _text(f"knowledge_id {kid} now carries: {shown} (verified by read-back)."
+                     + (f" Attributes that steer the agent's search: {', '.join(steering)}." if steering else ""))
+    except Exception as e:
+        logger.error(f"set_agent_knowledge_attributes failed: {e}")
+        return _text(f"Setting attributes failed: {e}", is_error=True)
 
 
 @tool(
@@ -1523,5 +1610,6 @@ AGENT_BUILDER_TOOLS = [
     list_agents, get_agent_config, get_agent_builder_options,
     create_general_agent, update_general_agent, set_agent_tools,
     set_agent_document_types, delete_general_agent,
-    add_agent_knowledge, delete_agent_knowledge, assign_agent_groups,
+    add_agent_knowledge, set_agent_knowledge_attributes, delete_agent_knowledge,
+    assign_agent_groups,
 ]

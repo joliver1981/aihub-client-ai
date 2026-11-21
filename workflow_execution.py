@@ -1712,6 +1712,9 @@ Guidelines:
             retireSupersededVersions (bool) — when the document is a newer version of a manual
                                      the agent already holds for this retailer, take the older
                                      version out of the agent's knowledge (default: on)
+            knowledgeAttributes    (str|dict) — optional attributes attached to the document
+                                     ("region=East; department=Toys" or a JSON object; variables
+                                     allowed). The retailer is always attached as "customer".
             outputVariable         (str)  — name of variable to store the result (default: complianceResult)
 
         Output variable contains:
@@ -1835,6 +1838,31 @@ Guidelines:
             else:
                 retire_superseded = bool(retire_raw)
 
+            # Optional attributes for the document ("region=East; department=Toys", one
+            # name=value per line or ';', or a JSON object). Variables are filled in.
+            # The retailer is attached as "customer" by the pipeline itself.
+            knowledge_attributes = None
+            attrs_raw = node_config.get('knowledgeAttributes')
+            if attrs_raw not in (None, '', {}):
+                try:
+                    import knowledge_scope
+                    if isinstance(attrs_raw, dict):
+                        attrs_raw = {k: self._replace_variable_references(v, variables)
+                                     if isinstance(v, str) else v for k, v in attrs_raw.items()}
+                    else:
+                        attrs_raw = self._replace_variable_references(str(attrs_raw), variables)
+                    knowledge_attributes = knowledge_scope.validate_attributes(attrs_raw)
+                    # an unfilled ${variable} is not a value: leave that attribute out and say so
+                    unfilled = [k for k, v in knowledge_attributes.items() if '${' in v]
+                    for k in unfilled:
+                        knowledge_attributes.pop(k)
+                    if unfilled:
+                        self.log_execution(
+                            execution_id, node_id, "warning",
+                            f"Attributes not attached (their variable had no value): {', '.join(unfilled)}")
+                except ValueError as attr_err:
+                    raise ValueError(f"Attributes for the document are not valid: {attr_err}")
+
             engine = ComplianceEngine()
             result = engine.process_compliance_document(
                 file_path=file_path,
@@ -1844,6 +1872,7 @@ Guidelines:
                 agent_id=agent_id,
                 excel_template_path=excel_template,
                 retire_superseded=retire_superseded,
+                knowledge_attributes=knowledge_attributes,
             )
 
             # ----- 6. Build output variable payload -----

@@ -579,6 +579,121 @@ def test_add_agent_knowledge_rejects_unsupported_and_relays_busy(tmp_path=None):
         CURRENT_USER.reset(tok)
 
 
+# ---------------------------------------------------------------------------
+# Attributes on knowledge documents
+# ---------------------------------------------------------------------------
+
+def test_agent_config_shows_the_attributes_of_each_document():
+    out = B._fmt_agent(_agent(), [
+        {"knowledge_id": 12, "filename": "scan_0042.pdf", "document_type": "vendor_guide", "page_count": 9,
+         "description": "scan_0042.pdf", "attributes": {"customer": "Acme Retail", "region": "East"}},
+        {"knowledge_id": 13, "filename": "notes.pdf", "attributes": {}}], None)
+    assert "scan_0042.pdf (vendor_guide, 9 pages) [attributes — customer: Acme Retail; region: East]" in out
+    line13 = next(ln for ln in out.splitlines() if "knowledge_id 13" in ln)
+    assert "attributes" not in line13
+
+
+def test_set_knowledge_attributes_reports_what_the_read_back_shows():
+    tok = _as(2)
+    posts = []
+
+    async def fake_post(path, body, timeout=None):
+        posts.append((path, body))
+        return {"status": "success", "attributes": {"customer": "Acme Retail"}}, 200
+
+    async def fake_get(path, timeout=None):
+        assert path == "/api/agent_knowledge/12/attributes"
+        return {"status": "success", "attributes": {"customer": "Acme Retail"}, "steering": ["customer"]}
+
+    try:
+        with mock.patch.object(B, "_post", fake_post), mock.patch.object(B, "_get", fake_get):
+            res = _run(B.set_agent_knowledge_attributes.handler(
+                {"knowledge_id": 12, "attributes": {"customer": "Acme Retail", "region": None}, "replace": True}))
+        assert not res.get("is_error"), _txt(res)
+        assert posts == [("/api/agent_knowledge/12/attributes",
+                          {"attributes": {"customer": "Acme Retail", "region": ""}, "replace": True})]
+        assert "now carries: customer: Acme Retail (verified by read-back)" in _txt(res)
+        assert "steer the agent's search: customer" in _txt(res)
+    finally:
+        CURRENT_USER.reset(tok)
+
+
+def test_set_knowledge_attributes_failures_are_not_reported_as_done():
+    tok = _as(2)
+
+    async def refused(path, body, timeout=None):
+        return {"status": "error", "message": "Attributes are not valid: too long"}, 400
+
+    async def accepted(path, body, timeout=None):
+        return {"status": "success"}, 200
+
+    async def unreadable(path, timeout=None):
+        raise RuntimeError("main app unreachable")
+
+    try:
+        with mock.patch.object(B, "_post", refused):
+            res = _run(B.set_agent_knowledge_attributes.handler({"knowledge_id": 12, "attributes": {"customer": "x"}}))
+            assert res.get("is_error") and "NOT changed" in _txt(res) and "too long" in _txt(res)
+        with mock.patch.object(B, "_post", accepted), mock.patch.object(B, "_get", unreadable):
+            res = _run(B.set_agent_knowledge_attributes.handler({"knowledge_id": 12, "attributes": {"customer": "x"}}))
+            assert res.get("is_error") and "UNVERIFIED" in _txt(res)
+        res = _run(B.set_agent_knowledge_attributes.handler({"knowledge_id": 12, "attributes": "customer=x"}))
+        assert res.get("is_error") and "as an object" in _txt(res)
+    finally:
+        CURRENT_USER.reset(tok)
+    tok = _as(1)
+    try:
+        res = _run(B.set_agent_knowledge_attributes.handler({"knowledge_id": 12, "attributes": {"customer": "x"}}))
+        assert res.get("is_error") and "Developer" in _txt(res)
+    finally:
+        CURRENT_USER.reset(tok)
+
+
+def test_add_knowledge_sends_attributes_and_reports_only_what_was_stored():
+    import tempfile
+    tok = _as(2)
+    current = _agent()
+    d = tempfile.mkdtemp()
+    good = os.path.join(d, "scan_0042.txt")
+    open(good, "wb").write(b"carton rules")
+    sent = {}
+    listing = {"rows": []}
+
+    async def fake_resolve(ref):
+        return current, None
+
+    async def fake_multipart(path, fields, filename, payload, read_timeout):
+        sent.update(fields)
+        listing["rows"] = [{"knowledge_id": 30, "document_id": "doc-9", "filename": filename,
+                            "attributes": listing["stored"]}]
+        return {"status": "success", "document_id": "doc-9",
+                **({} if listing["stored"] else {"attributes_warning": "could not be stored"})}, 200, None
+
+    async def fake_knowledge(agent_id):
+        return list(listing["rows"])
+
+    try:
+        with mock.patch.object(B, "_resolve", fake_resolve), \
+             mock.patch.object(B, "_post_multipart", fake_multipart), \
+             mock.patch.object(B, "_knowledge_list", fake_knowledge):
+            listing["stored"] = {"customer": "Acme Retail"}
+            res = _run(B.add_agent_knowledge.handler(
+                {"agent": "968", "path": good, "attributes": {"Customer": "Acme Retail"}}))
+            assert not res.get("is_error"), _txt(res)
+            assert sent["attributes"] == '{"Customer": "Acme Retail"}'
+            assert "Attributes on the document: customer: Acme Retail." in _txt(res)
+            listing["stored"], listing["rows"] = {}, []
+            res = _run(B.add_agent_knowledge.handler(
+                {"agent": "968", "path": good, "attributes": {"customer": "Acme Retail"}}))
+            assert "attributes were NOT stored (could not be stored)" in _txt(res)
+            sent.clear()
+            listing["stored"], listing["rows"] = {}, []
+            res = _run(B.add_agent_knowledge.handler({"agent": "968", "path": good}))
+            assert "attributes" not in sent and "ttributes" not in _txt(res)
+    finally:
+        CURRENT_USER.reset(tok)
+
+
 if __name__ == "__main__":
     if not HAVE_SDK:
         print(f"SKIP-ALL: {_IMPORT_ERR}")

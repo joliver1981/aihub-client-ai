@@ -254,7 +254,7 @@ NODE_CONFIG_SCHEMAS: Dict[str, Dict[str, Any]] = {
         "known": {"agentMode", "agentObjectiveTemplate", "agentOverrideId", "autoCreateAgent",
                   "excelTemplatePath", "inputVariable", "onMissing", "retailerAgentOverrideId",
                   "retailerNameVar", "routingMode", "setCategoryVar", "setId", "retailerId",
-                  "retireSupersededVersions"},
+                  "retireSupersededVersions", "knowledgeAttributes"},
     },
     "Compliance Excel Export": {
         "known": {"outputPath", "setId", "sourceMode", "versionVariable", "retailerId"},

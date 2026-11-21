@@ -1468,6 +1468,16 @@ const nodeConfigTemplates = {
                     </small>
                 </div>
 
+                <!-- Attributes attached to the document -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Document Attributes <small class="text-muted">(optional)</small></label>
+                    <input type="text" class="form-control" name="knowledgeAttributes"
+                        placeholder="region=East; department=\${department}">
+                    <small class="form-text text-muted">
+                        The retailer is always attached to the document as its <b>customer</b>, so the agent searches only that customer's documents when a question names it — whatever the file is called. Add further attributes here as name=value pairs separated by ";". Variables are allowed.
+                    </small>
+                </div>
+
                 <!-- Optional Excel template -->
                 <div class="mb-3">
                     <label class="form-label fw-bold">Excel Template Path <small class="text-muted">(optional)</small></label>
@@ -1503,6 +1513,7 @@ const nodeConfigTemplates = {
             agentObjectiveTemplate: '',
             agentOverrideId: '',
             retireSupersededVersions: true,
+            knowledgeAttributes: '',
             excelTemplatePath: '',
             outputVariable: 'complianceResult'
         }

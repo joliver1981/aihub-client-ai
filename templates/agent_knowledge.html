@@ -78,6 +78,11 @@
                                     </div>
                                     <small class="form-text text-muted">Supported formats: PDF, DOCX, TXT, JPG, PNG</small>
                                 </div>
+                                <div class="form-group">
+                                    <label for="knowledge-attributes"><strong>Attributes:</strong> <small class="text-muted">(optional)</small></label>
+                                    <input type="text" id="knowledge-attributes" name="attributes" class="form-control" placeholder="customer=Acme; region=East">
+                                    <small class="form-text text-muted">name=value pairs separated by ";". When documents of several customers are held, a question that names a customer is answered from that customer's documents only. The file name does not matter.</small>
+                                </div>
                                 <button type="submit" class="btn btn-success btn-block" id="add-knowledge-btn">
                                     <i class="fas fa-plus mr-1"></i> Add Document
                                 </button>
@@ -105,6 +110,11 @@
                             <label for="edit-knowledge-description"><strong>Description:</strong></label>
                             <textarea id="edit-knowledge-description" name="description" class="form-control" rows="3"></textarea>
                             <input type="hidden" id="edit-knowledge-id">
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-knowledge-attributes"><strong>Attributes:</strong> <small class="text-muted">(optional)</small></label>
+                            <input type="text" id="edit-knowledge-attributes" name="attributes" class="form-control" placeholder="customer=Acme; region=East">
+                            <small class="form-text text-muted">name=value pairs separated by ";". What is in this box is what the document will carry; empty it to remove them.</small>
                         </div>
                     </form>
                 </div>
@@ -257,8 +267,9 @@
                             </div>
                             <p class="mb-1">${item.description || 'No description provided'}</p>
                             <small>Type: ${item.document_type || 'Unknown'} | Pages: ${item.page_count || 'N/A'}</small>
+                            ${attributeBadges(item)}
                             <div class="mt-2">
-                                <button class="btn btn-sm btn-outline-primary edit-knowledge-btn" data-id="${item.knowledge_id}" data-description="${item.description || ''}">
+                                <button class="btn btn-sm btn-outline-primary edit-knowledge-btn" data-id="${item.knowledge_id}" data-description="${item.description || ''}" data-attributes="${escapeHtml(attributesToText(item.attributes))}">
                                     <i class="fas fa-edit"></i> Edit
                                 </button>
                                 <button class="btn btn-sm btn-outline-danger delete-knowledge-btn" data-id="${item.knowledge_id}" data-name="${item.filename}">
@@ -274,7 +285,7 @@
                         btn.addEventListener('click', function() {
                             const knowledgeId = this.getAttribute('data-id');
                             const description = this.getAttribute('data-description');
-                            openEditModal(knowledgeId, description);
+                            openEditModal(knowledgeId, description, this.getAttribute('data-attributes') || '');
                         });
                     });
                     
@@ -312,7 +323,11 @@
         formData.append('file', fileInput.files[0]);
         formData.append('agent_id', agentId);
         formData.append('description', descriptionInput.value.trim() || fileInput.files[0].name);
-        
+        const attributesInput = document.getElementById('knowledge-attributes');
+        if (attributesInput && attributesInput.value.trim()) {
+            formData.append('attributes', attributesInput.value.trim());
+        }
+
         // Disable button and show loading state
         addButton.disabled = true;
         addButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
@@ -330,6 +345,9 @@
             console.log(`Here is the status: ${data.status}`);
             if (data.status === 'success') {
                 showToast('Knowledge document added successfully', 'success');
+                if (data.attributes_warning) {
+                    showToast(data.attributes_warning, 'warning');
+                }
                 console.log(`Added agent knowledge, reseting form and loading knowledge documents...`);
                 // Reset form
                 form.reset();
@@ -354,15 +372,50 @@
         });
     }
     
-    function openEditModal(knowledgeId, description) {
+    // ---- Attributes (customer, region, ...) on a knowledge document ----
+    function escapeHtml(text) {
+        return String(text == null ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function attributesToText(attributes) {
+        if (!attributes) return '';
+        return Object.keys(attributes).map(name => `${name}=${attributes[name]}`).join('; ');
+    }
+
+    function attributeBadges(item) {
+        const attributes = item.attributes || {};
+        const names = Object.keys(attributes);
+        if (!names.length) return '';
+        const recorded = item.attributes_recorded || [];
+        const badges = names.map(name => {
+            const fromRecord = recorded.indexOf(name) !== -1;
+            const title = fromRecord ? ' title="On record from the compliance process that added this document"' : '';
+            return `<span class="badge badge-info mr-1"${title}>${escapeHtml(name)}: ${escapeHtml(attributes[name])}</span>`;
+        }).join('');
+        return `<div class="mt-1">${badges}</div>`;
+    }
+
+    function openEditModal(knowledgeId, description, attributesText) {
         document.getElementById('edit-knowledge-id').value = knowledgeId;
         document.getElementById('edit-knowledge-description').value = description;
+        const attributesInput = document.getElementById('edit-knowledge-attributes');
+        attributesInput.value = attributesText || '';
+        // Send the attributes only when the user changed them, so saving a
+        // description never rewrites what is attached to the document.
+        attributesInput.setAttribute('data-original', attributesInput.value);
         $('#edit-knowledge-modal').modal('show');
     }
-    
+
     function updateKnowledgeDescription() {
         const knowledgeId = document.getElementById('edit-knowledge-id').value;
         const description = document.getElementById('edit-knowledge-description').value;
+        const attributesInput = document.getElementById('edit-knowledge-attributes');
+        const payload = { description: description };
+        if (attributesInput && attributesInput.value !== (attributesInput.getAttribute('data-original') || '')) {
+            payload.attributes = attributesInput.value;
+        }
         const saveButton = document.getElementById('save-knowledge-btn');
         
         // Disable button and show loading state
@@ -374,7 +427,7 @@
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ description: description })
+            body: JSON.stringify(payload)
         })
         .then(response => response.json())
         .then(data => {

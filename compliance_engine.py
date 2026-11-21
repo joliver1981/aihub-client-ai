@@ -172,6 +172,7 @@ class ComplianceEngine:
         agent_id: Optional[int] = None,
         excel_template_path: Optional[str] = None,
         retire_superseded: Optional[bool] = None,
+        knowledge_attributes: Optional[Dict[str, Any]] = None,
     ) -> ProcessingResult:
         """Full pipeline: ingest -> extract -> version -> knowledge -> excel.
 
@@ -179,6 +180,11 @@ class ComplianceEngine:
         already holds for this retailer, take the older version out of the agent's
         knowledge (and do not add a document that is OLDER than one the agent holds).
         None = the platform setting COMPLIANCE_RETIRE_SUPERSEDED_VERSIONS (on by default).
+
+        knowledge_attributes: optional name/value pairs attached to the document
+        (region, department, ...). The retailer is always attached as "customer" —
+        from the run, never from the file name — so the agent's knowledge search can
+        be limited to the customer a question is about (knowledge_scope.py).
         """
         try:
             doc_hash = self._file_hash(file_path)
@@ -207,6 +213,7 @@ class ComplianceEngine:
             # writes it, so without this line no file was ever recognised as a
             # duplicate: every re-sent manual became a new version.
             self._store_document_hash(document_id, doc_hash)
+            self._attach_attributes(document_id, retailer_id, knowledge_attributes)
             version_id, version_number = self._create_version(
                 set_id, document_id, uploaded_by, doc_hash
             )
@@ -912,6 +919,33 @@ class ComplianceEngine:
             conn.close()
 
     # -- knowledge indexing --------------------------------------------------
+
+    def _attach_attributes(self, document_id: str, retailer_id: int,
+                           extra: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, str]]:
+        """Attach the retailer as the document's "customer", plus any attributes the
+        run supplied. The customer comes from the run (the workflow knows whose folder
+        the file came from), so it does not depend on what the file is called or on
+        what its pages say. Non-fatal: a document that cannot be tagged is still
+        processed, and its customer can still be read from the compliance records.
+        An attribute the run supplies never overrides the customer."""
+        try:
+            import knowledge_scope
+            attrs = knowledge_scope.clean_attributes(extra)
+            retailer = self.get_retailer(retailer_id) or {}
+            name = " ".join(str(retailer.get("name") or "").split())
+            if name:
+                attrs["customer"] = name
+            if not attrs:
+                return None
+            stored = knowledge_scope.set_document_attributes(document_id, attrs)
+            if stored is None:
+                logger.warning("Attributes NOT stored for compliance document %s", document_id)
+            else:
+                logger.info("Attributes on compliance document %s: %s", document_id, stored)
+            return stored
+        except Exception as e:
+            logger.warning("Attaching attributes to %s failed (non-fatal): %s", document_id, e)
+            return None
 
     def _index_to_knowledge(self, agent_id: int, document_id: str, uploaded_by: int):
         """Index an already-ingested compliance document into the agent's

@@ -11,6 +11,14 @@ from CommonUtils import get_db_connection, get_db_connection_string, get_app_pat
 from agent_knowledge_routes import process_document_as_knowledge
 from TextChunker_LLM import TextChunker
 from typing import Optional, List, Dict
+import contextvars
+
+# Attribute scope of the search that is running (see knowledge_scope.py): the document
+# ids it may draw on, or None for the whole agent (the behaviour before scoping
+# existed). Set by the knowledge tool around one scoped search; read by the vector
+# search and the summary scan so that every retrieval path honours the same scope.
+_SCOPE_DOCUMENT_IDS: "contextvars.ContextVar[Optional[frozenset]]" = contextvars.ContextVar(
+    'knowledge_scope_document_ids', default=None)
 
 
 def _skr_trace(msg):
@@ -491,8 +499,11 @@ def get_all_knowledge_summaries(agent_id: int, user_id: str = None) -> List[Dict
         
         cursor.execute(query, params)
         
+        scope_ids = _SCOPE_DOCUMENT_IDS.get()        # attribute scope: only these documents
         summaries = []
         for doc_id, filename, doc_type, metadata_json in cursor.fetchall():
+            if scope_ids is not None and str(doc_id) not in scope_ids:
+                continue
             summary = ""
             if metadata_json:
                 try:
@@ -1342,6 +1353,11 @@ def search_knowledge_vectors(query: str, agent_id: int, user_id: str = None,
         # retrieval must not serve them. FANOUT is already scoped by the caller's
         # is_active=1 document list; this covers NEEDLE and AGGREGATE. Fails OPEN
         # when the SQL lookup is unavailable.
+        # Attribute scope (knowledge_scope): when the search is limited to the documents
+        # of one customer, the semantic channel is limited to them too. None = no scope.
+        scope_ids = _SCOPE_DOCUMENT_IDS.get()
+        allowed_ids = None if scope_ids is None else {str(d) for d in scope_ids}
+
         if getattr(cfg, 'KNOWLEDGE_FILTER_INACTIVE_VECTORS', True):
             active_ids = _get_active_knowledge_document_ids(agent_id)
             if active_ids is not None:
@@ -1351,7 +1367,13 @@ def search_knowledge_vectors(query: str, agent_id: int, user_id: str = None,
                         f"returning no vector results"
                     )
                     return []
-                and_clauses.append({'document_id': {'$in': sorted(active_ids)}})
+                allowed_ids = set(active_ids) if allowed_ids is None else (allowed_ids & set(active_ids))
+
+        if allowed_ids is not None:
+            if not allowed_ids:
+                _skr_trace(f"Scope leaves no searchable document for agent {agent_id} — no vector results")
+                return []
+            and_clauses.append({'document_id': {'$in': sorted(allowed_ids)}})
 
         filters = {'$and': and_clauses}
 
@@ -2996,7 +3018,14 @@ class KnowledgeTool:
             """
             Search through documents uploaded to this agent's knowledge base.
             Use this tool when you need to find specific information from documents that were provided to you.
-            
+
+            Documents can belong to different customers. Whose a document is, is attached to the document
+            itself and does not depend on its file name. When the user names a customer in ANY form (a short
+            name, an abbreviation, initials, a misspelling), call this tool with the question: it matches the
+            name to the customers on file, searches only that customer's documents and says whose each
+            passage is. Do not ask the user which file belongs to a customer, and do not decide it from file
+            names.
+
             Args:
                 query: The search query or question to look for in the agent's knowledge documents
                 
@@ -3005,112 +3034,159 @@ class KnowledgeTool:
             """
             try:
                 # Get agent's knowledge documents (filtered by user for isolation)
-                documents = get_agent_knowledge_documents(self.agent_id, self.user_id)
-                if not documents:
+                all_documents = get_agent_knowledge_documents(self.agent_id, self.user_id)
+                if not all_documents:
                     return "No knowledge documents available for this agent."
 
-                document_ids = [doc['document_id'] for doc in documents]
-
-                # Pre-flight: pages AND chars in one query — the routing gate is
-                # measured in both (pages alone was a bad proxy for context size)
-                total_pages, total_chars = _measure_agent_knowledge_size(self.agent_id, self.user_id)
-                threshold = cfg.KNOWLEDGE_BRUTE_FORCE_PAGE_THRESHOLD
-
-                _skr_trace(
-                    f"Knowledge routing: {total_pages} pages, {total_chars} chars, "
-                    f"threshold={threshold}, char_budget={getattr(cfg, 'KNOWLEDGE_BRUTE_FORCE_CHAR_BUDGET', 400000)}, "
-                    f"smart={cfg.KNOWLEDGE_ENABLE_SMART_RETRIEVAL}"
-                )
-
-                if _brute_force_within_budget(total_pages, total_chars):
-                    # Brute force: small enough to send everything — load and dump uncapped
-                    _skr_trace(f"PATH: BRUTE FORCE ({total_pages} pages, {total_chars} chars within budget)")
-                    logging.info(f"Knowledge brute force: {total_pages} pages / {total_chars} chars within budget")
-                    document_contents = _load_agent_knowledge_contents(document_ids, documents)
-                    if not document_contents:
-                        return "No content found in the agent's knowledge documents."
-                    return _format_knowledge_response(document_contents, apply_caps=False)
-                elif cfg.KNOWLEDGE_ENABLE_SMART_RETRIEVAL:
-                    # Smart retrieval — defer text loading to fallback paths via lazy loader
-                    _skr_trace(f"PATH: SMART RETRIEVAL ({total_pages} pages / {total_chars} chars over threshold or budget)")
-                    logging.info(f"Knowledge smart retrieval: {total_pages} pages / {total_chars} chars over threshold or budget")
-                    # Snapshot chat history AND the literal user input so the
-                    # LLM doc detector sees the actual user message — not just
-                    # the agent's paraphrased tool query (which often strips
-                    # the document name).
-                    chat_history_snapshot = None
-                    latest_user_input_snapshot = None
-                    if self.get_chat_history is not None:
-                        try:
-                            chat_history_snapshot = self.get_chat_history()
-                        except Exception as e:
-                            logging.debug(f"get_chat_history callback raised, ignoring: {e}")
-                    if self.get_latest_user_input is not None:
-                        try:
-                            latest_user_input_snapshot = self.get_latest_user_input()
-                        except Exception as e:
-                            logging.debug(f"get_latest_user_input callback raised, ignoring: {e}")
-
-                    # ── Document-search re-core switch (P2) ──────────────────────
-                    # v2 runs only when the factory selects it (denylist → allowlist
-                    # → DOC_SEARCH_ENGINE_DEFAULT, default 'legacy'); any v2 failure
-                    # records into the circuit breaker and falls back to the
-                    # untouched legacy path below. v2 may also return None to defer
-                    # (e.g. NEEDLE-shaped queries) — legacy then serves the query.
-                    _v2_no_fallback_error = None
+                # The conversation and the literal user message: the scope resolver
+                # and the document detector both read what the user actually typed,
+                # not only the agent's paraphrased search.
+                chat_history_snapshot = None
+                latest_user_input_snapshot = None
+                if self.get_chat_history is not None:
                     try:
-                        from doc_search_v2 import factory as _ds2_factory
-                        if _ds2_factory.resolve_engine(self.agent_id) == 'v2':
-                            try:
-                                from doc_search_v2.sweep import knowledge_search_v2
-                                _v2_result = knowledge_search_v2(
-                                    query=query,
-                                    agent_id=self.agent_id,
-                                    user_id=self.user_id,
-                                    documents=documents,
-                                    chat_history=chat_history_snapshot,
-                                    latest_user_input=latest_user_input_snapshot,
-                                )
-                                if _v2_result is not None:
-                                    _ds2_factory.record_v2_success()
-                                    _engine = ('needle' if _v2_result.startswith('[Knowledge needle')
-                                               else 'sweep' if _v2_result.startswith('[Knowledge sweep')
-                                               else 'v2')
-                                    _skr_trace(f"PATH: DOC_SEARCH_V2 ({_engine})")
-                                    return _v2_result
-                                _skr_trace("doc_search_v2 deferred — serving via legacy")
-                            except Exception as _v2_err:
-                                _ds2_factory.record_v2_failure()
-                                logging.warning(f"doc_search_v2 failed, falling back to legacy: {_v2_err}")
-                                if not getattr(cfg, 'DOC_SEARCH_V2_FALLBACK', True):
-                                    _v2_no_fallback_error = _v2_err
-                    except Exception as _switch_err:
-                        logging.warning(f"doc_search_v2 switch unavailable ({_switch_err}) — using legacy")
-                    if _v2_no_fallback_error is not None:
-                        raise _v2_no_fallback_error
+                        chat_history_snapshot = self.get_chat_history()
+                    except Exception as e:
+                        logging.debug(f"get_chat_history callback raised, ignoring: {e}")
+                if self.get_latest_user_input is not None:
+                    try:
+                        latest_user_input_snapshot = self.get_latest_user_input()
+                    except Exception as e:
+                        logging.debug(f"get_latest_user_input callback raised, ignoring: {e}")
 
-                    return smart_knowledge_retrieval(
-                        query=query,
-                        agent_id=self.agent_id,
-                        user_id=self.user_id,
-                        documents=documents,
-                        load_contents=lambda: _load_agent_knowledge_contents(document_ids, documents),
-                        doc_count_hint=len(documents),
-                        chat_history=chat_history_snapshot,
-                        latest_user_input=latest_user_input_snapshot,
-                    )
-                else:
-                    # Smart retrieval disabled — load and use capped brute force
-                    logging.info(f"Knowledge capped response: {total_pages} pages (smart retrieval disabled)")
-                    document_contents = _load_agent_knowledge_contents(document_ids, documents)
-                    return _format_knowledge_response(document_contents, apply_caps=True)
+                # ── Attribute scope (knowledge_scope.py) ─────────────────────
+                # When the documents carry a steering attribute (customer) with
+                # several values, the search runs per customer the question is
+                # about, over that customer's documents only. decision None =
+                # nothing to scope by, or scoping unavailable: search as before.
+                decision = None
+                try:
+                    import knowledge_scope
+                    decision = knowledge_scope.decide(
+                        self.agent_id, all_documents, query,
+                        original_user_input=latest_user_input_snapshot,
+                        chat_history=chat_history_snapshot)
+                except Exception as _scope_err:
+                    logging.warning(f"knowledge scope skipped ({_scope_err}) — searching all documents")
+                    decision = None
+
+                if decision and decision.get("groups"):
+                    parts = []
+                    for group in decision["groups"]:
+                        _skr_trace(f"SCOPE: {group['attribute']}={group['label']} "
+                                   f"({len(group['documents'])} of {len(all_documents)} documents)")
+                        token = _SCOPE_DOCUMENT_IDS.set(
+                            frozenset(str(d['document_id']) for d in group["documents"]))
+                        try:
+                            text = self._search_documents(query, group["documents"],
+                                                          chat_history_snapshot, latest_user_input_snapshot)
+                        finally:
+                            _SCOPE_DOCUMENT_IDS.reset(token)
+                        parts.append(knowledge_scope.format_group(group, text, decision["catalog"]))
+                    logging.info(
+                        f"Knowledge search for agent {self.agent_id} scoped to "
+                        + ", ".join(f"{g['label']} ({len(g['documents'])} docs)" for g in decision["groups"]))
+                    return knowledge_scope.format_scoped(decision, parts)
+
+                result = self._search_documents(query, all_documents,
+                                                chat_history_snapshot, latest_user_input_snapshot)
+                if decision:
+                    try:
+                        result = knowledge_scope.format_unscoped(decision, result, all_documents)
+                    except Exception as _fmt_err:
+                        logging.debug(f"knowledge scope note skipped: {_fmt_err}")
+                return result
 
             except Exception as e:
                 logging.error(f"Error retrieving agent knowledge: {str(e)}")
                 return f"Error accessing knowledge documents: {str(e)}"
 
         return search_agent_knowledge
-    
+
+    def _search_documents(self, query, documents, chat_history_snapshot, latest_user_input_snapshot):
+        """Run the knowledge search over the given documents (all of the agent's, or the
+        ones of one attribute scope) and return the evidence text. The engine choice and
+        every fallback are exactly what they were before scoping existed."""
+        document_ids = [doc['document_id'] for doc in documents]
+
+        # Pre-flight: pages AND chars in one query — the routing gate is
+        # measured in both (pages alone was a bad proxy for context size)
+        total_pages, total_chars = _measure_agent_knowledge_size(self.agent_id, self.user_id)
+        threshold = cfg.KNOWLEDGE_BRUTE_FORCE_PAGE_THRESHOLD
+
+        _skr_trace(
+            f"Knowledge routing: {total_pages} pages, {total_chars} chars, "
+            f"threshold={threshold}, char_budget={getattr(cfg, 'KNOWLEDGE_BRUTE_FORCE_CHAR_BUDGET', 400000)}, "
+            f"smart={cfg.KNOWLEDGE_ENABLE_SMART_RETRIEVAL}"
+        )
+
+        if _brute_force_within_budget(total_pages, total_chars):
+            # Brute force: small enough to send everything — load and dump uncapped
+            _skr_trace(f"PATH: BRUTE FORCE ({total_pages} pages, {total_chars} chars within budget)")
+            logging.info(f"Knowledge brute force: {total_pages} pages / {total_chars} chars within budget")
+            document_contents = _load_agent_knowledge_contents(document_ids, documents)
+            if not document_contents:
+                return "No content found in the agent's knowledge documents."
+            return _format_knowledge_response(document_contents, apply_caps=False)
+        elif cfg.KNOWLEDGE_ENABLE_SMART_RETRIEVAL:
+            # Smart retrieval — defer text loading to fallback paths via lazy loader
+            _skr_trace(f"PATH: SMART RETRIEVAL ({total_pages} pages / {total_chars} chars over threshold or budget)")
+            logging.info(f"Knowledge smart retrieval: {total_pages} pages / {total_chars} chars over threshold or budget")
+            # ── Document-search re-core switch (P2) ──────────────────────
+            # v2 runs only when the factory selects it (denylist → allowlist
+            # → DOC_SEARCH_ENGINE_DEFAULT, default 'legacy'); any v2 failure
+            # records into the circuit breaker and falls back to the
+            # untouched legacy path below. v2 may also return None to defer
+            # (e.g. NEEDLE-shaped queries) — legacy then serves the query.
+            _v2_no_fallback_error = None
+            try:
+                from doc_search_v2 import factory as _ds2_factory
+                if _ds2_factory.resolve_engine(self.agent_id) == 'v2':
+                    try:
+                        from doc_search_v2.sweep import knowledge_search_v2
+                        _v2_result = knowledge_search_v2(
+                            query=query,
+                            agent_id=self.agent_id,
+                            user_id=self.user_id,
+                            documents=documents,
+                            chat_history=chat_history_snapshot,
+                            latest_user_input=latest_user_input_snapshot,
+                        )
+                        if _v2_result is not None:
+                            _ds2_factory.record_v2_success()
+                            _engine = ('needle' if _v2_result.startswith('[Knowledge needle')
+                                       else 'sweep' if _v2_result.startswith('[Knowledge sweep')
+                                       else 'v2')
+                            _skr_trace(f"PATH: DOC_SEARCH_V2 ({_engine})")
+                            return _v2_result
+                        _skr_trace("doc_search_v2 deferred — serving via legacy")
+                    except Exception as _v2_err:
+                        _ds2_factory.record_v2_failure()
+                        logging.warning(f"doc_search_v2 failed, falling back to legacy: {_v2_err}")
+                        if not getattr(cfg, 'DOC_SEARCH_V2_FALLBACK', True):
+                            _v2_no_fallback_error = _v2_err
+            except Exception as _switch_err:
+                logging.warning(f"doc_search_v2 switch unavailable ({_switch_err}) — using legacy")
+            if _v2_no_fallback_error is not None:
+                raise _v2_no_fallback_error
+
+            return smart_knowledge_retrieval(
+                query=query,
+                agent_id=self.agent_id,
+                user_id=self.user_id,
+                documents=documents,
+                load_contents=lambda: _load_agent_knowledge_contents(document_ids, documents),
+                doc_count_hint=len(documents),
+                chat_history=chat_history_snapshot,
+                latest_user_input=latest_user_input_snapshot,
+            )
+        else:
+            # Smart retrieval disabled — load and use capped brute force
+            logging.info(f"Knowledge capped response: {total_pages} pages (smart retrieval disabled)")
+            document_contents = _load_agent_knowledge_contents(document_ids, documents)
+            return _format_knowledge_response(document_contents, apply_caps=True)
+
+
     def get_user_knowledge_tool(self):
         """Create a knowledge search tool for the agent"""
         

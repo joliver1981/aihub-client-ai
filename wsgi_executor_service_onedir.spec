@@ -157,6 +157,10 @@ a = Analysis(
         'cryptography',
         'bcrypt',
         'nacl',
+        # The Compliance node attaches the retailer to each document as its
+        # "customer" through this module (lazy import inside compliance_engine and
+        # workflow_execution; a build without it would skip the tagging silently).
+        'knowledge_scope',
     ] + all_collected_hiddenimports,
     hookspath=[],
     hooksconfig={},

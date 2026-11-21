@@ -2651,6 +2651,7 @@ Common patterns:
   * agentOverrideId: Numeric agent ID to use instead of the configured retailer/set agent (overrides everything)
   * retailerAgentOverrideId: Numeric agent ID to override the retailer-level agent only (only meaningful when agentMode is per_retailer)
   * retireSupersededVersions: Boolean, default true - when the document is a newer version of a manual the agent already holds for the retailer, the older version is taken out of the agent's knowledge; set false to keep every version
+  * knowledgeAttributes: Text, optional - attributes attached to the document as name=value pairs separated by ";" (for example "region=East; department=${department}"); the retailer is always attached as "customer" by the node itself, so do not add it here
   * outputVariable: Name for storing the routing/extraction result
   * continueOnError: Boolean true or false
 - Outputs: Routing/extraction result stored in the output variable""",

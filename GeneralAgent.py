@@ -3069,9 +3069,24 @@ class GeneralAgent():
 
             # Enhance system prompt to mention knowledge
             doc_descriptions = []
+            # Attributes attached to the documents (customer, region, ...), shown next
+            # to each one: a file name does not say whose document it is. Best effort —
+            # without them the list is what it always was.
+            doc_attributes = {}
+            try:
+                import knowledge_scope
+                doc_attributes = knowledge_scope.build_catalog(
+                    knowledge_docs,
+                    knowledge_scope.compliance_customers(
+                        [str(d.get('document_id') or '') for d in knowledge_docs]))
+            except Exception as _attr_err:
+                logger.debug(f"Agent {agent_id}: knowledge attributes not shown ({_attr_err})")
+                doc_attributes = {}
             for doc in knowledge_docs:
                 desc = doc.get('description') or doc.get('filename', 'Untitled')
-                doc_descriptions.append(f"- {doc['filename']}: {desc}")
+                _attrs = doc_attributes.get(str(doc.get('document_id') or ''), {})
+                _tag = (" [" + "; ".join(f"{k}: {v}" for k, v in _attrs.items()) + "]") if _attrs else ""
+                doc_descriptions.append(f"- {doc['filename']}: {desc}{_tag}")
             if doc_descriptions:
                 knowledge_prompt = "\n\n[Agent Knowledge Documents]\n"
                 knowledge_prompt += "You have access to the following knowledge documents:\n"
@@ -3089,6 +3104,17 @@ class GeneralAgent():
                 # hint so users can tell which document each fact came from.
                 knowledge_prompt += "\n\nWhen the same question is answered differently by multiple documents, list each answer with the source filename."
                 knowledge_prompt += "\n\nWhen you answer using information from a document, briefly indicate the source filename."
+                if any(doc_attributes.values()):
+                    knowledge_prompt += (
+                        "\n\nWHOSE DOCUMENT IT IS: the attributes in [brackets] say which customer (or other "
+                        "owner) a document belongs to. The file name does not have to say it, and the list "
+                        "above may be older than the documents you actually hold. When a question names a "
+                        "customer in ANY form — a short name, an abbreviation, initials, a misspelling — do NOT "
+                        "ask the user to match it to a file and do NOT decide it from the file names: call "
+                        "search_agent_knowledge with the question. The search matches the name to the customers "
+                        "attached to the documents, searches only that customer's documents, and tells you whose "
+                        "each passage is. Ask the user which customer they mean only when the question names "
+                        "none, or when the search reports that it could not identify one.")
                 self.SYSTEM += knowledge_prompt
 
             # Add knowledge management tool (NOTE: Knowledge must be initialized for an agent manually via user adding a document to knowledge)

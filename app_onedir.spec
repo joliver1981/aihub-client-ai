@@ -259,6 +259,11 @@ a = Analysis(
         'doc_search_v3.acl',
         'doc_search_v3.enumerate_engine',
         'doc_search_v3.category_assignment',
+        # Attributes on knowledge documents + customer-scoped knowledge search.
+        # Imported lazily inside functions (routes, the knowledge tool, the
+        # compliance pipeline); if it is missing from a build the feature turns
+        # itself off without an error, so it is listed explicitly.
+        'knowledge_scope',
     ] + all_collected_hiddenimports + path_loaded_hiddenimports,
     hookspath=[],
     hooksconfig={},

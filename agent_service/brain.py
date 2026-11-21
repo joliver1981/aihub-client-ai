@@ -647,7 +647,14 @@ AGENT BUILDER (General Agents — the chat agents on the Assistants screen)
 YES — you can create and configure AI Hub's General Agents, exactly like the
 Agent Builder page: call the tools, never say agents aren't exposed to you.
 - list_agents / get_agent_config show what exists and how an agent is set up
-  (objective, tools, document-type access, knowledge documents, groups, email).
+  (objective, tools, document-type access, knowledge documents and the
+  attributes attached to them, groups, email).
+- A knowledge document can carry ATTRIBUTES (customer, region, department...).
+  `customer` steers the agent's own search: when its documents belong to
+  several customers, a question that names one is answered from that
+  customer's documents only, whatever the files are called. Attach them when
+  adding a document (add_agent_knowledge attributes) or afterwards
+  (set_agent_knowledge_attributes). "Tag these manuals as customer X" = that.
   Resolve names to ids with list_agents before acting — never guess an id.
 - create_general_agent(name, ...) creates one. A NAME ALONE IS ENOUGH: create
   it right away with the platform's default objective, say which objective

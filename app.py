@@ -12775,6 +12775,36 @@ def get_all_workflow_logs():
 # AGENT KB ROUTES
 #####################
 # Function to get agent knowledge items
+def _knowledge_item_attributes(document_metadata):
+    """Attributes stored with a knowledge document ({} when none or unreadable)."""
+    try:
+        import knowledge_scope
+        return knowledge_scope.attributes_from_metadata(document_metadata)
+    except Exception:
+        return {}
+
+
+def _add_recorded_customers(knowledge_items):
+    """For documents the Compliance pipeline filed under a retailer and that carry no
+    customer attribute of their own: show the customer on record (what the knowledge
+    search uses for them), marked as recorded so the page can say where it comes from.
+    Best effort: the list is returned unchanged if this cannot be read."""
+    try:
+        import knowledge_scope
+        missing = [str(i['document_id']) for i in knowledge_items
+                   if 'customer' not in (i.get('attributes') or {})]
+        if not missing:
+            return
+        recorded = knowledge_scope.compliance_customers(missing)
+        for item in knowledge_items:
+            name = recorded.get(str(item['document_id']))
+            if name and 'customer' not in (item.get('attributes') or {}):
+                item.setdefault('attributes', {})['customer'] = name
+                item['attributes_recorded'] = ['customer']
+    except Exception as e:
+        logger.debug(f"recorded customers unavailable: {e}")
+
+
 def get_agent_knowledge(agent_id):
     """Get knowledge items associated with an agent"""
     try:
@@ -12787,7 +12817,7 @@ def get_agent_knowledge(agent_id):
         # Get knowledge items
         cursor.execute("""
             SELECT ak.knowledge_id, ak.agent_id, ak.document_id, ak.description, ak.added_date, 
-                   d.filename, d.document_type, d.page_count
+                   d.filename, d.document_type, d.page_count, d.document_metadata
             FROM AgentKnowledge ak
             JOIN Documents d ON ak.document_id = d.document_id
             WHERE ak.agent_id = ? AND ak.is_active = 1
@@ -12806,14 +12836,15 @@ def get_agent_knowledge(agent_id):
                 'added_date': row[4].strftime('%Y-%m-%d %H:%M:%S') if row[4] else None,
                 'filename': row[5],
                 'document_type': row[6],
-                'page_count': row[7]
+                'page_count': row[7],
+                'attributes': _knowledge_item_attributes(row[8])
             })
 
         try:
             # Get knowledge items for this user if available
             cursor.execute("""
                 SELECT ak.knowledge_id, ak.agent_id, ak.document_id, ak.description, ak.added_date, 
-                    d.filename, d.document_type, d.page_count
+                    d.filename, d.document_type, d.page_count, d.document_metadata
                 FROM AgentKnowledge ak
                 JOIN Documents d ON ak.document_id = d.document_id
                 WHERE ak.agent_id = ? AND ak.is_active = 1
@@ -12830,7 +12861,8 @@ def get_agent_knowledge(agent_id):
                     'added_date': row[4].strftime('%Y-%m-%d %H:%M:%S') if row[4] else None,
                     'filename': row[5],
                     'document_type': row[6],
-                    'page_count': row[7]
+                    'page_count': row[7],
+                    'attributes': _knowledge_item_attributes(row[8])
                 })
         except Exception as e:
             print(f"Error getting user specific agent knowledge: {str(e)}")
@@ -12838,7 +12870,9 @@ def get_agent_knowledge(agent_id):
         
         cursor.close()
         conn.close()
-        
+
+        _add_recorded_customers(knowledge_items)
+
         return knowledge_items
     except Exception as e:
         logger.error(f"Error getting user specific agent knowledge: {str(e)}")
@@ -13417,6 +13451,17 @@ def add_agent_knowledge_route():
         if user_id == '':
             user_id = None
 
+        # Optional attributes for the document (customer, region, ...): name=value
+        # pairs or a JSON object. Checked BEFORE the file is processed, so a bad
+        # value fails here and not after minutes of extraction.
+        knowledge_attributes = None
+        if (request.form.get('attributes') or '').strip():
+            try:
+                import knowledge_scope
+                knowledge_attributes = knowledge_scope.validate_attributes(request.form.get('attributes'))
+            except ValueError as attr_err:
+                return jsonify({"status": "error", "message": f"Attributes are not valid: {attr_err}"}), 400
+
         print(f'Agent ID: {agent_id}')
         print(f'Description: {description}')
         print(f'Batch ID: {batch_id}')
@@ -13554,6 +13599,21 @@ def add_agent_knowledge_route():
                 print('Done.')
         except Exception as cleanup_err:
             logger.warning(f"Cleanup error: {cleanup_err}")
+
+        # Attach the attributes (after the tabular metadata above, which rewrites the
+        # same JSON). The document is added either way; if the attributes could not
+        # be stored the response says so instead of claiming them.
+        if knowledge_attributes and result.get('status') == 'success' and result.get('document_id'):
+            try:
+                import knowledge_scope
+                stored = knowledge_scope.set_document_attributes(result['document_id'], knowledge_attributes)
+                if stored is None:
+                    result['attributes_warning'] = "The document was added, but its attributes could not be stored."
+                else:
+                    result['attributes'] = stored
+            except Exception as attr_err:
+                logger.warning(f"Attributes not stored for {result.get('document_id')}: {attr_err}")
+                result['attributes_warning'] = f"The document was added, but its attributes could not be stored: {attr_err}"
 
         # Tee the raw bytes into agent_files/{agent_id}/{user_id}/ keyed by
         # document_id so tools like manipulate_pdf can resolve them, and so
@@ -13731,22 +13791,87 @@ def download_chat_input(conversation_id, file_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+def _knowledge_document_id(knowledge_id):
+    """document_id of an ACTIVE knowledge item, or None."""
+    rows = query_app_database(
+        "SELECT document_id FROM AgentKnowledge WHERE knowledge_id = ? AND is_active = 1",
+        (int(knowledge_id),)) or []
+    return str(rows[0]["document_id"]) if rows else None
+
+
+@app.route('/api/agent_knowledge/<int:knowledge_id>/attributes', methods=['GET', 'POST'])
+@cross_origin()
+@api_key_or_session_required(min_role=2)
+def agent_knowledge_attributes_route(knowledge_id):
+    """Read or set the attributes of a knowledge document (customer, region, ...).
+
+    POST body: {"attributes": {"customer": "Acme", "region": ""} | "customer=Acme; region=East",
+                "replace": false}
+    Merge by default: given names are set, a name given with an empty value is
+    removed, the rest is kept. replace=true leaves exactly the given attributes.
+    Attributes named in KNOWLEDGE_SCOPE_ATTRIBUTES (customer) steer the agent's
+    knowledge search; the others are stored and shown with the document."""
+    try:
+        import knowledge_scope
+        document_id = _knowledge_document_id(knowledge_id)
+        if not document_id:
+            return jsonify({"status": "error", "message": "Knowledge item not found"}), 404
+        if request.method == 'GET':
+            return jsonify({"status": "success", "knowledge_id": knowledge_id,
+                            "attributes": knowledge_scope.get_document_attributes(document_id),
+                            "steering": knowledge_scope.scope_attribute_names()})
+        data = request.get_json(silent=True) or {}
+        if 'attributes' not in data:
+            return jsonify({"status": "error", "message": "attributes is required"}), 400
+        try:
+            stored = knowledge_scope.set_document_attributes(
+                document_id, data.get('attributes'), replace=bool(data.get('replace')))
+        except ValueError as attr_err:
+            return jsonify({"status": "error", "message": f"Attributes are not valid: {attr_err}"}), 400
+        if stored is None:
+            return jsonify({"status": "error",
+                            "message": "The attributes could not be stored for this document."}), 500
+        return jsonify({"status": "success", "knowledge_id": knowledge_id, "attributes": stored})
+    except Exception as e:
+        logger.error(f"Error with knowledge attributes {knowledge_id}: {e}")
+        return jsonify({"status": "error", "message": f"Error: {str(e)}"}), 500
+
+
 # Route to update knowledge
 @app.route('/update/agent_knowledge/<int:knowledge_id>', methods=['POST'])
 @cross_origin()
 @login_required
 def update_agent_knowledge_route(knowledge_id):
-    """Update knowledge description"""
+    """Update knowledge description (and, when given, the document's attributes)"""
     try:
         data = request.json
         description = data.get('description', '')
-        
+
+        # Attributes ride along with the description edit on the Knowledge page.
+        # Checked first: a bad value changes nothing.
+        attributes_result = None
+        if 'attributes' in data:
+            import knowledge_scope
+            try:
+                knowledge_scope.validate_attributes(data.get('attributes'))
+            except ValueError as attr_err:
+                return jsonify({"status": "error", "message": f"Attributes are not valid: {attr_err}"}), 400
+
         result = update_agent_knowledge(knowledge_id, description)
-        
+
+        if result and 'attributes' in data:
+            document_id = _knowledge_document_id(knowledge_id)
+            attributes_result = (knowledge_scope.set_document_attributes(
+                document_id, data.get('attributes'), replace=True) if document_id else None)
+            if attributes_result is None:
+                return jsonify({"status": "error",
+                                "message": "The description was saved, but the attributes could not be stored."}), 500
+
         if result:
             return jsonify({
                 "status": "success",
-                "message": "Knowledge updated successfully"
+                "message": "Knowledge updated successfully",
+                "attributes": attributes_result
             })
         else:
             return jsonify({
