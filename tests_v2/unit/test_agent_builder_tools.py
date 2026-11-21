@@ -472,16 +472,16 @@ def test_assign_agent_groups_preserves_membership_and_reads_back():
     async def fake_resolve(ref):
         return current, None
 
-    async def fake_sql(fn):
-        # distinguish the two query builders by their closure name
-        name = getattr(fn, "__qualname__", "")
-        if name.startswith("_q_groups"):
+    async def fake_rt(op, sql_fn, **params):
+        # The tools read through _rt (main app first, direct SQL second) since
+        # the installs change; patching _sql left these reads going to the
+        # LIVE platform. The membership comes back in the main app's shape.
+        if op == "groups":
             return [{"id": 4, "name": "End Users"}, {"id": 5, "name": "Analysts"}]
-        if "_q_group_membership" in name:
-            gid = fn.__closure__[0].cell_contents
-            users, agents = membership[gid]
-            return list(users), list(agents)
-        raise AssertionError(name)
+        if op == "group_membership":
+            users, agents = membership[params["group_id"]]
+            return {"users": list(users), "agents": list(agents)}
+        raise AssertionError(op)
 
     async def fake_post(path, body, timeout=None):
         posts.append((path, body))
@@ -495,7 +495,7 @@ def test_assign_agent_groups_preserves_membership_and_reads_back():
 
     try:
         with mock.patch.object(B, "_resolve", fake_resolve), \
-             mock.patch.object(B, "_sql", fake_sql), \
+             mock.patch.object(B, "_rt", fake_rt), \
              mock.patch.object(B, "_post", fake_post), \
              mock.patch.object(B, "_fetch_agent", fake_fetch):
             # move from {5} to {4}: one add (group 4), one remove (group 5)
@@ -522,7 +522,9 @@ def test_delete_agent_knowledge_two_step_and_readback():
     posts = []
     state = {"active": True}
 
-    async def fake_sql(fn):
+    async def fake_rt(op, sql_fn, **params):
+        # read seam the tool uses (see the group-sharing test above)
+        assert op == "knowledge_row" and params == {"knowledge_id": 12}
         return {"knowledge_id": 12, "agent_id": 968, "document_id": "abc",
                 "description": "d", "filename": "policy.pdf", "document_type": "policy",
                 "page_count": 3, "is_active": state["active"]}
@@ -533,7 +535,7 @@ def test_delete_agent_knowledge_two_step_and_readback():
         return {"status": "success"}, 200
 
     try:
-        with mock.patch.object(B, "_sql", fake_sql), mock.patch.object(B, "_post", fake_post):
+        with mock.patch.object(B, "_rt", fake_rt), mock.patch.object(B, "_post", fake_post):
             res = _run(B.delete_agent_knowledge.handler({"knowledge_id": 12}))
             assert "CONFIRMATION REQUIRED" in _txt(res) and "policy.pdf" in _txt(res) and not posts
             res = _run(B.delete_agent_knowledge.handler({"knowledge_id": 12, "confirmed": True}))
