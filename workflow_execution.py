@@ -1892,11 +1892,14 @@ Guidelines:
             )
             self.log_execution(execution_id, node_id, "info", msg)
             if result.version_check_note:
-                # A version check that could not run is a warning: nothing was replaced,
-                # so an older version may still be answering questions.
+                # Warnings: a version check that could not run (nothing was replaced, so
+                # an older version may still be answering questions), and a duplicate
+                # file that the targeted agent does not actually hold.
+                needs_attention = ("could not" in result.version_check_note
+                                   or "NOT in this agent's knowledge" in result.version_check_note)
                 self.log_execution(
                     execution_id, node_id,
-                    "warning" if "could not run" in result.version_check_note else "info",
+                    "warning" if needs_attention else "info",
                     f"Agent knowledge — {result.version_check_note}"
                 )
             return {'success': True, 'data': output_payload}

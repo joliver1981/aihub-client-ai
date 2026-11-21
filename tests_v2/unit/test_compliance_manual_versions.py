@@ -200,6 +200,7 @@ def pipeline(engine, monkeypatch, tmp_path):
     f.write_bytes(b"%PDF-1.4 fake")
     monkeypatch.setattr(engine, "_check_duplicate", lambda *_: None)
     monkeypatch.setattr(engine, "_ingest_document", lambda fp: "doc-new")
+    monkeypatch.setattr(engine, "_store_document_hash", lambda doc_id, doc_hash: True)
     monkeypatch.setattr(engine, "_create_version", lambda *_: (200, 1))
     monkeypatch.setattr(engine.__class__, "get_document_set",
                         staticmethod(lambda set_id: {"set_id": set_id, "retailer_id": 1}))
@@ -215,6 +216,9 @@ def pipeline(engine, monkeypatch, tmp_path):
         return True
 
     monkeypatch.setattr(engine.__class__, "_retire_knowledge_for_document", staticmethod(fake_retire))
+    log["not_added"] = []
+    monkeypatch.setattr(engine.__class__, "_record_not_added", staticmethod(
+        lambda agent_id, doc_id, newer: log["not_added"].append((agent_id, doc_id, newer)) or True))
     monkeypatch.setattr(ce.cfg, "COMPLIANCE_RETIRE_SUPERSEDED_VERSIONS", True, raising=False)
 
     def set_check(result):
@@ -271,6 +275,8 @@ class TestPipelineRetiresSupersededVersions:
         out = run(agent_id=9)
         assert log["indexed"] == [] and log["retired"] == []
         assert out.superseded_by == self.NEWER_HELD["newer_existing"]
+        # ... and a trace says why, for the next time the same file arrives
+        assert log["not_added"] == [(9, "doc-new", "Manual 2026.pdf")]
         assert out.version_id == 200 and len(out.requirements) == 1      # the version record is still made
         assert out.error is None
 
@@ -293,6 +299,28 @@ class TestPipelineRetiresSupersededVersions:
 # ---------------------------------------------------------------------------
 # Retiring = this agent only; vectors go only when no agent holds the document
 # ---------------------------------------------------------------------------
+
+class TestRecordNotAdded:
+
+    def test_writes_an_inactive_row_that_says_why(self, monkeypatch):
+        conn, cursor = MagicMock(), MagicMock()
+        conn.cursor.return_value = cursor
+        monkeypatch.setattr(ce, "get_db_connection", lambda: conn)
+        assert ComplianceEngine._record_not_added(9, "doc-old", "Manual 2026.pdf") is True
+        sql, *params = cursor.execute.call_args_list[1].args
+        assert "INSERT INTO AgentKnowledge" in sql
+        assert "getutcdate(), 0)" in sql                 # inactive: never searched, never listed
+        agent_id, doc_id, note = params
+        assert (agent_id, doc_id) == (9, "doc-old")
+        assert note.startswith("Not added 20") and "newer version (Manual 2026.pdf)" in note
+        conn.commit.assert_called()
+
+    def test_a_database_error_is_not_fatal(self, monkeypatch):
+        def boom():
+            raise RuntimeError("db down")
+        monkeypatch.setattr(ce, "get_db_connection", boom)
+        assert ComplianceEngine._record_not_added(9, "doc-old", "Manual 2026.pdf") is False
+
 
 class TestRetireKnowledgeForDocument:
 

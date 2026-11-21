@@ -194,9 +194,19 @@ class ComplianceEngine:
                     is_duplicate=True,
                     error="Duplicate document — identical file already uploaded as version "
                           f"{dup_version['version_number']}",
+                    # Nothing is added for a duplicate; say whether the agent this run
+                    # targets actually holds the file, so "duplicate" is never mistaken
+                    # for "the agent has it".
+                    version_check_note=self._duplicate_knowledge_note(
+                        agent_id, dup_version["document_id"]
+                    ) if agent_id else None,
                 )
 
             document_id = self._ingest_document(file_path)
+            # The duplicate check above compares against this stored hash. Nothing else
+            # writes it, so without this line no file was ever recognised as a
+            # duplicate: every re-sent manual became a new version.
+            self._store_document_hash(document_id, doc_hash)
             version_id, version_number = self._create_version(
                 set_id, document_id, uploaded_by, doc_hash
             )
@@ -226,6 +236,7 @@ class ComplianceEngine:
                         "holds a newer version of the same manual (%s)",
                         document_id, agent_id, superseded_by.get("filename"),
                     )
+                    self._record_not_added(agent_id, document_id, superseded_by.get("filename"))
                 else:
                     self._index_to_knowledge(agent_id, document_id, uploaded_by)
                 # Older editions leave the agent's knowledge either way (when a newer
@@ -724,6 +735,120 @@ class ComplianceEngine:
         finally:
             cursor.close()
             conn.close()
+
+    def _store_document_hash(self, document_id: str, doc_hash: str) -> bool:
+        """Record the file's hash on its Documents row — the value _check_duplicate
+        compares against. Only a row without a hash is written. Returns True when it
+        was stored.
+
+        The row is written by the document service; if it is not visible yet the
+        update is retried briefly. Failing to store is not fatal (the document is
+        still processed) but that file will not be recognised as a duplicate later,
+        so it is logged as a warning."""
+        if not document_id or not doc_hash:
+            return False
+        import time as _time
+        last_error = None
+        for attempt in range(3):
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                try:
+                    cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv("API_KEY"))
+                    cursor.execute(
+                        """
+                        UPDATE Documents SET hash_value = ?
+                        WHERE document_id = ? AND hash_value IS NULL
+                        """,
+                        doc_hash,
+                        document_id,
+                    )
+                    stored = cursor.rowcount > 0
+                    conn.commit()
+                finally:
+                    cursor.close()
+                    conn.close()
+                if stored:
+                    return True
+                last_error = "document row not found (or it already has a hash)"
+            except Exception as e:
+                last_error = str(e)
+            if attempt < 2:
+                _time.sleep(0.5)
+        logger.warning(
+            "File hash not stored for document %s (%s) — a later copy of this file "
+            "will not be recognised as a duplicate", document_id, last_error,
+        )
+        return False
+
+    def _duplicate_knowledge_note(self, agent_id: int, document_id: str) -> str:
+        """For a file that turned out to be a duplicate: what the agent this run
+        targets holds of it. A duplicate adds nothing, so the caller must be able to
+        tell 'already there' from 'recorded, but this agent does not have it'."""
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv("API_KEY"))
+                cursor.execute(
+                    """
+                    SELECT agent_id, is_active, description
+                    FROM AgentKnowledge WHERE document_id = ?
+                    """,
+                    document_id,
+                )
+                rows = cursor.fetchall()
+            finally:
+                cursor.close()
+                conn.close()
+        except Exception as e:
+            return f"duplicate: could not read the agent's knowledge ({e})"
+        mine = [r for r in rows if str(r[0]) == str(agent_id)]
+        if any(r[1] for r in mine):
+            return "duplicate: this file is already in the agent's knowledge — nothing was added"
+        if mine:
+            # Deliberately out of the agent's knowledge: superseded by a newer version,
+            # not added because a newer one was already held, or removed by a person.
+            why = next((str(r[2]) for r in mine if r[2]), "")
+            return ("duplicate: this file was left out of the agent's knowledge earlier"
+                    + (f" ({why})" if why else "") + " and was not added again")
+        others = sorted({str(r[0]) for r in rows if r[1]})
+        return ("duplicate: this file is already recorded as a version but it is NOT in "
+                "this agent's knowledge"
+                + (f" (agent {', '.join(others)} holds it)" if others else "")
+                + " — nothing was added")
+
+    @staticmethod
+    def _record_not_added(agent_id: int, document_id: str, newer_filename: str) -> bool:
+        """Leave a trace of a document that was NOT added to the agent's knowledge
+        because the agent already holds a newer version of the same manual: an
+        INACTIVE knowledge row whose description says so. Inactive rows are never
+        searched or listed (they are what a removed document leaves behind), so this
+        changes no answer; it lets a later run on the same file say why the agent does
+        not hold it. Best effort — returns False and logs when it cannot be written."""
+        note = (f"Not added {datetime.now():%Y-%m-%d}: the agent holds a newer version"
+                + (f" ({newer_filename})" if newer_filename else ""))[:200]
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv("API_KEY"))
+                cursor.execute(
+                    """
+                    INSERT INTO AgentKnowledge (agent_id, document_id, description, added_date, is_active)
+                    VALUES (?, ?, ?, getutcdate(), 0)
+                    """,
+                    agent_id, document_id, note,
+                )
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
+            return True
+        except Exception as e:
+            logger.warning("Could not record that document %s was not added to agent %s: %s",
+                           document_id, agent_id, e)
+            return False
 
     # -- requirement storage -------------------------------------------------
 
