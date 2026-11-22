@@ -323,17 +323,36 @@
             stroke: #dc3545 !important;
         }
 
-        #workflow-canvas {
+        /* The fixed-size window onto the workflow: it scrolls, the canvas inside it zooms. */
+        #workflow-canvas-viewport {
             position: relative;
             width: 100%;
-            /* ends above the collapsed debug bar (fixed, 40px) so the canvas's own scrollbar stays visible */
+            /* ends above the collapsed debug bar (fixed, 40px) so the viewport's own scrollbar stays visible */
             height: calc(100vh - 140px);
             overflow: auto;
+            background-color: var(--bg-elevated, #111);
+        }
+
+        /* The surface that holds nodes and connectors (jsPlumb's Container). The canvas-navigation
+           code in workflow.js sizes it to max(viewport, content) and scales it for zoom. */
+        #workflow-canvas {
+            /* Out of flow on purpose: an in-flow box keeps its unscaled size in the viewport's
+               scroll area, so zooming out would leave empty space to scroll into. */
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transform-origin: 0 0;
+            cursor: grab;   /* drag the background to move around */
             background-color: var(--bg-elevated, #111);
             background-image:
                 linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
             background-size: 20px 20px;
+        }
+        #workflow-canvas .jtk-connector path {
+            cursor: pointer;
         }
 
         /* Floating canvas navigation controls */
@@ -363,6 +382,11 @@
         .canvas-nav-controls button:hover {
             background: rgba(60,60,60,0.95);
             color: #fff;
+        }
+        .canvas-nav-controls button.canvas-zoom-level {
+            width: 52px;
+            font-size: 0.75rem;
+            font-variant-numeric: tabular-nums;
         }
 
         /* Ensure jsPlumb doesn't apply transforms during drag */
@@ -1271,14 +1295,23 @@ textarea[name="approvalData"].is-invalid {
             <!-- Canvas -->
             <div class="col-10" style="position: relative;">
                 <div class="canvas-nav-controls">
-                    <button onclick="fitToView()" title="Fit to View">
+                    <button onclick="zoomCanvasOut()" title="Zoom out (Ctrl + scroll down)">
+                        <i class="bi bi-zoom-out"></i>
+                    </button>
+                    <button id="canvas-zoom-level" class="canvas-zoom-level" onclick="resetCanvasZoom()" title="Back to 100%">100%</button>
+                    <button onclick="zoomCanvasIn()" title="Zoom in (Ctrl + scroll up)">
+                        <i class="bi bi-zoom-in"></i>
+                    </button>
+                    <button onclick="fitToView()" title="Fit the whole workflow in view">
                         <i class="bi bi-arrows-fullscreen"></i>
                     </button>
-                    <button onclick="scrollToStartNode()" title="Scroll to Start Node">
+                    <button onclick="scrollToStartNode()" title="Go to the Start node">
                         <i class="bi bi-skip-start-fill"></i>
                     </button>
                 </div>
-                <div id="workflow-canvas"></div>
+                <div id="workflow-canvas-viewport">
+                    <div id="workflow-canvas"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -1591,7 +1624,7 @@ textarea[name="approvalData"].is-invalid {
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsPlumb/2.15.6/js/jsplumb.min.js"></script>
-    <script src="{{ url_for('static', filename='js/workflow.js', v=15) }}"></script>
+    <script src="{{ url_for('static', filename='js/workflow.js', v=16) }}"></script>
     <script src="/static/js/automation_node.js?v=4"></script>
     <script src="{{ url_for('static', filename='js/workflow_fn_updates.js') }}"></script>
     <script src="/static/js/integration_node.js"></script>

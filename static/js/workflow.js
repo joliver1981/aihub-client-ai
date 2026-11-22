@@ -255,8 +255,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     enableDebugMode(true); // Enable debug mode by default (this should never be disabled)
 
-    // Initialize canvas panning (middle-click drag to scroll)
+    // Initialize canvas navigation (drag the background to pan, Ctrl + scroll to zoom)
     setupCanvasPanning();
+    setupCanvasZoom();
 });
 
 function setupToolbarDragAndDrop() {
@@ -313,10 +314,13 @@ function setupToolbarDragAndDrop() {
         const canvasScrollTop = canvas.scrollTop || 0;
         const documentScrollTop = document.documentElement.scrollTop || document.body.scrollTop || 0;
         
-        // Calculate position relative to canvas, including scroll offsets
-        const x = e.clientX - canvasRect.left + (canvas.scrollLeft || 0);
+        // Calculate position relative to canvas, including scroll offsets. The canvas may be
+        // zoomed (see Canvas Navigation): its on-screen rect is scaled, node positions are not,
+        // so the on-screen distance is divided by the zoom.
+        const dropZoom = (typeof canvasZoom === 'number' && canvasZoom > 0) ? canvasZoom : 1;
+        const x = Math.round((e.clientX - canvasRect.left) / dropZoom + (canvas.scrollLeft || 0));
         // For y-position, explicitly account for both canvas and document scroll
-        const y = e.clientY - canvasRect.top + canvasScrollTop;
+        const y = Math.round((e.clientY - canvasRect.top) / dropZoom + canvasScrollTop);
         
         console.log('Drop position calculation:', {
             clientY: e.clientY,
@@ -11945,16 +11949,157 @@ nodeConfigTemplates['Excel Export'] = {
 
 
 // ============================================================
-// Canvas Navigation: Pan, Fit-to-View, Scroll-to-Start
+// Canvas Navigation: Zoom, Pan, Fit-to-View, Scroll-to-Start
 // ============================================================
+//
+// #workflow-canvas-viewport is the fixed-size window that scrolls. #workflow-canvas, inside it,
+// is the surface that holds the nodes and connectors: it is still jsPlumb's Container and the
+// rest of this file still appends to it and clears it. Zoom is a CSS scale on that surface plus
+// jsPlumbInstance.setZoom(), which is what keeps jsPlumb's node dragging and connection dragging
+// under the cursor at any scale. Node positions (style.left / style.top) are never scaled.
+
+const CANVAS_ZOOM_MIN = 0.1;
+const CANVAS_ZOOM_MAX = 2;
+// The stops the zoom buttons move between.
+const CANVAS_ZOOM_STOPS = [0.1, 0.15, 0.2, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+// Empty room kept beyond the right/bottom-most node, so there is somewhere to drag a node to.
+const CANVAS_SURFACE_PADDING = 200;
+let canvasZoom = 1;
 
 /**
- * Sets up middle-click (and fallback Shift+left-click) drag-to-pan on the canvas.
- * Uses native scrollLeft/scrollTop — no CSS transforms involved.
+ * The element that scrolls. A page rendered from the template that predates zoom has no viewport
+ * wrapper: there the canvas scrolls itself and zoom stays at 100%.
+ */
+function getCanvasViewport() {
+    return document.getElementById('workflow-canvas-viewport')
+        || document.getElementById('workflow-canvas');
+}
+
+function canvasZoomAvailable() {
+    return document.getElementById('workflow-canvas-viewport') !== null;
+}
+
+/**
+ * Sizes the canvas surface so that, at the current zoom, it covers both the whole viewport (the
+ * grid and the drop area reach every edge) and every node plus room to drag outward.
+ */
+function updateCanvasSurface() {
+    const canvas = document.getElementById('workflow-canvas');
+    const viewport = document.getElementById('workflow-canvas-viewport');
+    if (!canvas || !viewport) return;
+
+    const box = getNodesBoundingBox();
+    const contentW = box ? box.maxX + CANVAS_SURFACE_PADDING : 0;
+    // Extra room at the bottom for whatever the debug panel covers, so the lowest nodes can
+    // always be scrolled up above it.
+    const contentH = box
+        ? Math.ceil(box.maxY + CANVAS_SURFACE_PADDING + getCanvasBottomOverlap() / canvasZoom)
+        : 0;
+
+    // Two passes: sized to the content alone first, so the viewport shows only the scrollbars the
+    // content really needs; its client size is then the room left to fill.
+    canvas.style.width = contentW + 'px';
+    canvas.style.height = contentH + 'px';
+    canvas.style.width = Math.max(Math.floor(viewport.clientWidth / canvasZoom), contentW) + 'px';
+    canvas.style.height = Math.max(Math.floor(viewport.clientHeight / canvasZoom), contentH) + 'px';
+}
+
+/**
+ * How many px of the bottom of the viewport sit underneath the debug panel (it is fixed to the
+ * bottom of the window and can be open, collapsed or resized).
+ */
+function getCanvasBottomOverlap() {
+    const viewport = document.getElementById('workflow-canvas-viewport');
+    const panel = document.getElementById('debug-panel');
+    if (!viewport || !panel) return 0;
+    const v = viewport.getBoundingClientRect();
+    const p = panel.getBoundingClientRect();
+    if (p.width === 0 || p.height === 0) return 0;
+    return Math.max(0, Math.min(v.bottom - p.top, v.height));
+}
+
+function updateCanvasZoomLabel() {
+    const label = document.getElementById('canvas-zoom-level');
+    if (label) label.textContent = Math.round(canvasZoom * 100) + '%';
+}
+
+/**
+ * Sets the zoom (1 = 100%). The point at (anchorClientX, anchorClientY) stays where it is on
+ * screen: the cursor for wheel zoom, the middle of the viewport when no anchor is given.
+ */
+function setCanvasZoom(zoom, anchorClientX, anchorClientY) {
+    const canvas = document.getElementById('workflow-canvas');
+    const viewport = document.getElementById('workflow-canvas-viewport');
+    if (!canvas || !viewport || !isFinite(zoom)) return;
+
+    const next = Math.min(CANVAS_ZOOM_MAX, Math.max(CANVAS_ZOOM_MIN, zoom));
+    const rect = viewport.getBoundingClientRect();
+    const anchorX = anchorClientX == null ? viewport.clientWidth / 2 : anchorClientX - rect.left;
+    const anchorY = anchorClientY == null ? viewport.clientHeight / 2 : anchorClientY - rect.top;
+    // The workflow point under the anchor, in unscaled canvas px
+    const worldX = (viewport.scrollLeft + anchorX) / canvasZoom;
+    const worldY = (viewport.scrollTop + anchorY) / canvasZoom;
+
+    canvasZoom = next;
+    // No transform at all at 100%, so the default state is exactly what it was before zoom existed
+    canvas.style.transform = next === 1 ? '' : 'scale(' + next + ')';
+    if (jsPlumbInstance) jsPlumbInstance.setZoom(next);
+    updateCanvasSurface();
+
+    viewport.scrollLeft = worldX * next - anchorX;
+    viewport.scrollTop = worldY * next - anchorY;
+    updateCanvasZoomLabel();
+}
+
+function zoomCanvasIn() {
+    const next = CANVAS_ZOOM_STOPS.find(stop => stop > canvasZoom + 0.001);
+    setCanvasZoom(next || CANVAS_ZOOM_MAX);
+}
+
+function zoomCanvasOut() {
+    const lower = CANVAS_ZOOM_STOPS.filter(stop => stop < canvasZoom - 0.001);
+    setCanvasZoom(lower.length ? lower[lower.length - 1] : CANVAS_ZOOM_MIN);
+}
+
+function resetCanvasZoom() {
+    setCanvasZoom(1);
+}
+
+/**
+ * Ctrl + scroll (Cmd + scroll on a Mac, pinch on a trackpad) zooms around the cursor. A plain
+ * scroll is left alone: it scrolls the canvas as before.
+ */
+function setupCanvasZoom() {
+    const viewport = document.getElementById('workflow-canvas-viewport');
+    if (!viewport) return;
+
+    viewport.addEventListener('wheel', function(e) {
+        if (!e.ctrlKey && !e.metaKey) return;
+        e.preventDefault();   // otherwise the browser zooms the whole page
+        // deltaMode 1 = lines (Firefox mouse wheel); bring it to roughly the pixel scale
+        const delta = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+        const step = Math.max(-100, Math.min(100, delta));
+        setCanvasZoom(canvasZoom * Math.exp(-step * 0.0015), e.clientX, e.clientY);
+    }, { passive: false });
+
+    window.addEventListener('resize', updateCanvasSurface);
+    // The debug panel opening, collapsing or being resized changes how much of the canvas it covers
+    const debugPanel = document.getElementById('debug-panel');
+    if (debugPanel && typeof ResizeObserver === 'function') {
+        new ResizeObserver(updateCanvasSurface).observe(debugPanel);
+    }
+    updateCanvasSurface();
+    updateCanvasZoomLabel();
+}
+
+/**
+ * Drag-to-pan: drag the empty canvas background with the left button, or drag anywhere off a
+ * node with the middle button or Shift + left button. Scrolls the viewport.
  */
 function setupCanvasPanning() {
     const canvas = document.getElementById('workflow-canvas');
-    if (!canvas) return;
+    const viewport = getCanvasViewport();
+    if (!canvas || !viewport) return;
 
     let isPanning = false;
     let startX = 0;
@@ -11962,21 +12107,31 @@ function setupCanvasPanning() {
     let scrollLeftStart = 0;
     let scrollTopStart = 0;
 
-    canvas.addEventListener('mousedown', function(e) {
+    viewport.addEventListener('mousedown', function(e) {
+        const target = e.target;
+        // Left button on the bare background (not a node, connector, endpoint or label)
+        const isBackgroundDrag = e.button === 0 && !e.shiftKey
+            && canvasZoomAvailable() && (target === canvas || target === viewport);
         // Middle-click (button 1) or Shift+left-click (button 0 + shiftKey)
         const isMiddleClick = e.button === 1;
         const isShiftClick = e.button === 0 && e.shiftKey;
-        if (!isMiddleClick && !isShiftClick) return;
+        if (!isBackgroundDrag && !isMiddleClick && !isShiftClick) return;
 
         // Don't pan if clicking on a node or endpoint — let jsPlumb handle those
-        const target = e.target;
         if (target.closest('.workflow-node') || target.closest('.jtk-endpoint')) return;
+
+        // A press on the viewport's own scrollbar is not a pan
+        if (target === viewport) {
+            const rect = viewport.getBoundingClientRect();
+            if (e.clientX - rect.left >= viewport.clientWidth
+                || e.clientY - rect.top >= viewport.clientHeight) return;
+        }
 
         isPanning = true;
         startX = e.clientX;
         startY = e.clientY;
-        scrollLeftStart = canvas.scrollLeft;
-        scrollTopStart = canvas.scrollTop;
+        scrollLeftStart = viewport.scrollLeft;
+        scrollTopStart = viewport.scrollTop;
         canvas.style.cursor = 'grabbing';
         e.preventDefault();
     });
@@ -11986,8 +12141,8 @@ function setupCanvasPanning() {
         if (!isPanning) return;
         const dx = e.clientX - startX;
         const dy = e.clientY - startY;
-        canvas.scrollLeft = scrollLeftStart - dx;
-        canvas.scrollTop = scrollTopStart - dy;
+        viewport.scrollLeft = scrollLeftStart - dx;
+        viewport.scrollTop = scrollTopStart - dy;
     });
 
     window.addEventListener('mouseup', function(e) {
@@ -11997,7 +12152,7 @@ function setupCanvasPanning() {
     });
 
     // Prevent the default middle-click auto-scroll icon from appearing
-    canvas.addEventListener('auxclick', function(e) {
+    viewport.addEventListener('auxclick', function(e) {
         if (e.button === 1) e.preventDefault();
     });
 }
@@ -12038,11 +12193,12 @@ const CANVAS_GRID = 20;
  * Keeps every node reachable by scrolling the canvas:
  *  - if any node is closer than CANVAS_EDGE_MARGIN to the top/left edge (or past it), ALL nodes
  *    shift right/down together, so the layout is unchanged;
- *  - an invisible marker 200px beyond the right/bottom-most node leaves room to drag outward.
+ *  - the canvas surface is resized to reach 200px beyond the right/bottom-most node, which
+ *    leaves room to drag outward.
  *
- * The canvas itself stays viewport-sized and scrolls internally. (It used to get a min-width /
- * min-height equal to its content, so it never scrolled: the overflow spilled onto the page and
- * Fit to View / Scroll to Start had nothing to scroll.)
+ * The viewport around the canvas stays a fixed size and scrolls. (The canvas once got a
+ * min-width / min-height equal to its content with nothing around it to scroll, so the overflow
+ * spilled onto the page and Fit to View / Scroll to Start had nothing to scroll.)
  */
 function ensureCanvasCoversNodes() {
     const canvas = document.getElementById('workflow-canvas');
@@ -12055,6 +12211,7 @@ function ensureCanvasCoversNodes() {
     const box = getNodesBoundingBox();
     if (!box) {
         if (extent) extent.remove();
+        updateCanvasSurface();
         return;
     }
 
@@ -12073,6 +12230,19 @@ function ensureCanvasCoversNodes() {
         box.maxY += shiftY;
     }
 
+    if (canvasZoomAvailable()) {
+        // The surface is sized explicitly, so the old invisible extent marker is not needed.
+        if (extent) extent.remove();
+        // jsPlumbInstance.reset() runs on every load / clear; make sure it still has the zoom.
+        if (jsPlumbInstance && jsPlumbInstance.getZoom() !== canvasZoom) {
+            jsPlumbInstance.setZoom(canvasZoom);
+        }
+        updateCanvasSurface();
+        return;
+    }
+
+    // Page without the viewport wrapper: the canvas scrolls itself, and an invisible marker
+    // 200px beyond the right/bottom-most node gives it something to scroll to.
     const padding = 200;
     if (!extent) {
         extent = document.createElement('div');
@@ -12086,12 +12256,13 @@ function ensureCanvasCoversNodes() {
 }
 
 /**
- * Scrolls the canvas to show the workflow. Per axis: centers it when it fits in the viewport,
- * otherwise brings its top/left edge into view. No scaling — pure scroll.
+ * Shows the whole workflow: zooms out as far as needed for every node to be in view (never
+ * above 100%) and centers it. If it still does not fit at the smallest zoom, that axis shows
+ * the workflow's top/left edge instead.
  */
 function fitToView() {
-    const canvas = document.getElementById('workflow-canvas');
-    if (!canvas) return;
+    const viewport = getCanvasViewport();
+    if (!viewport) return;
 
     if (!getNodesBoundingBox()) {
         showToast('No nodes on the canvas', 'info');
@@ -12101,24 +12272,41 @@ function fitToView() {
     // Ensure every node is reachable first (may shift nodes, so measure afterwards)
     ensureCanvasCoversNodes();
     const box = getNodesBoundingBox();
-
-    const viewportW = canvas.clientWidth;
-    const viewportH = canvas.clientHeight;
     const margin = 40;
+    const boxW = Math.max(box.maxX - box.minX, 1);
+    const boxH = Math.max(box.maxY - box.minY, 1);
 
-    canvas.scrollTo({
-        left: (box.maxX - box.minX) <= viewportW ? (box.minX + box.maxX - viewportW) / 2 : box.minX - margin,
-        top: (box.maxY - box.minY) <= viewportH ? (box.minY + box.maxY - viewportH) / 2 : box.minY - margin,
-        behavior: 'smooth'
+    const zoomBefore = canvasZoom;
+    if (canvasZoomAvailable()) {
+        // The whole surface has to fit (from its top-left corner to the padding beyond the last
+        // node), otherwise the view would still scroll. Measured against the viewport with no
+        // scrollbars, which is what it has once everything fits, less the part of it that is
+        // hidden under the debug panel.
+        const fit = Math.min(
+            viewport.offsetWidth / (box.maxX + CANVAS_SURFACE_PADDING),
+            (viewport.offsetHeight - getCanvasBottomOverlap()) / (box.maxY + CANVAS_SURFACE_PADDING),
+            1);
+        setCanvasZoom(Math.floor(fit * 100) / 100);
+    }
+
+    const viewportW = viewport.clientWidth;
+    const viewportH = viewport.clientHeight - getCanvasBottomOverlap();   // the part you can see
+    const z = canvasZoom;
+
+    viewport.scrollTo({
+        left: boxW * z <= viewportW ? ((box.minX + box.maxX) * z - viewportW) / 2 : box.minX * z - margin,
+        top: boxH * z <= viewportH ? ((box.minY + box.maxY) * z - viewportH) / 2 : box.minY * z - margin,
+        // Glide only when the scale did not change; a zoom change already jumped the view
+        behavior: z === zoomBefore ? 'smooth' : 'auto'
     });
 }
 
 /**
- * Scrolls the canvas so the START node is centered in the viewport.
+ * Scrolls the canvas so the START node is centered in the viewport (at the current zoom).
  */
 function scrollToStartNode() {
-    const canvas = document.getElementById('workflow-canvas');
-    if (!canvas) return;
+    const viewport = getCanvasViewport();
+    if (!viewport) return;
 
     const start = document.querySelector('#workflow-canvas .start-node');
     if (!start) {
@@ -12131,9 +12319,9 @@ function scrollToStartNode() {
     const nodeCenterX = left + start.offsetWidth / 2;
     const nodeCenterY = top + start.offsetHeight / 2;
 
-    canvas.scrollTo({
-        left: nodeCenterX - canvas.clientWidth / 2,
-        top: nodeCenterY - canvas.clientHeight / 2,
+    viewport.scrollTo({
+        left: nodeCenterX * canvasZoom - viewport.clientWidth / 2,
+        top: nodeCenterY * canvasZoom - (viewport.clientHeight - getCanvasBottomOverlap()) / 2,
         behavior: 'smooth'
     });
 }

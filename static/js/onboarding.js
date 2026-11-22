@@ -825,9 +825,10 @@ class OnboardingManager {
                     <li>Connect nodes by dragging from one node's edge to another</li>
                     <li>Double-click a node to configure it</li>
                     <li>Right-click for more options (rename, delete, etc.)</li>
+                    <li>Drag the background to move around; hold Ctrl and scroll to zoom, or use the buttons at the top right</li>
                 </ol>
             `,
-            attachTo: { element: '#workflow-canvas', on: 'left' },
+            attachTo: { element: '#workflow-canvas-viewport', on: 'left' },
             buttons: [
                 { text: '← Back', action: this.pageTour.back, classes: 'shepherd-button-secondary' },
                 { text: 'Next →', action: this.pageTour.next, classes: 'shepherd-button-primary' }
