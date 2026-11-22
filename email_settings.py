@@ -101,6 +101,18 @@ def _save(config: Dict[str, Any]) -> bool:
         return False
 
 
+def _forget_graph_token() -> None:
+    """Drop any Microsoft 365 token this process holds, so the next send or
+    test fetches one with the settings as they are now (a token keeps the
+    permissions it was issued with, e.g. from before an admin granted consent).
+    Never fails the caller."""
+    try:
+        from email_graph import clear_token_cache
+        clear_token_cache()
+    except Exception as e:
+        logger.warning(f"email settings: could not clear the Microsoft 365 token cache: {e}")
+
+
 # ---------------------------------------------------------------- effective config
 
 def get_email_config() -> Dict[str, Any]:
@@ -294,6 +306,7 @@ def save():
     })
     if not ok:
         return jsonify({'success': False, 'error': 'could not write the config file'}), 500
+    _forget_graph_token()
     logger.info(f"email settings saved: provider={provider} (UI mode active)")
     return jsonify({'success': True, 'message': 'Email settings saved — active immediately (no restart).'})
 
@@ -308,6 +321,7 @@ def revert():
             p.unlink()
     except OSError as e:
         return jsonify({'success': False, 'error': f'could not remove config: {e}'}), 500
+    _forget_graph_token()
     return jsonify({'success': True, 'message': 'Reverted to server .env configuration.'})
 
 
@@ -331,7 +345,10 @@ def test_send():
             # The same chain the senders use: Microsoft 365 first, then the SMTP
             # relay when that fallback is on — and the admin gets BOTH outcomes,
             # because "it arrived" must not hide "Microsoft 365 is broken".
+            # A fresh token every time: the test must prove the settings and
+            # permissions as they are NOW, not reuse a token from before.
             from email_graph import send_mail
+            _forget_graph_token()
             try:
                 send_mail(conf, to, subject, body)
             except Exception as graph_err:

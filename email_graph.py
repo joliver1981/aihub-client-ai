@@ -20,7 +20,12 @@ Config arrives already resolved (email_settings.get_email_config):
 graph_tenant_id, graph_client_id, graph_client_secret, graph_sender. Tokens
 are cached in THIS process only (the main app, the executor and the DCA each
 keep their own); Entra tokens live ~60-90 minutes and are refreshed
-EXPIRY_LEEWAY_SECONDS early.
+EXPIRY_LEEWAY_SECONDS early. A cached token is never reused for settings it
+was not issued for: the cache key carries a fingerprint of the client secret,
+so a new secret takes effect on the next send in every process. A token also
+carries the permissions granted when it was issued, so a cached token that
+Microsoft refuses (403) is replaced once: that is what makes a send work
+straight after an administrator grants consent, without a restart.
 
 Limits: an inline fileAttachment must be under 3 MB (Microsoft). A larger
 attachment raises GraphMailError so the caller can fall back to SMTP, which
@@ -30,6 +35,7 @@ requests.post the SharePoint app-only integration already makes.
 """
 
 import base64
+import hashlib
 import logging
 import os
 import threading
@@ -47,7 +53,7 @@ INLINE_ATTACHMENT_LIMIT = 3 * 1024 * 1024   # Microsoft: larger needs an upload 
 EXPIRY_LEEWAY_SECONDS = 300
 TIMEOUT = (10, 30)                          # connect, read (seconds)
 
-# (tenant_id, client_id) -> (access_token, expires_at_epoch_seconds)
+# (tenant_id, client_id, sha256(client_secret)) -> (access_token, expires_at_epoch_seconds)
 _token_cache: Dict[tuple, tuple] = {}
 _cache_lock = threading.Lock()
 
@@ -76,8 +82,14 @@ def clear_token_cache() -> None:
 
 
 def get_access_token(tenant_id: str, client_id: str, client_secret: str) -> str:
-    """A client-credentials token for Graph, cached per (tenant, client) until
-    EXPIRY_LEEWAY_SECONDS before it expires. Raises GraphMailError."""
+    """A client-credentials token for Graph, cached per (tenant, client, secret)
+    until EXPIRY_LEEWAY_SECONDS before it expires. Raises GraphMailError."""
+    return _get_token(tenant_id, client_id, client_secret)[0]
+
+
+def _get_token(tenant_id: str, client_id: str, client_secret: str) -> tuple:
+    """(token, came_from_cache) — get_access_token plus whether the token was
+    already cached, so send_mail knows when a refusal may just be a stale token."""
     tenant_id = (tenant_id or '').strip()
     client_id = (client_id or '').strip()
     client_secret = (client_secret or '').strip()
@@ -85,13 +97,15 @@ def get_access_token(tenant_id: str, client_id: str, client_secret: str) -> str:
         raise GraphMailError(
             "Microsoft 365 is not configured: tenant ID, client ID and client secret are all required")
 
-    key = (tenant_id, client_id)
+    # The secret is in the key as a fingerprint (never the secret itself), so a
+    # token fetched with an old secret is never handed out for a new one.
+    key = (tenant_id, client_id, hashlib.sha256(client_secret.encode('utf-8')).hexdigest())
     # One fetch at a time: ten simultaneous notifications on an expired token
     # must not each hit Entra.
     with _cache_lock:
         cached = _token_cache.get(key)
         if cached and cached[1] - EXPIRY_LEEWAY_SECONDS > time.time():
-            return cached[0]
+            return cached[0], True
         try:
             resp = requests.post(
                 TOKEN_URL.format(tenant=tenant_id),
@@ -115,7 +129,7 @@ def get_access_token(tenant_id: str, client_id: str, client_secret: str) -> str:
             raise GraphMailError("Microsoft 365 token response had no access_token")
         expires_in = int(data.get('expires_in') or 3600)
         _token_cache[key] = (token, time.time() + expires_in)
-        return token
+        return token, False
 
 
 def _recipients(addresses: Union[str, List[str], None]) -> List[Dict[str, Any]]:
@@ -176,8 +190,8 @@ def send_mail(conf: Dict[str, Any], recipients: Union[str, List[str]], subject: 
     payload = build_message(recipients, subject, body, html_content, attachment_path, cc, bcc)
     url = SENDMAIL_URL.format(sender=sender)
     for attempt in (1, 2):
-        token = get_access_token(conf.get('graph_tenant_id'), conf.get('graph_client_id'),
-                                 conf.get('graph_client_secret'))
+        token, from_cache = _get_token(conf.get('graph_tenant_id'), conf.get('graph_client_id'),
+                                       conf.get('graph_client_secret'))
         try:
             resp = requests.post(
                 url, json=payload,
@@ -191,6 +205,14 @@ def send_mail(conf: Dict[str, Any], recipients: Union[str, List[str]], subject: 
         if resp.status_code == 401 and attempt == 1:
             # A token the cache still considered valid was rejected: fetch a
             # fresh one exactly once, then report whatever comes back.
+            clear_token_cache()
+            continue
+        if resp.status_code == 403 and attempt == 1 and from_cache:
+            # Refused with a CACHED token: it may predate the admin consent
+            # that grants Mail.Send (a token keeps the permissions it was
+            # issued with). Fetch a fresh one exactly once. A fresh token that
+            # is refused is a real permission problem and is reported as is.
+            logger.info("Microsoft 365 refused a cached token (HTTP 403); retrying once with a fresh token")
             clear_token_cache()
             continue
         raise GraphMailError(

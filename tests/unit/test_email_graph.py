@@ -7,6 +7,9 @@ All HTTP is mocked at email_graph.requests.post. The contract under test:
     GraphMailError so the Email Settings "send test" can show it;
   * sendMail goes to /users/{sender}/sendMail with a Bearer token;
   * a rejected (401) token is refreshed exactly once;
+  * a cached token is never reused for a different client secret, and a
+    cached token refused with 403 (issued before admin consent) is replaced
+    exactly once;
   * inline attachments are base64 and refused above 3 MB (SMTP fallback
     carries them);
   * send_email_graph keeps the bool never-raises contract of send_email_smtp.
@@ -213,6 +216,63 @@ class TestSendMail:
                    side_effect=[_token_ok(), requests.ReadTimeout('slow')]):
             with pytest.raises(GraphMailError, match='sendMail request failed'):
                 email_graph.send_mail(CONF, 'to@x.test', 'S', 'B')
+
+
+# ---------------------------------------------------------------- settings changes take effect
+
+DENIED = {'error': {'code': 'ErrorAccessDenied', 'message': 'Access is denied. Check credentials and try again.'}}
+
+
+class TestTokenFollowsTheSettings:
+
+    def test_a_new_client_secret_gets_a_new_token(self):
+        with patch('email_graph.requests.post',
+                   side_effect=[_token_ok('tok-old'), _token_ok('tok-new')]) as post:
+            assert email_graph.get_access_token('tenant-1', 'client-1', 'old-secret') == 'tok-old'
+            assert email_graph.get_access_token('tenant-1', 'client-1', 'new-secret') == 'tok-new'
+        assert post.call_count == 2
+        assert post.call_args_list[1][1]['data']['client_secret'] == 'new-secret'
+
+    def test_the_secret_itself_is_not_kept_in_the_cache(self):
+        with patch('email_graph.requests.post', return_value=_token_ok()):
+            email_graph.get_access_token('tenant-1', 'client-1', 's3cret')
+        assert 's3cret' not in repr(email_graph._token_cache)
+
+    def test_a_wrong_new_secret_fails_instead_of_reusing_the_old_token(self):
+        bad_secret = _resp(401, {'error': 'invalid_client',
+                                 'error_description': 'AADSTS7000215: Invalid client secret provided.'})
+        with patch('email_graph.requests.post', side_effect=[_token_ok('tok-old'), _resp(202), bad_secret]):
+            email_graph.send_mail(CONF, 'to@x.test', 'S', 'B')
+            with pytest.raises(GraphMailError, match='AADSTS7000215'):
+                email_graph.send_mail(dict(CONF, graph_client_secret='typo'), 'to@x.test', 'S', 'B')
+
+    def test_a_cached_token_refused_with_403_is_replaced_once(self):
+        # The first send caches tok-1. The admin then grants consent; tok-1 still
+        # carries the old (missing) permission, so the next send must not keep failing.
+        responses = [_token_ok('tok-1'), _resp(202),
+                     _resp(403, DENIED), _token_ok('tok-2'), _resp(202)]
+        with patch('email_graph.requests.post', side_effect=responses) as post:
+            email_graph.send_mail(CONF, 'to@x.test', 'S', 'B')
+            email_graph.send_mail(CONF, 'to@x.test', 'S', 'B')
+
+        assert post.call_count == 5
+        assert post.call_args_list[2][1]['headers']['Authorization'] == 'Bearer tok-1'
+        assert post.call_args_list[4][1]['headers']['Authorization'] == 'Bearer tok-2'
+
+    def test_a_fresh_token_refused_with_403_is_reported_not_retried(self):
+        with patch('email_graph.requests.post', side_effect=[_token_ok(), _resp(403, DENIED)]) as post:
+            with pytest.raises(GraphMailError, match='HTTP 403'):
+                email_graph.send_mail(CONF, 'to@x.test', 'S', 'B')
+        assert post.call_count == 2
+
+    def test_a_second_403_after_the_refresh_is_reported(self):
+        responses = [_token_ok('tok-1'), _resp(202),
+                     _resp(403, DENIED), _token_ok('tok-2'), _resp(403, DENIED)]
+        with patch('email_graph.requests.post', side_effect=responses) as post:
+            email_graph.send_mail(CONF, 'to@x.test', 'S', 'B')
+            with pytest.raises(GraphMailError, match='ErrorAccessDenied'):
+                email_graph.send_mail(CONF, 'to@x.test', 'S', 'B')
+        assert post.call_count == 5
 
 
 # ---------------------------------------------------------------- bool wrapper

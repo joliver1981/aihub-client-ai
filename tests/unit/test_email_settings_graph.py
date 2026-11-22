@@ -297,3 +297,50 @@ def test_test_send_graph_failure_without_a_relay_host_is_a_502(graph_ui, admin_c
     assert resp.status_code == 502
     assert 'AADSTS90002' in resp.get_json()['error']
     smtp.assert_not_called()
+
+
+# ---------------------------------------------------------------- a change takes effect at once
+
+@pytest.fixture
+def cached_graph_token():
+    """A Microsoft 365 token this process fetched earlier (before the change)."""
+    import email_graph
+    email_graph.clear_token_cache()
+    email_graph._token_cache[('tenant-ui', 'client-ui', 'old-secret-fingerprint')] = ('old-token', 9e12)
+    yield email_graph
+    email_graph.clear_token_cache()
+
+
+def test_save_drops_the_cached_microsoft_365_token(env_config, no_local_secrets, admin_client,
+                                                    cached_graph_token, monkeypatch):
+    monkeypatch.setattr(email_settings, 'set_local_secret', lambda *a, **k: None)
+    resp = admin_client.post('/api/email-settings/save', json={
+        'provider': 'graph', 'smtp': {}, 'azure': {},
+        'graph': {'tenant_id': 't', 'client_id': 'c', 'sender': 'a@x.test', 'client_secret': 's'}})
+    assert resp.status_code == 200, resp.get_json()
+    assert cached_graph_token._token_cache == {}
+
+
+def test_a_rejected_save_keeps_the_cached_token(env_config, no_local_secrets, admin_client, cached_graph_token):
+    resp = admin_client.post('/api/email-settings/save', json={
+        'provider': 'graph', 'smtp': {}, 'azure': {}, 'graph': {'tenant_id': 't'}})
+    assert resp.status_code == 400
+    assert cached_graph_token._token_cache != {}
+
+
+def test_revert_drops_the_cached_microsoft_365_token(env_config, admin_client, cached_graph_token):
+    resp = admin_client.post('/api/email-settings/revert')
+    assert resp.status_code == 200, resp.get_json()
+    assert cached_graph_token._token_cache == {}
+
+
+def test_test_send_graph_starts_from_a_fresh_token(graph_ui, admin_client, cached_graph_token, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cached_graph_token, 'send_mail',
+                        lambda conf, *a, **k: seen.update(cache=dict(cached_graph_token._token_cache)))
+    monkeypatch.setattr(email_settings, '_test_smtp', MagicMock())
+
+    resp = admin_client.post('/api/email-settings/test', json={'to': 'me@x.test'})
+
+    assert resp.status_code == 200, resp.get_json()
+    assert seen['cache'] == {}
