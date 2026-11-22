@@ -137,3 +137,63 @@ def test_sign_out_from_the_agent(fresh_page, services_ready):
     assert not page.locator("#input").is_disabled()
     assert _token(page) and _token(page) != old_token
     assert page.evaluate("localStorage.getItem('agent_signed_out')") is None
+
+
+@pytest.mark.slow
+@pytest.mark.journey
+def test_classic_logout_signs_the_agent_out_too(fresh_page, services_ready):
+    """Logout in the classic app must end The Agent in the same browser.
+
+    The Agent's token is in the browser storage of its own address, which the
+    main app cannot reach, so the landing page Logout lands on loads The
+    Agent's "signed out" page in a hidden frame.
+
+    Flow: sign in -> The Agent open in one tab -> Logout in the classic app
+    from another tab -> the landing page, as always -> the open Agent tab is
+    signed out, and a direct visit to The Agent asks for sign-in.
+    """
+    page = fresh_page
+    ctx = page.context
+
+    page.goto(f"{MAIN_BASE}/the-agent", timeout=15000)
+    if "/login" not in page.url:
+        pytest.skip(f"/the-agent did not ask for sign-in (landed on {page.url})")
+    _sign_in(page)
+    try:
+        agent = _wait_for_agent(page)
+    except Exception:
+        pytest.skip(f"The Agent did not open after sign-in (landed on {page.url}); "
+                    "is it enabled and running?")
+    assert _token(page)
+
+    # Logout in the classic app (its Logout menu entry is a link to /logout).
+    classic = ctx.new_page()
+    classic.goto(f"{MAIN_BASE}/logout", timeout=15000)
+    assert classic.url.rstrip("/") == MAIN_BASE.rstrip("/"), (
+        f"Logout no longer lands on the landing page: {classic.url}")
+    frame = classic.locator('iframe[src$="/static/signed-out.html"]')
+    assert frame.count() == 1, "the landing page did not load The Agent's signed-out page"
+    assert frame.get_attribute("src").startswith(agent)
+    assert not frame.is_visible()
+
+    # The Agent tab that was open is signed out without anyone touching it.
+    page.wait_for_selector(f"text={SIGNED_OUT}", timeout=15000)
+    assert _token(page) is None
+    assert page.locator("#signout").count() == 0
+
+    # A direct visit does not get back in either.
+    page.goto(agent + "/", timeout=15000)
+    page.wait_for_selector(f"text={SIGNED_OUT}", timeout=15000)
+    assert _token(page) is None
+
+    # The frame is there once: a later visit to the landing page has none.
+    classic.goto(f"{MAIN_BASE}/", timeout=15000)
+    assert classic.locator('iframe[src$="/static/signed-out.html"]').count() == 0
+    classic.close()
+
+    # Signing in again opens The Agent as normal.
+    page.locator(".gate a").click()
+    _wait_for_sign_in_form(page)
+    _sign_in(page)
+    assert _wait_for_agent(page) == agent
+    assert _token(page)

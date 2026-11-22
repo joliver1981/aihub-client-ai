@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>Signed out — The Agent</title>
+</head>
+<body>
+<script>
+// Logout in the classic AI Hub app has to end The Agent in the same browser
+// too. The Agent keeps the signed-in person as a token in THIS site's browser
+// storage, which the main app (another port, so another site to the browser's
+// storage) cannot reach. So after a Logout the main app's landing page loads
+// this page in a hidden frame, and this page does what The Agent's own
+// Sign out does (signOut() in index.html): drop the token and any unsent
+// draft, and leave the "agent_signed_out" mark, which stops a later visit on
+// the "You're signed out" screen and signs out any tab of The Agent that is
+// open right now. Nothing here needs a token and nothing is sent anywhere.
+try {
+  localStorage.removeItem("agent_token");
+  localStorage.removeItem("agent_draft");
+  localStorage.setItem("agent_signed_out", String(Date.now()));
+} catch (e) {}
+</script>
+</body>
+</html>

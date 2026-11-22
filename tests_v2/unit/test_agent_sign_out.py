@@ -15,6 +15,13 @@ What is pinned here (no live services needed):
    token BEFORE leaving the page; a signed-out browser stops on a plain
    "signed out" screen instead of taking the silent re-auth bounce.
 
+3. Logout in the CLASSIC app ends The Agent in that browser too. The Agent's
+   token sits in the browser storage of The Agent's own address, out of the
+   main app's reach, so a classic Logout used to leave The Agent working.
+   Now /logout leaves a one-time note in the session, the landing page it
+   lands on loads The Agent's "signed out" page in a hidden frame, and that
+   page removes the token. Nothing is added where The Agent is off.
+
 The whole flow in a real browser (click, sign-in form, Back, reload, a second
 tab, Remember Me, signing in again) is the live journey test
 tests_v2/journeys/test_journey_07_agent_sign_out.py.
@@ -32,6 +39,8 @@ APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 APP_PY = os.path.join(APP_ROOT, "app.py")
 INDEX = os.path.join(APP_ROOT, "agent_service", "static", "index.html")
 BASE_HTML = os.path.join(APP_ROOT, "templates", "base.html")
+LANDING_HTML = os.path.join(APP_ROOT, "templates", "landing.html")
+SIGNED_OUT_PAGE = os.path.join(APP_ROOT, "agent_service", "static", "signed-out.html")
 
 
 # ---------------------------------------------------------------- AI Hub /logout
@@ -65,14 +74,16 @@ def test_logout_from_the_agent_lands_on_the_sign_in_form_with_the_way_back():
                                           {"classic_mode": True, "other": 1})
     logout_user.assert_called_once_with()
     assert where == "/login?next=/the_agent_redirect"
-    # the sticky Classic choice ends with the session; nothing else is touched here
+    # the sticky Classic choice ends with the session; nothing else is touched
+    # here (The Agent has already dropped its own token on this path)
     assert session == {"other": 1}
 
 
-def test_plain_logout_is_unchanged():
+def test_plain_logout_lands_where_it_always_did_and_leaves_the_note_for_the_agent():
     where, session, logout_user = _logout({}, {"classic_mode": True})
     logout_user.assert_called_once_with()
-    assert where == "/home" and session == {}
+    assert where == "/home"
+    assert session == {"agent_sign_out": True}
 
 
 def test_then_is_a_keyword_not_an_address():
@@ -86,6 +97,104 @@ def test_then_is_a_keyword_not_an_address():
 def test_the_classic_logout_link_is_the_same_route():
     with open(BASE_HTML, encoding="utf-8") as f:
         assert "url_for('logout')" in f.read()
+
+
+# ------------------------------------------- classic Logout ends The Agent as well
+def _agent_sign_out_page(session, env=None, host="hubserver:5001", request=None):
+    """Run the main app's agent_sign_out_page() (lifted from app.py, the
+    decorator dropped) against fakes. Returns (the address, log warnings)."""
+    with open(APP_PY, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    fn = next(n for n in tree.body
+              if isinstance(n, ast.FunctionDef) and n.name == "agent_sign_out_page")
+    assert any("template_global" in ast.unparse(d) for d in fn.decorator_list), (
+        "the landing page calls it by name, so it must be a template global")
+    fn.decorator_list = []
+    warned = []
+    ns = {"os": os, "session": session,
+          "request": request if request is not None else mock.Mock(host=host),
+          "logger": mock.Mock(warning=lambda *a, **k: warned.append(a))}
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), APP_PY, "exec"), ns)
+    base = {"THE_AGENT_ENABLED": "true", "HOST_PORT": "5001", "AGENT_SERVICE_PORT": "",
+            "AGENT_SERVICE_HOST_PUBLIC": "", "AGENT_PUBLIC_BASE_URL": ""}
+    with mock.patch.dict(os.environ, dict(base, **(env or {}))):
+        return ns["agent_sign_out_page"](), warned
+
+
+def test_the_address_is_given_once_right_after_a_logout():
+    session = {"agent_sign_out": True, "other": 1}
+    assert _agent_sign_out_page(session) == (
+        "http://hubserver:5111/static/signed-out.html", [])
+    assert session == {"other": 1}                      # the note is used up
+    assert _agent_sign_out_page(session) == ("", [])   # a later visit gets nothing
+
+
+def test_no_logout_means_no_address_and_nothing_is_looked_up():
+    class Boom:
+        @property
+        def host(self):
+            raise AssertionError("the request was read without a logout")
+    with mock.patch.object(os, "getenv", side_effect=AssertionError("settings were read")):
+        assert _agent_sign_out_page({"other": 1}, request=Boom()) == ("", [])
+
+
+def test_nothing_is_added_where_the_agent_is_off():
+    for off in ("false", "", "0"):
+        session = {"agent_sign_out": True}
+        assert _agent_sign_out_page(session, {"THE_AGENT_ENABLED": off}) == ("", [])
+        assert session == {}
+
+
+def test_the_address_follows_the_same_settings_as_the_way_in():
+    # every form the /the-agent link can take (test_agent_email_visibility)
+    def page(env):
+        return _agent_sign_out_page({"agent_sign_out": True}, env)[0]
+    assert page({"AGENT_SERVICE_PORT": "5199"}) == "http://hubserver:5199/static/signed-out.html"
+    assert page({"HOST_PORT": "6001"}) == "http://hubserver:6111/static/signed-out.html"
+    assert page({"AGENT_SERVICE_HOST_PUBLIC": "agents.internal"}) == (
+        "http://agents.internal:5111/static/signed-out.html")
+    assert page({"AGENT_PUBLIC_BASE_URL": "https://agent.example.com/"}) == (
+        "https://agent.example.com/static/signed-out.html")
+    # not an address: ignored, the direct link is used
+    assert page({"AGENT_PUBLIC_BASE_URL": "agent.example.com"}) == (
+        "http://hubserver:5111/static/signed-out.html")
+
+
+def test_a_failure_here_never_breaks_the_landing_page():
+    url, warned = _agent_sign_out_page({"agent_sign_out": True}, {"HOST_PORT": "not-a-number"})
+    assert url == "" and warned
+
+
+def test_the_landing_page_loads_it_in_a_hidden_frame_only_when_given():
+    with open(LANDING_HTML, encoding="utf-8") as f:
+        page = f.read()
+    start = page.index("{% set agent_page = agent_sign_out_page() %}")
+    block = page[start:page.index("{% endif %}", start)]
+    assert block.index("{% if agent_page %}") < block.index("<iframe")
+    assert 'src="{{ agent_page }}"' in block
+    assert "display:none" in block and 'aria-hidden="true"' in block
+    # scripts + its own storage, nothing else (it cannot move the page it is in)
+    assert 'sandbox="allow-scripts allow-same-origin"' in block
+    assert page.count("agent_sign_out_page()") == 1     # the note is read once
+
+
+def test_the_agents_signed_out_page_drops_the_token_and_leaves_the_mark():
+    with open(SIGNED_OUT_PAGE, encoding="utf-8") as f:
+        page = f.read()
+    script = page[page.index("<script>"):page.index("</script>")]
+    code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("//"))
+    cleared = ('localStorage.removeItem("agent_token")',
+               'localStorage.removeItem("agent_draft")',
+               'localStorage.setItem("agent_signed_out", String(Date.now()))')
+    for done in cleared:
+        assert done in code, done
+    # it only clears this browser: no request, no navigation, no other script
+    for absent in ("fetch(", "XMLHttpRequest", "location", "src=", "import"):
+        assert absent not in code, absent
+    # the same three things The Agent's own Sign out does to this storage
+    own = _function_body(_ui(), "signOut")
+    for shared in cleared:
+        assert shared in own, shared
 
 
 # ---------------------------------------------------------------- The Agent's page

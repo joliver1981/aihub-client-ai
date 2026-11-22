@@ -604,5 +604,14 @@
             });
         });
     </script>
+    {# Right after a Logout: The Agent keeps its own sign-in in this browser
+       (another port, so out of this app's reach). Its "signed out" page
+       removes it. Hidden, loaded once, and nothing waits on it. #}
+    {% set agent_page = agent_sign_out_page() %}
+    {% if agent_page %}
+    <iframe src="{{ agent_page }}" title="Signing out of The Agent" aria-hidden="true" tabindex="-1"
+            sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"
+            style="display:none;width:0;height:0;border:0"></iframe>
+    {% endif %}
 </body>
 </html>

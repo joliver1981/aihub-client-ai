@@ -1560,7 +1560,43 @@ def logout():
     # A fixed keyword, not a URL, so this cannot be used as an open redirect.
     if request.args.get('then') == 'agent':
         return redirect(url_for('login', next=url_for('the_agent_redirect')))
+    # A Logout here has to end The Agent in this browser as well (james,
+    # 2026-11-22). The Agent keeps its own token in the browser, out of this
+    # app's reach, so the page this lands on asks The Agent to drop it: see
+    # agent_sign_out_page() below. Where Logout lands does not change.
+    session['agent_sign_out'] = True
     return redirect(url_for('home'))
+
+
+@app.template_global('agent_sign_out_page')
+def agent_sign_out_page():
+    """Address of The Agent's "signed out" page, once, right after a Logout;
+    '' at any other time and wherever The Agent is not switched on.
+
+    The Agent runs on its own port and keeps the signed-in person as a token
+    in the browser's storage for that address, good for as long as the token
+    lasts. Logging out here used to leave it there, so The Agent went on
+    working in that browser. The landing page calls this and, when it gets an
+    address, loads it in a hidden frame; that page (agent_service/static/
+    signed-out.html) removes the token. Loading it in the page, not as a
+    redirect on the way, means a stopped Agent service cannot get in the way
+    of logging out. The address is built the same way as the /the-agent link.
+    """
+    try:
+        if not session.pop('agent_sign_out', None):
+            return ''
+        if os.getenv('THE_AGENT_ENABLED', 'false').lower() != 'true':
+            return ''
+        agent_public = os.environ.get('AGENT_PUBLIC_BASE_URL', '').strip().rstrip('/')
+        if agent_public.lower().startswith(('http://', 'https://')):
+            return f'{agent_public}/static/signed-out.html'
+        agent_port = os.environ.get('AGENT_SERVICE_PORT', '') or str(
+            int(os.environ.get('HOST_PORT', '5001')) + 110)
+        agent_host = os.environ.get('AGENT_SERVICE_HOST_PUBLIC', '') or request.host.split(':')[0]
+        return f'http://{agent_host}:{agent_port}/static/signed-out.html'
+    except Exception as e:  # the landing page must never fail over this
+        logger.warning(f"The Agent sign-out page address unavailable: {e}")
+        return ''
 #####################
 # END AUTH ROUTES
 #####################
