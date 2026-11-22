@@ -1,4 +1,4 @@
-"""Conditional branch-status contract (2026-08-05, wf 1218 'Horizon Replica').
+"""Conditional branch-status contract (2026-08-05).
 
 A Conditional node signals its branch through result['success'] — False means
 "take the fail/false edge", not "the step failed". Before this fix every FALSE
