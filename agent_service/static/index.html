@@ -213,6 +213,20 @@
   .btn.danger:hover{border-color:var(--red);color:var(--red)}
   .btn:disabled{opacity:.4;cursor:default}
   .hint{font-size:10.5px;color:var(--text3);font-style:italic;margin-left:auto}
+  /* ===== My Connections screen ===== */
+  .conncard{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:16px 20px}
+  .conncard p{color:var(--text2);font-size:12.5px;line-height:1.55;margin:0 0 7px}
+  .conncard p:last-child{margin-bottom:0}
+  .conncard .connhead{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .conncard .connname{font-size:14.5px;font-weight:640}
+  .conncard .connscopes{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0 2px}
+  .conncard .connscope{font-size:11px;color:var(--text2);background:var(--raised);
+                       border-radius:999px;padding:2px 9px}
+  .conncard .connwarn{color:var(--amber)}
+  .conncard .connbtns{display:flex;gap:9px;margin-top:13px;flex-wrap:wrap;align-items:center}
+  .connnote{font-size:12.5px;color:var(--text2);background:var(--raised);
+            border:1px solid var(--line);border-radius:10px;padding:9px 13px}
+  .connnote.bad{border-color:rgba(230,90,90,.5)}
   .claimbar{display:flex;align-items:center;gap:12px;background:var(--blue-tint);
             border:1px solid rgba(111,177,232,.35);border-radius:10px;padding:9px 13px;
             margin-top:12px;font-size:12px}
@@ -430,6 +444,7 @@
   <button class="navlink" id="nav-files">⇅ Files</button>
   <button class="navlink" id="nav-schedules">⏱ Schedules</button>
   <button class="navlink" id="nav-email">✉ Email</button>
+  <button class="navlink" id="nav-connections" style="display:none">⇄ My Connections</button>
   <button class="navlink" id="nav-skills">◆ Skills</button>
   <div class="spacer"></div>
   <div class="plat" id="plat" style="display:none">
@@ -601,6 +616,22 @@
       <div class="dlabel" style="margin-bottom:10px">Recent inbound activity</div>
       <div id="email-log" class="qfrom">—</div>
     </div>
+  </div>
+</section>
+
+<!-- ===================== MY CONNECTIONS ===================== -->
+<!-- The signed-in user's OWN accounts (their Microsoft 365 mail and calendar,
+     etc.). Not Agent Email: that screen is the assistant's own address. -->
+<section class="view" id="view-connections">
+  <div style="padding:16px 22px 0;display:flex;align-items:center;gap:14px">
+    <h1 style="font-size:17px;font-weight:650">My Connections</h1>
+    <span class="sub" style="color:var(--text3);font-size:12px">Your own accounts — connect one and the assistant can work with it as you</span>
+    <button id="conn-refresh" style="margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">↻ Refresh</button>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding:14px 22px 22px;display:flex;flex-direction:column;gap:14px;max-width:760px">
+    <div id="conn-about" class="conncard" style="display:none"></div>
+    <div id="conn-note" class="connnote" style="display:none"></div>
+    <div id="conn-list" style="display:flex;flex-direction:column;gap:12px"></div>
   </div>
 </section>
 
@@ -1419,6 +1450,7 @@
                   files: document.getElementById("view-files"),
                   schedules: document.getElementById("view-schedules"),
                   email: document.getElementById("view-email"),
+                  connections: document.getElementById("view-connections"),
                   skills: document.getElementById("view-skills") };
   const navs = { chat: document.getElementById("nav-chat"),
                  work: document.getElementById("nav-work"),
@@ -1427,6 +1459,7 @@
                  files: document.getElementById("nav-files"),
                  schedules: document.getElementById("nav-schedules"),
                  email: document.getElementById("nav-email"),
+                 connections: document.getElementById("nav-connections"),
                  skills: document.getElementById("nav-skills") };
   // An Admin can hide the Email screen from this user (email_hidden on
   // /api/me; the service refuses the screen's data under the same rule).
@@ -1436,8 +1469,18 @@
     navs.email.style.display = emailHidden ? "none" : "";
     if (emailHidden && views.email.classList.contains("on")) show("chat");
   }
+  // The My Connections screen exists only while the service says The Agent
+  // may use personal connections (my_connections on /api/me). A service that
+  // does not send the field (older than this page) keeps the entry hidden.
+  let connEnabled = false;
+  function applyConnEnabled(on) {
+    connEnabled = !!on;
+    navs.connections.style.display = connEnabled ? "" : "none";
+    if (!connEnabled && views.connections.classList.contains("on")) show("chat");
+  }
   function show(v) {
     if (v === "email" && emailHidden) v = "chat";
+    if (v === "connections" && !connEnabled) v = "chat";
     for (const k of Object.keys(views)) {
       views[k].classList.toggle("on", k === v);
       navs[k].classList.toggle("on", k === v);
@@ -1450,7 +1493,9 @@
     if (v === "files") loadFiles();
     if (v === "schedules") loadSchedules();
     if (v === "email") loadEmail();
+    if (v === "connections") loadConnections();
   }
+  navs.connections.onclick = () => show("connections");
   navs.chat.onclick = () => show("chat");
   navs.work.onclick = () => show("work");
   navs.views.onclick = () => show("views");
@@ -1707,6 +1752,197 @@
     } catch (e) { note.textContent = e.message; }
   };
 
+  // ---------- my connections (the user's OWN accounts) ----------
+  // List + Disconnect go through this service (which asks AI Hub AS the
+  // signed-in user). Connect cannot: the sign-in at Microsoft (or another
+  // provider) has to run in the browser on AI Hub's own address, so it opens
+  // there in a popup and this list is re-read when the popup closes.
+  // Plain words for the permissions people meet most; anything else shows as
+  // the provider names it. Display only — it decides nothing.
+  const CONN_SCOPE_WORDS = {
+    "mail.read": "Read your mail", "mail.readwrite": "Read and change your mail",
+    "mail.send": "Send mail as you", "calendars.read": "Read your calendar",
+    "calendars.readwrite": "Read and change your calendar",
+    "user.read": "Your name and profile", "offline_access": "Stay connected",
+    "openid": "Sign you in", "profile": "Your name and profile", "email": "Your email address",
+  };
+  function connScopeLabel(s) {
+    const bare = s.slice(s.lastIndexOf("/") + 1);   // drop a resource address prefix
+    return CONN_SCOPE_WORDS[bare.toLowerCase()] || bare;
+  }
+  let connPopupTimer = null;
+  let connUserId = null;   // who the list was loaded for (rides on Connect)
+  function connNote(text, bad) {
+    const n = document.getElementById("conn-note");
+    n.textContent = text || "";
+    n.className = "connnote" + (bad ? " bad" : "");
+    n.style.display = text ? "" : "none";
+  }
+  function connAbout(d) {
+    const box = document.getElementById("conn-about");
+    box.innerHTML = "";
+    box.appendChild(el("p", "", "Connect your own account once, and you can ask the "
+      + "assistant about it — “what's in my inbox?”, “what's on my calendar "
+      + "today?”. It works with the account as you, in chat and in routines you have "
+      + "scheduled to run while you are away."));
+    const w = d.write_tools || [];
+    box.appendChild(el("p", "", w.length
+      ? "It can read through these accounts. An administrator has also allowed "
+        + "these actions as you: " + w.join(", ") + "."
+      : "It can read through these accounts. It cannot send mail or change anything "
+        + "as you — when something needs sending it uses its own address instead."));
+    if (!emailHidden) {
+      box.appendChild(el("p", "", "This is not Agent Email. That screen is the "
+        + "assistant's own address; this one is about your accounts."));
+    }
+    box.style.display = "";
+  }
+  function connCard(c) {
+    const card = el("div", "conncard");
+    const head = el("div", "connhead");
+    head.appendChild(el("span", "connname", c.name || `Connection ${c.server_id}`));
+    head.appendChild(el("span", "tchip " + (c.connected ? "t-review" : "t-acknowledge"),
+                        c.connected ? "Connected" : "Not connected"));
+    card.appendChild(head);
+    if (c.description) card.appendChild(el("p", "", c.description));
+    const scopes = String(c.scope || "").split(/\s+/).filter(Boolean);
+    if (scopes.length) {
+      // What the sign-in grants AI Hub as a whole. The assistant here may be
+      // allowed less (the note at the top says what) — never more.
+      card.appendChild(el("p", "qfrom", "Signing in lets AI Hub:"));
+      const row = el("div", "connscopes");
+      const seen = new Set();
+      scopes.map(connScopeLabel).forEach(label => {
+        if (seen.has(label)) return;
+        seen.add(label);
+        row.appendChild(el("span", "connscope", label));
+      });
+      card.appendChild(row);
+    }
+    if (c.connected && c.last_connected) {
+      // the newest stored sign-in, which AI Hub also renews quietly while the
+      // account is in use — so "last renewed", not "connected on"
+      card.appendChild(el("p", "qfrom", "Sign-in last renewed " + fmtLocal(c.last_connected)));
+    }
+    if (c.agent_blocked) {
+      card.appendChild(el("p", "connwarn", "An administrator has turned this connection "
+        + "off for The Agent, so the assistant here will not use it. Other agents in "
+        + "AI Hub still can."));
+    }
+    const btns = el("div", "connbtns");
+    const go = el("button", "btn" + (c.connected ? "" : " primary"),
+                  c.connected ? "Reconnect" : "Connect");
+    go.onclick = () => connConnect(c);
+    btns.appendChild(go);
+    if (c.connected) {
+      const off = el("button", "btn danger", "Disconnect");
+      off.onclick = () => connDisconnect(c, off);
+      btns.appendChild(off);
+    }
+    card.appendChild(btns);
+    return card;
+  }
+  // `after` = the connection a Connect popup was just closed for, so the
+  // reload can say what actually happened instead of assuming it worked.
+  async function loadConnections(after) {
+    const list = document.getElementById("conn-list");
+    if (!after) { connNote(""); list.textContent = "Loading…"; }
+    let d;
+    try {
+      const r = await fetch("/api/my-connections", { headers: H() });
+      d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || "HTTP " + r.status);
+    } catch (e) {
+      list.innerHTML = "";
+      connNote("Could not load your connections: " + e.message, true);
+      return;
+    }
+    connAbout(d);
+    connUserId = d.user_id || null;
+    const conns = d.connections || [];
+    list.innerHTML = "";
+    if (!conns.length) {
+      const empty = el("div", "conncard");
+      empty.appendChild(el("p", "", "Nothing to connect yet. An administrator has to make "
+        + "an account type (for example Microsoft 365) available to users first."));
+      if (d.can_publish) {
+        const p = el("p", "", "You can do that on the MCP Servers page: edit the server "
+          + "and switch on “Available to users on My Connections”. ");
+        const a = el("a", "", "MCP Servers ↗");
+        a.href = platUrl("/mcp_servers"); a.target = "_blank"; a.rel = "noopener";
+        p.appendChild(a);
+        empty.appendChild(p);
+      }
+      list.appendChild(empty);
+    }
+    conns.forEach(c => list.appendChild(connCard(c)));
+    if (after) {
+      const now = conns.find(c => c.server_id === after.server_id);
+      const name = after.name || "The account";
+      if (now && now.connected && (!after.connected || now.last_connected !== after.last_connected)) {
+        connNote(`${name} is connected. You can ask the assistant about it now.`);
+      } else if (now && now.connected) {
+        connNote(`The sign-in window closed and nothing changed: ${name} is still connected as before.`);
+      } else {
+        connNote(`The sign-in window closed and ${name} is not connected. `
+          + "If the window showed a message, that is the reason; otherwise try Connect again.", true);
+      }
+    }
+  }
+  function connConnect(c) {
+    const w = 600, h = 720;
+    const left = Math.max(0, (screen.width - w) / 2), top = Math.max(0, (screen.height - h) / 2);
+    // The account gets attached to whoever is signed in to AI Hub in this
+    // browser. "as" tells AI Hub who pressed the button here, so it can stop
+    // when that is someone else instead of connecting the wrong person.
+    const url = platUrl("/my-connections/connect/" + c.server_id)
+              + (connUserId ? "?as=" + encodeURIComponent(connUserId) : "");
+    // no "noopener": the handle is what tells us the window was closed
+    const popup = window.open(url, "aihubConnect",
+                              `width=${w},height=${h},left=${left},top=${top}`);
+    if (!popup) {
+      connNote("Your browser blocked the sign-in window. Allow pop-ups for this page, then press "
+        + (c.connected ? "Reconnect" : "Connect") + " again.", true);
+      return;
+    }
+    connNote("Finish signing in in the window that opened. This list updates when it closes.");
+    if (connPopupTimer) clearInterval(connPopupTimer);
+    connPopupTimer = setInterval(() => {
+      if (!popup.closed) return;
+      clearInterval(connPopupTimer); connPopupTimer = null;
+      // a moment for AI Hub to finish storing the new sign-in
+      setTimeout(() => loadConnections(c), 600);
+    }, 500);
+  }
+  async function connDisconnect(c, btn) {
+    if (!confirm(`Disconnect ${c.name}?\n\nThe assistant will no longer be able to work with it `
+        + "as you, including in routines you have scheduled. You can connect it again at any time.")) return;
+    btn.disabled = true;
+    try {
+      const r = await fetch(`/api/my-connections/${c.server_id}/disconnect`,
+                            { method: "POST", headers: H() });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || "HTTP " + r.status);
+    } catch (e) {
+      btn.disabled = false;
+      connNote(`${c.name} was not disconnected: ${e.message}`, true);
+      return;
+    }
+    await loadConnections();
+    connNote(`${c.name} is disconnected.`);
+  }
+  document.getElementById("conn-refresh").onclick = () => loadConnections();
+  // "#connections" opens this screen: the assistant hands that link out when
+  // an account still has to be connected. The hash is dropped once used, so
+  // the same link works again later in the conversation.
+  function connFromHash() {
+    if (location.hash.replace(/^#/, "") !== "connections") return false;
+    history.replaceState({}, "", location.pathname + location.search);
+    show("connections");
+    return true;
+  }
+  window.addEventListener("hashchange", connFromHash);
+
   // ---------- platform deep links (rail + Playbooks header) ----------
   let mainPort = 5001;
   let mainUrl = "";   // the main app's public address when the service sends one (reverse proxy)
@@ -1773,7 +2009,12 @@
       // one wrapper per group: break-inside:avoid keeps a group in one column
       const grp = el("div", "pgrp");
       grp.appendChild(el("div", "pgroup", g.label));
-      g.links.forEach(([label, path]) => grp.appendChild(mk(label, path)));
+      g.links.forEach(([label, path]) => {
+        // The Agent has its own My Connections screen in the rail; the link to
+        // the classic page stays only where that screen is turned off.
+        if (path === "/my-connections" && connEnabled) return;
+        grp.appendChild(mk(label, path));
+      });
       cols.appendChild(grp);
     });
     fly.appendChild(mk("Classic app", "/?classic=1", "classic"));
@@ -4494,6 +4735,7 @@
       if (mainUrl) localStorage.setItem("agent_main_url", mainUrl);
       else localStorage.removeItem("agent_main_url");
       applyEmailHidden(d.email_hidden);
+      applyConnEnabled(d.my_connections);
       if (d.app_version) document.getElementById("ver").textContent = "v" + d.app_version;
       const savedDraft = localStorage.getItem("agent_draft");
       if (savedDraft) { input.value = savedDraft; localStorage.removeItem("agent_draft"); }
@@ -4527,6 +4769,7 @@
       const hv = viewFromHash();
       if (hv) { currentView = hv; show("views"); runView(hv); }
       if (hc) { show("chat"); openHistory({ session_id: hc }); }
+      connFromHash();
     } catch (e) { gate("The Agent service is unreachable: " + e.message); }
   }
   boot();

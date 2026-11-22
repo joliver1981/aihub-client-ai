@@ -149,7 +149,11 @@ def test_list_my_connections_formats_both_pools_and_sends_identity():
         assert "X-AIHub-User" in seen["headers"], "the seam needs the signed assertion"
         assert "1 of 2 connected" in out
         assert "id 30 — EveriAI Graph — CONNECTED" in out and "authorized 2026-09-03" in out
-        assert "id 31 — Google (TEST) — NOT CONNECTED" in out and "/my-connections" in out
+        assert "id 31 — Google (TEST) — NOT CONNECTED" in out
+        # where to connect = The Agent's own screen (a link the chat can open),
+        # not the classic app's page, which a regular user has no link to
+        assert "My Connections screen" in out and "(#connections)" in out
+        assert "/my-connections" not in out
         assert "get_connection_tools" in out
     finally:
         CURRENT_USER.reset(tok)
@@ -266,6 +270,7 @@ def test_get_connection_tools_not_authorized_not_found_denied():
         with mock.patch.object(C, "_get", fake_needs_auth), mock.patch.dict(os.environ, {"CC_JWT_SECRET": "s"}):
             res = _run(C.get_connection_tools.handler({"server_id": 30}))
             assert not res.get("is_error") and "/my-connections" in _txt(res)
+            assert "(#connections)" in _txt(res), "points at The Agent's own screen"
         with mock.patch.object(C, "_get", fake_404), mock.patch.dict(os.environ, {"CC_JWT_SECRET": "s"}):
             res = _run(C.get_connection_tools.handler({"server_id": 99}))
             assert res.get("is_error") and "list_my_connections" in _txt(res)
@@ -404,6 +409,7 @@ def test_use_my_connection_surfaces_needs_auth_and_tool_errors():
              mock.patch.dict(os.environ, {"CC_JWT_SECRET": "s"}):
             res = _run(C.use_my_connection.handler({"server_id": 30, "tool_name": "get_my_profile"}))
             assert not res.get("is_error") and "/my-connections" in _txt(res)
+            assert "(#connections)" in _txt(res), "points at The Agent's own screen"
         with mock.patch.object(C, "_get", fake_get), mock.patch.object(C, "_post", fake_err), \
              mock.patch.dict(os.environ, {"CC_JWT_SECRET": "s"}):
             res = _run(C.use_my_connection.handler({"server_id": 30, "tool_name": "get_my_profile"}))

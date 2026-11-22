@@ -72,8 +72,21 @@ from agent_config import AI_HUB_API_KEY, get_base_url, logger
 from platform_tools import CURRENT_USER, _text, _unwrap
 
 MAX_RESULT_CHARS = 2500
-MY_CONNECTIONS_PAGE = "/my-connections"
 SEAM = "/api/internal/my-connections"
+# Where the user connects an account: The Agent's OWN My Connections screen
+# (rail entry; "#connections" opens it from a chat link). Not the classic
+# app's /my-connections page, which a regular user has no link to from here.
+CONNECT_WHERE = "the My Connections screen in The Agent's left rail"
+CONNECT_LINK = "[Open My Connections](#connections)"
+CONNECT_HINT = (f"They connect it themselves on {CONNECT_WHERE}; in chat, give "
+                f"them this link to it, written exactly so: {CONNECT_LINK}")
+
+
+def _needs_auth_text(message: str = "") -> str:
+    """The platform's own "not authorized yet" message (it carries the detail,
+    e.g. an expired authorization) plus where the user fixes it from here."""
+    base = str(message or "").strip() or "The user has not authorized this connection."
+    return f"{base} {CONNECT_HINT}"
 
 DENIED_TEXT = (
     "'{name}' is DENIED on this install: it is not declared read-only by its "
@@ -257,7 +270,8 @@ def _fmt_params(schema: dict) -> str:
     "Call this FIRST whenever the user asks about THEIR inbox, their "
     "calendar, or 'my email/Outlook/Microsoft 365'. Never assume what is "
     "connected. A connection they have not authorized cannot be used until "
-    "they connect it themselves at /my-connections.",
+    "they connect it themselves on the My Connections screen in The Agent's "
+    "left rail.",
     {},
 )
 async def list_my_connections(args: dict[str, Any]) -> dict[str, Any]:
@@ -291,14 +305,15 @@ async def list_my_connections(args: dict[str, Any]) -> dict[str, Any]:
                          + (f"; scope: {scope}" if scope else ""))
         else:
             lines.append(f"- id {sid} — {name} — NOT CONNECTED: the user must "
-                         f"connect it at {MY_CONNECTIONS_PAGE} (My Connections in "
-                         "the rail) before it can be used"
+                         f"connect it on {CONNECT_WHERE} before it can be used"
                          + (f"; scope: {scope}" if scope else ""))
     head = (f"Personal connections for {user.get('username') or 'this user'} "
             f"({ready} of {len(conns)} connected):\n")
     tail = ("\nNext: get_connection_tools(server_id) to see what a connected "
             "account can do, then use_my_connection to act. Reads only unless "
             "an admin has allowed specific write tools.")
+    if ready < len(conns):
+        tail += f"\nFor one that is not connected: {CONNECT_HINT}"
     return _text(head + "\n".join(lines) + tail)
 
 
@@ -338,8 +353,7 @@ async def get_connection_tools(args: dict[str, Any]) -> dict[str, Any]:
         return _text(_seam_error(data, status, "Listing connection tools"),
                      is_error=True)
     if data.get("status") == "needs_authorization":
-        return _text(data.get("message") or "The user has not authorized this "
-                     f"connection — they must connect it at {MY_CONNECTIONS_PAGE}.")
+        return _text(_needs_auth_text(data.get("message")))
     if data.get("status") != "success":
         return _text(f"Connection tools unavailable: "
                      f"{data.get('message') or data}", is_error=True)
@@ -428,8 +442,7 @@ async def use_my_connection(args: dict[str, Any]) -> dict[str, Any]:
     if status != 200 or not isinstance(data, dict):
         return _text(_seam_error(data, status, "Resolving the connection"), is_error=True)
     if data.get("status") == "needs_authorization":
-        return _text(data.get("message") or "The user has not authorized this "
-                     f"connection — they must connect it at {MY_CONNECTIONS_PAGE}.")
+        return _text(_needs_auth_text(data.get("message")))
     if data.get("status") != "success":
         return _text(f"Connection unavailable: {data.get('message') or data}",
                      is_error=True)
@@ -450,8 +463,7 @@ async def use_my_connection(args: dict[str, Any]) -> dict[str, Any]:
     if status != 200 or not isinstance(res, dict):
         return _text(_seam_error(res, status, f"'{tool_name}'"), is_error=True)
     if res.get("status") == "needs_authorization":
-        return _text(res.get("message") or "The user must (re)connect this account "
-                     f"at {MY_CONNECTIONS_PAGE}.")
+        return _text(_needs_auth_text(res.get("message")))
     if res.get("status") != "success":
         return _text(f"'{tool_name}' on '{data.get('name')}' FAILED: "
                      f"{res.get('message') or res}. Report the failure; do not "

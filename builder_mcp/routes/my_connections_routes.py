@@ -13,11 +13,12 @@ shared with the internal seam The Agent uses — one filter, two surfaces.
 
 Endpoints:
   GET  /my-connections                                 — HTML page
+  GET  /my-connections/connect/<server_id>             — start Connect (popup from The Agent)
   GET  /api/my-connections/servers                     — list + per-user state
   POST /api/my-connections/<server_id>/disconnect      — revoke current user's tokens
 """
 import logging
-from flask import Blueprint, render_template, jsonify
+from flask import Blueprint, render_template, jsonify, redirect, request
 from flask_login import login_required, current_user
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,44 @@ my_connections_bp = Blueprint('my_connections', __name__)
 @login_required
 def my_connections_page():
     return render_template('my_connections.html')
+
+
+@my_connections_bp.route('/my-connections/connect/<int:server_id>')
+@login_required
+def connect_my_connection(server_id):
+    """Start Connect for one server from OUTSIDE this page — The Agent's My
+    Connections screen opens this address in a popup. It only forwards to the
+    same authorize route the Connect button here uses, which makes every
+    decision (published to users, signed in, settings complete). The reason it
+    exists: this is a page address, so a browser whose AI Hub sign-in has
+    lapsed is taken to the sign-in form and brought back here afterwards,
+    where the /api/ address would answer with a bare "Authentication
+    required".
+
+    ?as=<user id> is the caller saying who it believes is connecting. The
+    account is always attached to whoever is signed in to AI Hub in this
+    browser — never to the id in the address — so when the two differ (The
+    Agent still open as one person, AI Hub since signed in as another) the
+    flow stops here instead of quietly attaching a mailbox to the wrong
+    person. It can only ever stop a flow; it grants nothing."""
+    expected = (request.args.get('as') or '').strip()
+    if expected:
+        try:
+            same = int(expected) == int(current_user.id)
+        except (TypeError, ValueError):
+            same = False
+        if not same:
+            logger.warning(f"my-connections connect refused: session user "
+                           f"{current_user.id} != expected {expected!r} (server {server_id})")
+            from builder_mcp.routes.mcp_routes import _oauth_page
+            who = getattr(current_user, 'username', None) or 'another user'
+            return _oauth_page(
+                'Connection not started',
+                f"AI Hub is signed in as {who} in this browser, but the Connect "
+                "button was pressed by a different user. Nothing was connected.\n\n"
+                "Sign out of AI Hub, sign in as yourself, and press Connect again.",
+                409)
+    return redirect(f'/api/mcp/oauth/authorize/{int(server_id)}')
 
 
 @my_connections_bp.route('/api/my-connections/servers', methods=['GET'])

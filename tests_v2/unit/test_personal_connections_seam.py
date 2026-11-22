@@ -324,3 +324,107 @@ def test_seam_tools_and_call_route_to_the_asserted_user(seam_app, monkeypatch, t
     assert r.status_code == 400
     r = c.get("/api/internal/my-connections/31/tools", headers=hdr13)
     assert r.status_code == 404
+
+
+def test_seam_disconnect_removes_only_the_asserted_users_authorization(seam_app, monkeypatch):
+    """Disconnect (The Agent's My Connections screen): the asserted user's own
+    tokens and live gateway connection, never anyone a parameter names; a
+    gateway that is down does not undo a revoke that already happened."""
+    app, R = seam_app
+    from builder_mcp.agent_integration import oauth_manager
+    revoked = []
+    monkeypatch.setattr(oauth_manager, "revoke_user_token",
+                        lambda sid, uid: revoked.append((sid, uid)))
+    gw = FakeGateway()
+    monkeypatch.setattr(R, "_gateway", lambda: gw)
+    c = app.test_client()
+    hdr13 = {"X-Internal-API-Key": "internal-key", "X-AIHub-User": _assert_for(13, role=1)}
+
+    # identity is required exactly as on the rest of the seam
+    r = c.post("/api/internal/my-connections/30/disconnect",
+               headers={"X-Internal-API-Key": "internal-key"})
+    assert r.status_code == 401 and revoked == []
+    r = c.post("/api/internal/my-connections/30/disconnect",
+               headers={"X-AIHub-User": _assert_for(13)})
+    assert r.status_code == 401 and revoked == []
+
+    r = c.post("/api/internal/my-connections/30/disconnect?user_id=77", headers=hdr13,
+               json={"user_id": 77})
+    assert r.status_code == 200
+    assert r.get_json() == {"status": "success", "server_id": 30, "connected": False}
+    assert revoked == [(30, 13)], "a parameter must not redirect the revoke"
+    assert ("disconnect", 30, 13) in gw.calls
+
+    # the gateway being unreachable is not a failed disconnect: the tokens are gone
+    class DownGateway:
+        def disconnect_server(self, server_id, user_id=None):
+            raise RuntimeError("gateway down")
+    monkeypatch.setattr(R, "_gateway", lambda: DownGateway())
+    r = c.post("/api/internal/my-connections/30/disconnect", headers=hdr13)
+    assert r.status_code == 200 and revoked[-1] == (30, 13)
+
+    # the revoke itself failing is reported, not swallowed
+    def boom(sid, uid):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(oauth_manager, "revoke_user_token", boom)
+    r = c.post("/api/internal/my-connections/30/disconnect", headers=hdr13)
+    assert r.status_code == 500 and r.get_json()["status"] == "error"
+
+    # GET is not a way to disconnect
+    assert c.get("/api/internal/my-connections/30/disconnect", headers=hdr13).status_code == 405
+
+
+def test_connect_hop_forwards_to_the_authorize_route_for_signed_in_users(monkeypatch):
+    """/my-connections/connect/<id> — the address The Agent's Connect button
+    opens. It decides nothing itself: signed in -> the same authorize route
+    the page's own button uses; not signed in -> the sign-in form."""
+    try:
+        from flask import Flask
+        import flask_login
+        from builder_mcp.routes import my_connections_routes as MR
+    except Exception as e:  # pragma: no cover - env without flask
+        pytest.skip(f"flask / flask_login unavailable: {e}")
+    app = Flask("connect-hop-test")
+    app.secret_key = "unit"
+    lm = flask_login.LoginManager(app)
+
+    class U(flask_login.UserMixin):
+        id = "13"
+
+    @lm.user_loader
+    def _load(uid):
+        return U()
+
+    @app.route("/login")
+    def login():
+        return "sign in"
+    lm.login_view = "login"
+
+    @app.route("/_signin")
+    def _signin():
+        flask_login.login_user(U())
+        return "ok"
+
+    app.register_blueprint(MR.my_connections_bp)
+    c = app.test_client()
+    r = c.get("/my-connections/connect/30")
+    assert r.status_code == 302 and "/login" in r.headers["Location"]
+    assert "connect%2F30" in r.headers["Location"] or "connect/30" in r.headers["Location"]
+    c.get("/_signin")
+    r = c.get("/my-connections/connect/30")
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/api/mcp/oauth/authorize/30")
+    assert c.get("/my-connections/connect/abc").status_code == 404
+
+    # ?as= names who pressed Connect. Same person -> on to the authorize route.
+    r = c.get("/my-connections/connect/30?as=13")
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/api/mcp/oauth/authorize/30")
+    # A different person (The Agent open as user 349, AI Hub signed in as 13):
+    # stop here, or user 349's mailbox would be attached to user 13.
+    for other in ("349", "0", "abc", "13x"):
+        r = c.get(f"/my-connections/connect/30?as={other}")
+        assert r.status_code == 409, other
+        body = r.get_data(as_text=True)
+        assert "Nothing was connected" in body and "authorize" not in body
+        assert "Location" not in r.headers

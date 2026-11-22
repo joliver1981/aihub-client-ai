@@ -20,6 +20,10 @@ the /api/internal/integrations* seam in app.py.
        body {tool_name, arguments:{...} | "<json>", context:{source}}
        -> {status:'success', result} | {status:'needs_authorization', ...}
         | {status:'error', code, message}
+  POST /api/internal/my-connections/<server_id>/disconnect
+       -> {status:'success', server_id, connected:false}
+          Withdraws the asserted user's own authorization (The Agent's
+          My Connections screen).
 
 Auth — TWO things, both required:
   1. the machine-bound internal service key (X-Internal-API-Key / X-API-Key),
@@ -156,3 +160,32 @@ def internal_my_connection_call(server_id):
         logger.error(f"[my-connections internal] call failed server={server_id} "
                      f"user={uid}: {e}", exc_info=True)
         return jsonify({'status': 'error', 'code': 'server', 'message': str(e)}), 500
+
+
+@my_connections_internal_bp.route('/<int:server_id>/disconnect', methods=['POST'])
+@internal_api_key_required()
+def internal_my_connection_disconnect(server_id):
+    """Remove the asserted user's OWN authorization for one server — the same
+    two steps as the Disconnect button on the My Connections page
+    (my_connections_routes.disconnect_my_connection): drop their stored tokens,
+    then their live gateway connection so an open transport cannot keep
+    serving a revoked token. Only ever touches the asserted user's rows, so it
+    needs no catalog check: a user may always withdraw their own grant, also
+    for a server an admin has since unpublished."""
+    uid, refusal = _identity_or_401()
+    if refusal:
+        return refusal
+    try:
+        from builder_mcp.agent_integration.oauth_manager import revoke_user_token
+        revoke_user_token(server_id, uid)
+    except Exception as e:
+        logger.error(f"[my-connections internal] disconnect failed server={server_id} "
+                     f"user={uid}: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'code': 'server', 'message': str(e)}), 500
+    try:
+        _gateway().disconnect_server(server_id, user_id=uid)
+    except Exception as ge:
+        logger.debug(f"[my-connections internal] gateway disconnect after revoke "
+                     f"skipped: {ge}")
+    logger.info(f"[my-connections internal] user {uid} disconnected server {server_id}")
+    return jsonify({'status': 'success', 'server_id': server_id, 'connected': False})

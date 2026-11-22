@@ -231,7 +231,10 @@ async def me(request: Request):
            # the zone the service falls back to when the browser sends none
            "server_timezone": __import__("work_tools").server_zone_label(),
            # an Admin can hide the Email screen per group (settings below)
-           "email_hidden": email_hidden_for(user)}
+           "email_hidden": email_hidden_for(user),
+           # the My Connections screen exists only while The Agent may use
+           # personal connections at all (AGENT_MY_CONNECTIONS)
+           "my_connections": __import__("connections_api").enabled()}
     # Behind a reverse proxy that port is not reachable from the browser:
     # the links back must point at the main app's published address.
     main_url = _main_public_url()
@@ -1410,6 +1413,27 @@ async def schedules_create(request: Request):
     body = await request.json()
     import schedules_api
     return await schedules_api.create(user, body)
+
+
+# ---------------------------------------------------------------------------
+# My Connections screen — the signed-in user's OWN personal accounts (their
+# Microsoft 365 mail and calendar, etc.): see them, connect, disconnect. The
+# list and Disconnect go through the main app's internal seam AS the user
+# (connections_api.py); Connect is a popup on the main app's own address.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/my-connections")
+async def my_connections_list(request: Request):
+    user = _verify_request(request)
+    import connections_api
+    return await connections_api.list_for(user)
+
+
+@app.post("/api/my-connections/{server_id}/disconnect")
+async def my_connections_disconnect(request: Request, server_id: int):
+    user = _verify_request(request)
+    import connections_api
+    return await connections_api.disconnect(user, server_id)
 
 
 # ---------------------------------------------------------------------------
