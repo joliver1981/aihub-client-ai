@@ -9,8 +9,8 @@ tests pin the corrected contract:
 
   FALSE + fail edge      -> step Completed, fail-edge target returned
   TRUE  + pass edge      -> step Completed, pass-edge target returned
-  FALSE + no fail edge   -> legacy dead-end contract preserved (step Failed,
-                            exception propagates)
+  FALSE + no fail edge   -> step Completed, branch ends (changed 2026-11-22;
+                            it used to mark the step Failed and fail the run)
   evaluation error       -> still the failure path (step Failed, fail edge)
 """
 import os
@@ -72,12 +72,25 @@ def test_true_branch_is_completed_and_routes_pass_edge():
     assert not any(s == "Failed" for _, s in eng.status_calls)
 
 
-def test_false_with_no_fail_edge_keeps_legacy_failure_contract():
+def test_false_with_no_fail_edge_is_completed_and_branch_ends():
+    """2026-11-22: a FALSE with nothing wired on the false side is still a
+    successful evaluation. The step is Completed and the branch ends (None),
+    instead of the step being Failed and the error failing the whole run."""
     pass_only = [{"source": "cond", "target": "true-node", "type": "pass"}]
-    eng = _engine(pass_only, {"success": False, "data": {}})
-    with pytest.raises(ValueError):
-        eng._execute_node(EXEC_ID, COND_NODE, {})
-    assert ("cond", "Failed") in eng.status_calls
+    eng = _engine(pass_only, {"success": False,
+                              "data": {"conditionResult": False}})
+    target = eng._execute_node(EXEC_ID, COND_NODE, {})
+    assert target is None
+    assert ("cond", "Completed") in eng.status_calls
+    assert not any(s == "Failed" for _, s in eng.status_calls)
+    assert not any(lvl == "error" for lvl, _ in eng.log_calls)
+
+
+def test_false_with_no_connections_at_all_is_completed():
+    eng = _engine([], {"success": False, "data": {"conditionResult": False}})
+    assert eng._execute_node(EXEC_ID, COND_NODE, {}) is None
+    assert ("cond", "Completed") in eng.status_calls
+    assert not any(s == "Failed" for _, s in eng.status_calls)
 
 
 def test_false_with_complete_edge_routes_it_as_completed():
