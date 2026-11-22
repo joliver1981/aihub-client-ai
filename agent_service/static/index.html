@@ -45,11 +45,16 @@
            color:var(--text2);font-weight:520;width:100%;text-align:left;font-size:13px}
   .navlink:hover{background:var(--hover);color:var(--text)}
   .navlink.on{background:var(--accent-tint);color:var(--text);box-shadow:inset 2px 0 0 var(--accent)}
+  .navlink:disabled{opacity:.4;cursor:default;background:none;color:var(--text2);box-shadow:none}
   .navlink .count{margin-left:auto;font-family:var(--mono);font-size:10px;font-weight:600;
                   background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:1px 7px}
   .rail .spacer{flex:1}
   .who{padding:10px;border-top:1px solid var(--line-soft);font-size:11.5px;color:var(--text3)}
   .who b{color:var(--text2);font-weight:550;display:block;font-size:12px}
+  .signout{display:block;width:100%;margin-top:8px;padding:6px 9px;text-align:left;
+           border:1px solid var(--line);border-radius:8px;color:var(--text2);
+           font-size:12px;font-weight:520}
+  .signout:hover{border-color:var(--text3);color:var(--text);background:var(--hover)}
   .model-note{font-family:var(--mono);font-size:9px;color:var(--text3);padding:4px 10px}
 
   /* ===== views ===== */
@@ -713,6 +718,8 @@
   const params = new URLSearchParams(location.search);
   if (params.get("token")) {
     localStorage.setItem("agent_token", params.get("token"));
+    // arriving with a token means AI Hub has just signed this person in
+    try { localStorage.removeItem("agent_signed_out"); } catch (e) {}
     // keep the #hash: deep links (#view=…, #chat=<session>) must survive the
     // ?token= redirect from AI Hub (replaceState with pathname alone dropped them)
     history.replaceState({}, "", location.pathname + location.hash);
@@ -793,6 +800,52 @@
     location.href = `${mainAppBase()}/the-agent`;
     return true;
   }
+
+  // ---------- sign out ----------
+  // There is one sign-out for the whole platform: AI Hub's own /logout, the
+  // route behind Logout in the classic app, so every kind of account (local,
+  // directory, single sign-on) ends the same way. What The Agent itself holds
+  // is the token in this browser, so that goes first: with it gone nothing
+  // here can act as this person, whatever happens to the navigation after.
+  // The conversation this tab was on and any unsent draft go with it, so the
+  // next person to sign in on this browser starts clean. ?then=agent lands on
+  // the sign-in form with the way back into The Agent.
+  //
+  // "agent_signed_out" is what keeps a signed-out browser signed out. Without
+  // it, coming back here (reload, Back, a second tab) has no token and takes
+  // the silent re-auth bounce above, which is right for an aged token but can
+  // reach AI Hub before /logout has finished and come back with a new one. A
+  // browser carrying the mark stops on a plain "You're signed out" screen
+  // instead; the mark is removed when AI Hub next sends a token.
+  const isSignedOut = () => {
+    try { return !!localStorage.getItem("agent_signed_out"); } catch (e) { return false; }
+  };
+  function signOut() {
+    try {
+      localStorage.removeItem("agent_token");
+      localStorage.removeItem("agent_draft");
+      localStorage.setItem("agent_signed_out", String(Date.now()));
+      sessionStorage.removeItem("agent_session");
+      sessionStorage.removeItem("agent_reauth_at");
+    } catch (e) {}
+    location.href = `${mainAppBase()}/logout?then=agent`;
+  }
+  function signedOutGate() {
+    // the other screens would only show empty lists (every request is refused)
+    Object.values(navs).forEach(b => { b.disabled = true; });
+    gate("Sign in to AI Hub to open The Agent again.", "You're signed out",
+         { label: "Sign in", href: `${mainAppBase()}/the-agent`, sameTab: true });
+  }
+  // Signing out in one tab signs out every open tab of The Agent (they share
+  // the token), and a page the browser brings back from its Back/Forward
+  // cache is still showing the last person's work: both reload, and boot()
+  // stops them on the signed-out screen.
+  window.addEventListener("storage", (e) => {
+    if (e.key === "agent_signed_out" && e.newValue) location.reload();
+  });
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted && isSignedOut() && !token()) location.reload();
+  });
 
   const el = (tag, cls, text) => {
     const e = document.createElement(tag);
@@ -3053,6 +3106,9 @@
     if (action) {
       const a = el("a", "send gate-action", action.label);
       a.href = action.href;
+      // links here open in a new tab unless they say otherwise (the click
+      // safety net above); sameTab is for an action that replaces this page
+      if (action.sameTab) a.target = "_self";
       g.appendChild(a);
     }
     thread.appendChild(g);
@@ -4417,6 +4473,7 @@
   async function boot() {
     if (!token()) {
       await learnMainApp();
+      if (isSignedOut()) { signedOutGate(); return; }
       if (reauth("no access token")) return;
       gate("Automatic sign-in is not completing — this is a platform configuration problem, not your session. An administrator should check the AI Hub and The Agent services.");
       return;
@@ -4441,8 +4498,14 @@
       const savedDraft = localStorage.getItem("agent_draft");
       if (savedDraft) { input.value = savedDraft; localStorage.removeItem("agent_draft"); }
       buildPlatformLinks((d.user || {}).role);
-      document.getElementById("who").innerHTML =
-        `signed in as<b>${d.user.name || d.user.username}</b>`;
+      const who = document.getElementById("who");
+      who.textContent = "signed in as";
+      who.appendChild(el("b", "", d.user.name || d.user.username));
+      const out = el("button", "signout", "⇥ Sign out");
+      out.id = "signout"; out.type = "button";
+      out.title = "Sign out of AI Hub";
+      out.onclick = signOut;
+      who.appendChild(out);
       renderModelNote(d);
       input.disabled = false; send.disabled = false;
       // Deep link (2026-08-22): #chat=<session_id> opens that conversation —
