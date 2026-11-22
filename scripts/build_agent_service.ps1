@@ -40,6 +40,23 @@ $dataDir = Join-Path $svcDst "data"
 if (Test-Path $dataDir) { Remove-Item $dataDir -Recurse -Force }
 Write-Host "  staged $(Get-ChildItem $svcDst -Recurse -File | Measure-Object | Select-Object -ExpandProperty Count) files" -ForegroundColor Green
 
+# Stamp the platform version next to the source. On an install app_config.py is inside
+# the main app exe, so the source-run Agent cannot read APP_VERSION from disk and its
+# header badge stayed blank; agent_config._read_app_version falls back to this file.
+# Display only: an unreadable version is a warning, never a failed build.
+$verFile = Join-Path $svcDst "APP_VERSION.txt"
+$appVer = ""
+try {
+    $verLine = Select-String -Path (Join-Path $Repo "app_config.py") -Pattern '^APP_VERSION\s*=\s*["'']([^"'']+)["'']' | Select-Object -First 1
+    if ($verLine) { $appVer = $verLine.Matches[0].Groups[1].Value.Trim() }
+} catch { $appVer = "" }
+if ($appVer) {
+    [System.IO.File]::WriteAllText($verFile, $appVer, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "  stamped APP_VERSION.txt = $appVer" -ForegroundColor Green
+} else {
+    Write-Host "  WARNING: APP_VERSION not found in app_config.py - The Agent will show no version" -ForegroundColor Yellow
+}
+
 # Private copy of the command_center.tools modules The Agent imports (portal registry /
 # fetch / workflows / run). Service-local ON PURPOSE: a partial copy shipped loose to
 # {app} shadowed the Command Center exe's bundled package and killed every CC chat

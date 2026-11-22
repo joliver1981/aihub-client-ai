@@ -291,9 +291,9 @@ def get_effective_model(role=None) -> str:
 # ---------------------------------------------------------------------------
 # Platform version (James 2026-08-20): surface the same APP_VERSION the legacy
 # UI badges, without importing the main app. Dev tree: parse app_config.py.
-# Frozen installs bundle app_config inside the onedir exe (not on disk), so
-# AGENT_APP_VERSION env is the install-time override; unresolvable -> "" and
-# the UI hides the badge.
+# Installs bundle app_config inside the onedir exe (not on disk), so the build
+# stamps APP_VERSION.txt beside this module; AGENT_APP_VERSION env overrides
+# both. Unresolvable -> "" and the UI hides the badge.
 # ---------------------------------------------------------------------------
 
 def _read_app_version() -> str:
@@ -306,6 +306,15 @@ def _read_app_version() -> str:
                 m = re.match(r"""^APP_VERSION\s*=\s*["']([^"']+)["']""", line)
                 if m:
                     return m.group(1)
+    except OSError:
+        pass
+    # Installs: scripts/build_agent_service.ps1 stamps the version beside this
+    # module, because app_config.py is not on disk there.
+    try:
+        stamp = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "APP_VERSION.txt")
+        with open(stamp, encoding="utf-8-sig") as f:
+            return f.read().strip()
     except OSError:
         pass
     return ""
