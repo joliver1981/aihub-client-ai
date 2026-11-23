@@ -1445,7 +1445,7 @@ const nodeConfigTemplates = {
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-bold">Agent Objective Template <small class="text-muted">(optional)</small></label>
-                            <textarea class="form-control" name="agentObjectiveTemplate" rows="3"
+                            <textarea class="form-control" name="agentObjectiveTemplate" rows="3" data-no-enhance
                                 placeholder="You are a knowledge assistant for {{retailer_name}}. Answer questions using the documents in your knowledge base."></textarea>
                             <small class="form-text text-muted">Custom objective for auto-created agents. Available placeholders: <code>{{retailer_name}}</code>, <code>{{set_category}}</code>. Leave blank for a sensible default.</small>
                         </div>
