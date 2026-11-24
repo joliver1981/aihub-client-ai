@@ -1976,6 +1976,69 @@ def runtime_skill():
     return jsonify(found)
 
 
+def _schema_list_key(schema):
+    """The key of a schema whose top level is an object holding exactly one list
+    ({"assignments": [ ... ]}); None for every other shape."""
+    if isinstance(schema, dict) and len(schema) == 1:
+        (key, val), = schema.items()
+        if isinstance(val, list) and isinstance(key, str):
+            return key
+    return None
+
+
+def _decode_json_values(text):
+    """Every top-level JSON value in `text` when the text is NOTHING BUT JSON
+    values separated by whitespace or commas; None when anything else is in it."""
+    dec = json.JSONDecoder()
+    values, i, n = [], 0, len(text)
+    while i < n:
+        while i < n and (text[i].isspace() or text[i] == ","):
+            i += 1
+        if i >= n:
+            break
+        try:
+            val, i = dec.raw_decode(text, i)
+        except ValueError:
+            return None
+        values.append(val)
+    return values or None
+
+
+def _parse_ai_json(text, schema=None):
+    """(parsed JSON, note) for a model reply. note is "" for a reply that was
+    plain JSON.
+
+    One shape is put right here instead of being sent back to the model: asked
+    for {"<key>": [ ... ]}, a model sometimes writes one object PER ITEM, or
+    the wrapper several times over. json.loads rejects that ("Extra data"), and
+    re-asking could come back with a single item, which parses and silently
+    drops the rest. Every item is already in the reply, so the objects are
+    joined under the schema's list key. Only that unambiguous case is touched;
+    anything else raises ValueError so the caller asks the model to re-send."""
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        t = t[t.index("{"):t.rindex("}") + 1]        # ValueError when it holds no object
+    try:
+        return json.loads(t), ""
+    except ValueError as not_json:
+        key = _schema_list_key(schema)
+        values = _decode_json_values(t) if key else None
+        if not values or len(values) < 2 or not all(isinstance(v, dict) for v in values):
+            raise not_json
+        if all(key not in v for v in values):
+            return {key: values}, f"joined {len(values)} separate objects under '{key}'"
+        if all(set(v) == {key} and isinstance(v[key], list) for v in values):
+            return ({key: [item for v in values for item in v[key]]},
+                    f"joined {len(values)} '{key}' lists into one")
+        raise not_json
+
+
+_JSON_RESEND = ("That reply could not be read as JSON ({error}). Send the SAME content again as ONE "
+                "valid JSON value{shape}: keep every item of your reply, add nothing, drop nothing, "
+                "no prose, no code fences.")
+
+
 @automations_bp.route("/api/runtime/ai", methods=["POST"])
 def runtime_ai():
     """Platform-brokered LLM call for automation runs. The APP owns model
@@ -1986,8 +2049,10 @@ def runtime_ai():
 
     Body: {token, prompt, system?, images?: [workdir-relative paths],
            json?: bool, schema?: object, model?: override, max_tokens?}
-    Returns {text, model_used} — plus {json} when json/schema was requested
-    (server parses, one self-repair retry on invalid JSON)."""
+    Returns {text, model_used} — plus {json} when json/schema was requested.
+    The server parses the reply (_parse_ai_json). A reply that cannot be read
+    is sent BACK to the model once, to be re-sent as JSON with nothing dropped;
+    {json_repair} says when either of the two happened."""
     if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
         return jsonify({"error": "Automations feature is disabled"}), 403
     data = request.get_json(silent=True) or {}
@@ -2027,16 +2092,25 @@ def runtime_ai():
     meta = {}
     t0 = time.time()
 
-    def _call(extra_nudge=None):
+    def _call(resend_of=None, resend_request=None):
         # Raw REST (requests) — the app env deliberately has no anthropic SDK,
         # and this needs zero new dependencies. No temperature: reasoning
         # models reject it.
+        #
+        # resend_request alone = the request repeated with the note appended.
+        # With resend_of (the reply that could not be read) the model is shown
+        # its OWN reply and asked to re-send it as JSON: it re-formats what it
+        # already said instead of answering again, so nothing is dropped.
         import requests as _requests
         content = list(image_blocks)
         content.append({"type": "text",
-                        "text": text_prompt + (("\n\n" + extra_nudge) if extra_nudge else "")})
-        body = {"model": model, "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": content}]}
+                        "text": text_prompt + (("\n\n" + resend_request)
+                                               if resend_request and not resend_of else "")})
+        messages = [{"role": "user", "content": content}]
+        if resend_of:
+            messages += [{"role": "assistant", "content": resend_of},
+                         {"role": "user", "content": resend_request}]
+        body = {"model": model, "max_tokens": max_tokens, "messages": messages}
         if data.get("system"):
             body["system"] = str(data["system"])[:20_000]
         resp = _requests.post(
@@ -2060,19 +2134,26 @@ def runtime_ai():
             raise RuntimeError(f"reply truncated at max_tokens={max_tokens} "
                                "(stop_reason max_tokens) — raise max_tokens")
         if json_mode:
-            def _parse(t):
-                t = t.strip()
-                if t.startswith("```"):
-                    t = t.strip("`")
-                    t = t[t.index("{"):t.rindex("}") + 1]
-                return json.loads(t)
             try:
-                payload["json"] = _parse(text)
-            except (ValueError, IndexError):
-                text2 = _call("Your previous reply was not valid JSON. "
-                              "Reply with ONLY the JSON object.")
-                payload["json"] = _parse(text2)
+                payload["json"], note = _parse_ai_json(text, schema)
+            except (ValueError, IndexError) as bad:
+                logger.info(f"runtime_ai: reply was not valid JSON ({str(bad)[:120]}); "
+                            f"sent back to the model to re-send as JSON (model {model})")
+                text2 = _call(
+                    resend_of=text or None,
+                    resend_request=_JSON_RESEND.format(
+                        error=str(bad)[:200],
+                        shape=" that matches the schema" if schema is not None else ""))
+                if meta.get("stop_reason") == "max_tokens":
+                    raise RuntimeError(f"reply truncated at max_tokens={max_tokens} "
+                                       "(stop_reason max_tokens) while re-sending it as JSON "
+                                       "— raise max_tokens")
+                payload["json"], note = _parse_ai_json(text2, schema)
                 payload["text"] = text2
+                note = "re-sent by the model" + (f"; {note}" if note else "")
+            if note:
+                payload["json_repair"] = note
+                logger.info(f"runtime_ai: JSON reply repaired ({note}) (model {model})")
         logger.info(f"runtime_ai ok (model {model}): {len(image_blocks or [])} image(s), "
                     f"{int(time.time() - t0)}s, stop_reason={meta.get('stop_reason')}")
         return jsonify(payload)

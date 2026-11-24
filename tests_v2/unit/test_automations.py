@@ -2224,6 +2224,10 @@ class TestPlatformAiSeam:
         monkeypatch.setattr(api_mod, "_manager", mgr)
         monkeypatch.setattr(api_mod, "_runner", AiRunner(mgr))
         monkeypatch.setattr(api_mod.cfg, "ANTHROPIC_API_KEY", "k-test", raising=False)
+        # Never read this machine's own key store: with a customer key switched on
+        # here, the seam would use (and a failing assert would print) the real key.
+        import api_keys_config
+        monkeypatch.setattr(api_keys_config, "get_active_anthropic_key", lambda: None)
 
         calls = {"n": 0}
 
@@ -2332,6 +2336,176 @@ class TestPlatformAiSeam:
         mod = Path(__file__).resolve().parents[2].joinpath(
             "static", "js", "automation_node.js").read_text(encoding="utf-8", errors="replace")
         assert "inp.description" in mod
+
+
+class TestAiJsonReplyRepair:
+    """2026-11-24: a model asked for {"assignments": [...]} wrote one object per
+    item. The seam re-asked "Reply with ONLY the JSON object" without showing the
+    model its first reply; a reply holding ONE item parses fine, so the caller got
+    an incomplete answer and the run reported success. Now: separate objects are
+    joined under the schema's list key, and a reply that still cannot be read is
+    sent BACK to the model to re-send, not asked for again."""
+
+    SCHEMA = {"assignments": [{"index": "number", "teams": [{"team": "string"}]}]}
+    ITEMS = [{"index": i, "teams": [{"team": "Logistics"}]} for i in range(8)]
+
+    # -- the parser -----------------------------------------------------------
+    def test_plain_json_is_untouched(self):
+        import automations.api as api_mod
+        whole = {"assignments": self.ITEMS}
+        assert api_mod._parse_ai_json(json.dumps(whole), self.SCHEMA) == (whole, "")
+        assert api_mod._parse_ai_json('  {"a": 1}\n') == ({"a": 1}, "")
+        assert api_mod._parse_ai_json('[1, 2]', self.SCHEMA) == ([1, 2], "")      # valid JSON: as before
+
+    def test_fenced_json_still_parses(self):
+        import automations.api as api_mod
+        assert api_mod._parse_ai_json('```json\n{"a": 1}\n```') == ({"a": 1}, "")
+
+    @pytest.mark.parametrize("sep", ["\n", "\n\n", ",\n", " "])
+    def test_one_object_per_item_is_joined_under_the_list_key(self, sep):
+        import automations.api as api_mod
+        reply = sep.join(json.dumps(it, indent=1) for it in self.ITEMS)
+        with pytest.raises(ValueError):
+            json.loads(reply)                                  # what used to trigger the re-ask
+        parsed, note = api_mod._parse_ai_json(reply, self.SCHEMA)
+        assert parsed == {"assignments": self.ITEMS}           # all eight, none dropped
+        assert note == "joined 8 separate objects under 'assignments'"
+
+    def test_fenced_objects_are_joined_too(self):
+        import automations.api as api_mod
+        reply = "```json\n" + "\n".join(json.dumps(it) for it in self.ITEMS) + "\n```"
+        parsed, _ = api_mod._parse_ai_json(reply, self.SCHEMA)
+        assert parsed == {"assignments": self.ITEMS}
+
+    def test_repeated_wrappers_are_merged_in_order(self):
+        import automations.api as api_mod
+        reply = "\n".join(json.dumps({"assignments": self.ITEMS[i:i + 3]}) for i in (0, 3, 6))
+        parsed, note = api_mod._parse_ai_json(reply, self.SCHEMA)
+        assert parsed == {"assignments": self.ITEMS}
+        assert note == "joined 3 'assignments' lists into one"
+
+    @pytest.mark.parametrize("reply, schema", [
+        ('{"index": 0}\n{"index": 1}', None),                              # no schema: nothing to join under
+        ('{"index": 0}\n{"index": 1}', {"a": "number", "b": "string"}),    # schema is not one list
+        ('{"index": 0}\n{"index": 1}', {"assignments": "string"}),         # its one key is not a list
+        ('{"index": 0}\nand then some prose', SCHEMA),                     # not ONLY JSON values
+        ('{"index": 0}\n[1, 2]', SCHEMA),                                  # not all objects
+        ('{"assignments": [1]}\n{"index": 1}', SCHEMA),                    # mixed shapes: no guessing
+        ('{"assignments": [1], "x": 2}\n{"assignments": [2]}', SCHEMA),    # wrapper with extra keys
+        ('{"index": 0, "teams": [', SCHEMA),                               # cut off
+        ("not json at all", SCHEMA),
+        ("", SCHEMA),
+    ])
+    def test_anything_else_is_not_guessed_at(self, reply, schema):
+        import automations.api as api_mod
+        with pytest.raises((ValueError, IndexError)):
+            api_mod._parse_ai_json(reply, schema)
+
+    def test_schema_list_key(self):
+        import automations.api as api_mod
+        assert api_mod._schema_list_key(self.SCHEMA) == "assignments"
+        for other in (None, [], "x", {}, {"a": [1], "b": [2]}, {"a": {"b": []}}, {"a": "string"}):
+            assert api_mod._schema_list_key(other) is None
+
+    # -- the endpoint (mocked model) ------------------------------------------
+    def _client(self, monkeypatch, mgr, tmp_path, replies, stop_reasons=None):
+        client, tok, calls = TestPlatformAiSeam._ai_client(self, monkeypatch, mgr, tmp_path, replies)
+        calls["bodies"] = []
+
+        class Resp:
+            status_code = 200
+
+            def __init__(self, text, stop):
+                self._text, self._stop = text, stop
+
+            def json(self):
+                return {"content": [{"type": "text", "text": self._text}], "stop_reason": self._stop}
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            calls["n"] += 1
+            calls["bodies"].append(json or {})
+            k = min(calls["n"] - 1, len(replies) - 1)
+            return Resp(replies[k], (stop_reasons or ["end_turn"] * len(replies))[k])
+        import requests as _requests
+        monkeypatch.setattr(_requests, "post", fake_post)
+        return client, tok, calls
+
+    def test_separate_objects_need_no_second_call(self, monkeypatch, mgr, tmp_path):
+        reply = "\n".join(json.dumps(it) for it in self.ITEMS)
+        client, tok, calls = self._client(monkeypatch, mgr, tmp_path, [reply])
+        r = client.post("/automations/api/runtime/ai",
+                        json={"token": tok, "prompt": "File these.", "schema": self.SCHEMA})
+        body = r.get_json()
+        assert r.status_code == 200, body
+        assert body["json"] == {"assignments": self.ITEMS}
+        assert body["json_repair"] == "joined 8 separate objects under 'assignments'"
+        assert calls["n"] == 1
+
+    def test_unreadable_reply_is_sent_back_to_the_model(self, monkeypatch, mgr, tmp_path):
+        first = 'Here you go: {"assignments": [oops'
+        client, tok, calls = self._client(monkeypatch, mgr, tmp_path,
+                                          [first, json.dumps({"assignments": self.ITEMS})])
+        r = client.post("/automations/api/runtime/ai",
+                        json={"token": tok, "prompt": "File these.", "schema": self.SCHEMA})
+        body = r.get_json()
+        assert r.status_code == 200, body
+        assert body["json"] == {"assignments": self.ITEMS}
+        assert body["json_repair"] == "re-sent by the model"
+        assert calls["n"] == 2
+        first_msgs, second_msgs = (b["messages"] for b in calls["bodies"])
+        assert [m["role"] for m in first_msgs] == ["user"]
+        assert [m["role"] for m in second_msgs] == ["user", "assistant", "user"]
+        assert second_msgs[0] == first_msgs[0]                 # the request itself is unchanged
+        assert second_msgs[1]["content"] == first              # the model sees its OWN reply
+        ask = second_msgs[2]["content"]
+        assert "SAME content" in ask and "drop nothing" in ask and "matches the schema" in ask
+        assert "Reply with ONLY the JSON object" not in json.dumps(calls["bodies"])   # the old re-ask
+
+    def test_resent_reply_in_separate_objects_is_joined(self, monkeypatch, mgr, tmp_path):
+        client, tok, calls = self._client(
+            monkeypatch, mgr, tmp_path,
+            ["nope", "\n".join(json.dumps(it) for it in self.ITEMS)])
+        body = client.post("/automations/api/runtime/ai",
+                           json={"token": tok, "prompt": "File these.", "schema": self.SCHEMA}).get_json()
+        assert body["json"] == {"assignments": self.ITEMS}
+        assert body["json_repair"] == "re-sent by the model; joined 8 separate objects under 'assignments'"
+
+    def test_empty_first_reply_repeats_the_request(self, monkeypatch, mgr, tmp_path):
+        client, tok, calls = self._client(monkeypatch, mgr, tmp_path, ["", '{"a": 1}'])
+        body = client.post("/automations/api/runtime/ai",
+                           json={"token": tok, "prompt": "Extract.", "json": True}).get_json()
+        assert body["json"] == {"a": 1} and calls["n"] == 2
+        second = calls["bodies"][1]["messages"]
+        assert [m["role"] for m in second] == ["user"]         # an empty assistant turn is not sendable
+        assert "could not be read as JSON" in second[0]["content"][-1]["text"]
+
+    def test_still_unreadable_after_resend_fails_loudly(self, monkeypatch, mgr, tmp_path):
+        client, tok, calls = self._client(monkeypatch, mgr, tmp_path, ["nope", "still nope"])
+        r = client.post("/automations/api/runtime/ai",
+                        json={"token": tok, "prompt": "Extract.", "schema": self.SCHEMA})
+        assert r.status_code == 502 and r.get_json()["error"].startswith("AI call failed: ")
+        assert "json" not in r.get_json() and calls["n"] == 2  # one resend, never a partial answer
+
+    def test_truncated_reply_is_not_resent(self, monkeypatch, mgr, tmp_path):
+        client, tok, calls = self._client(monkeypatch, mgr, tmp_path, ['{"assignments": ['],
+                                          stop_reasons=["max_tokens"])
+        r = client.post("/automations/api/runtime/ai",
+                        json={"token": tok, "prompt": "Extract.", "schema": self.SCHEMA})
+        assert r.status_code == 502 and "reply truncated at max_tokens" in r.get_json()["error"]
+        assert calls["n"] == 1
+
+    def test_truncated_resend_says_so(self, monkeypatch, mgr, tmp_path):
+        client, tok, calls = self._client(monkeypatch, mgr, tmp_path, ["nope", '{"assignments": ['],
+                                          stop_reasons=["end_turn", "max_tokens"])
+        r = client.post("/automations/api/runtime/ai",
+                        json={"token": tok, "prompt": "Extract.", "schema": self.SCHEMA})
+        assert r.status_code == 502 and "while re-sending it as JSON" in r.get_json()["error"]
+
+    def test_valid_json_reply_has_no_repair_note(self, monkeypatch, mgr, tmp_path):
+        client, tok, calls = self._client(monkeypatch, mgr, tmp_path, [json.dumps({"assignments": self.ITEMS})])
+        body = client.post("/automations/api/runtime/ai",
+                           json={"token": tok, "prompt": "File these.", "schema": self.SCHEMA}).get_json()
+        assert body["json"] == {"assignments": self.ITEMS} and "json_repair" not in body and calls["n"] == 1
 
 
 class TestOrphanReaper:
