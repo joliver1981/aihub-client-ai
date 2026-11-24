@@ -2228,6 +2228,12 @@ class TestPlatformAiSeam:
         # here, the seam would use (and a failing assert would print) the real key.
         import api_keys_config
         monkeypatch.setattr(api_keys_config, "get_active_anthropic_key", lambda: None)
+        # ...and pin the route to the direct call with the platform key, which is
+        # what these tests exercise (the route rule itself: TestAiRoute).
+        monkeypatch.delenv("AUTOMATIONS_AI_ROUTE", raising=False)
+        monkeypatch.setattr(api_keys_config, "get_anthropic_config",
+                            lambda: {"use_direct_api": True, "api_key": "k-test",
+                                     "source": "system_direct"})
 
         calls = {"n": 0}
 
@@ -2336,6 +2342,160 @@ class TestPlatformAiSeam:
         mod = Path(__file__).resolve().parents[2].joinpath(
             "static", "js", "automation_node.js").read_text(encoding="utf-8", errors="replace")
         assert "inp.description" in mod
+
+
+class TestAiRoute:
+    """2026-11-24: an automation's AI call went straight to Anthropic with the
+    platform key whenever the customer had no key of their own, while every
+    other AI call on the platform ran through the cloud service, so automations
+    could stop while everything else kept working. The call now follows the
+    platform's own rule (api_keys_config.get_anthropic_config)."""
+
+    _CLOUD = {"use_direct_api": False, "api_key": None, "source": "proxy"}
+
+    def _client(self, monkeypatch, mgr, tmp_path, config, cloud_replies=("from the cloud",),
+                direct_replies=("from anthropic",)):
+        """(flask client, token, direct calls, cloud calls). `config` is what the
+        platform rule answers; a cloud reply may be a str (text), or a dict
+        returned as is (an error, or a full Anthropic-shaped reply)."""
+        client, tok, direct = TestPlatformAiSeam._ai_client(self, monkeypatch, mgr, tmp_path,
+                                                             list(direct_replies))
+        import api_keys_config
+        import CommonUtils
+        monkeypatch.setattr(api_keys_config, "get_anthropic_config", lambda: dict(config))
+        monkeypatch.setenv("AI_HUB_DOCUMENT_API_URL", "https://cloud.example/")
+        monkeypatch.setenv("AI_HUB_PROXY_ANTHROPIC_MESSAGES", "api/proxy/anthropic/messages/v2")
+        cloud = {"n": 0, "requests": [], "module": None}
+
+        class FakeCloud:
+            def _set_tracking_params(self, module_name, request_id=None):
+                cloud["module"] = module_name
+
+            def messages_create(self, **kw):
+                cloud["n"] += 1
+                cloud["requests"].append(kw)
+                reply = cloud_replies[min(cloud["n"] - 1, len(cloud_replies) - 1)]
+                if isinstance(reply, dict):
+                    return reply
+                return {"content": [{"type": "text", "text": reply}], "stop_reason": "end_turn"}
+        monkeypatch.setattr(CommonUtils, "AnthropicProxyClient", FakeCloud)
+        return client, tok, direct, cloud
+
+    def _post(self, client, tok, **body):
+        return client.post("/automations/api/runtime/ai", json={"token": tok, "prompt": "Summarize.", **body})
+
+    # -- the rule ------------------------------------------------------------
+    def test_default_goes_through_the_cloud_service_and_uses_no_local_key(self, monkeypatch, mgr, tmp_path):
+        client, tok, direct, cloud = self._client(monkeypatch, mgr, tmp_path, self._CLOUD)
+        r = self._post(client, tok, system="Be brief.", max_tokens=700)
+        body = r.get_json()
+        assert r.status_code == 200, body
+        assert body["text"] == "from the cloud"
+        assert cloud["n"] == 1 and direct["n"] == 0          # Anthropic was never called directly
+        sent = cloud["requests"][0]
+        assert sent["system"] == "Be brief." and sent["max_tokens"] == 700
+        assert sent["messages"][0]["content"][-1]["text"] == "Summarize."
+        assert cloud["module"] == "automations"
+
+    def test_cloud_route_always_sends_a_system_text(self, monkeypatch, mgr, tmp_path):
+        # the cloud service answers 500 to a request without one
+        client, tok, _direct, cloud = self._client(monkeypatch, mgr, tmp_path, self._CLOUD)
+        assert self._post(client, tok).status_code == 200
+        assert cloud["requests"][0]["system"]
+
+    def test_customer_key_goes_straight_to_anthropic_with_that_key(self, monkeypatch, mgr, tmp_path):
+        client, tok, direct, cloud = self._client(
+            monkeypatch, mgr, tmp_path,
+            {"use_direct_api": True, "api_key": "k-customer", "source": "byok"})
+        r = self._post(client, tok)
+        assert r.status_code == 200 and r.get_json()["text"] == "from anthropic"
+        assert direct["n"] == 1 and direct["api_key"] == "k-customer" and cloud["n"] == 0
+
+    def test_bypass_setting_goes_straight_to_anthropic_with_the_platform_key(self, monkeypatch, mgr, tmp_path):
+        client, tok, direct, cloud = self._client(
+            monkeypatch, mgr, tmp_path,
+            {"use_direct_api": True, "api_key": "k-platform", "source": "system_direct"})
+        assert self._post(client, tok).status_code == 200
+        assert direct["api_key"] == "k-platform" and cloud["n"] == 0
+
+    def test_switch_brings_back_the_old_direct_call(self, monkeypatch, mgr, tmp_path):
+        client, tok, direct, cloud = self._client(monkeypatch, mgr, tmp_path, self._CLOUD)
+        monkeypatch.setenv("AUTOMATIONS_AI_ROUTE", "direct")
+        assert self._post(client, tok).status_code == 200
+        assert direct["n"] == 1 and direct["api_key"] == "k-test" and cloud["n"] == 0
+
+    def test_route_labels(self, monkeypatch):
+        import automations.api as api_mod
+        import api_keys_config
+        monkeypatch.delenv("AUTOMATIONS_AI_ROUTE", raising=False)
+        monkeypatch.setattr(api_keys_config, "get_active_anthropic_key", lambda: None)
+        monkeypatch.setattr(api_mod.cfg, "ANTHROPIC_API_KEY", "k-platform", raising=False)
+        monkeypatch.setattr(api_keys_config, "get_anthropic_config", lambda: dict(self._CLOUD))
+        assert api_mod._automations_ai_route() == ("cloud", None, "cloud service")
+        monkeypatch.setattr(api_keys_config, "get_anthropic_config",
+                            lambda: {"use_direct_api": True, "api_key": "k-c", "source": "byok"})
+        assert api_mod._automations_ai_route() == ("direct", "k-c", "direct, customer key")
+        monkeypatch.setenv("AUTOMATIONS_AI_ROUTE", " Direct ")
+        assert api_mod._automations_ai_route()[:2] == ("direct", "k-platform")
+        monkeypatch.setattr(api_keys_config, "get_active_anthropic_key", lambda: "k-own")
+        assert api_mod._automations_ai_route() == ("direct", "k-own", "direct, customer key")
+
+    # -- failures are said plainly, never papered over with the local key ------
+    def test_cloud_failure_is_reported_and_the_local_key_is_not_tried(self, monkeypatch, mgr, tmp_path):
+        client, tok, direct, cloud = self._client(
+            monkeypatch, mgr, tmp_path, self._CLOUD,
+            cloud_replies=[{"error": "Proxy returned status code 500",
+                            "details": "<!DOCTYPE html><html>big error page</html>"}])
+        r = self._post(client, tok)
+        err = r.get_json()["error"]
+        assert r.status_code == 502
+        assert "AI Hub cloud service" in err and "500" in err and "html" not in err.lower()
+        assert direct["n"] == 0
+
+    def test_cloud_failure_keeps_a_readable_detail(self, monkeypatch, mgr, tmp_path):
+        client, tok, _direct, _cloud = self._client(
+            monkeypatch, mgr, tmp_path, self._CLOUD,
+            cloud_replies=[{"error": "Proxy returned status code 402",
+                            "details": '{"error": "licence has no AI allowance left"}'}])
+        assert "licence has no AI allowance left" in self._post(client, tok).get_json()["error"]
+
+    def test_cloud_address_missing_is_said_before_any_call(self, monkeypatch, mgr, tmp_path):
+        client, tok, direct, cloud = self._client(monkeypatch, mgr, tmp_path, self._CLOUD)
+        monkeypatch.delenv("AI_HUB_DOCUMENT_API_URL", raising=False)
+        r = self._post(client, tok)
+        assert r.status_code == 503 and "cloud service address" in r.get_json()["error"]
+        assert cloud["n"] == 0 and direct["n"] == 0
+
+    def test_no_key_on_the_direct_route_is_said_before_any_call(self, monkeypatch, mgr, tmp_path):
+        client, tok, direct, _cloud = self._client(
+            monkeypatch, mgr, tmp_path,
+            {"use_direct_api": True, "api_key": None, "source": "system_direct"})
+        r = self._post(client, tok)
+        assert r.status_code == 503 and "no Anthropic API key" in r.get_json()["error"]
+        assert direct["n"] == 0
+
+    # -- the JSON handling is the same on the cloud route ------------------------
+    def test_json_reply_and_resend_run_through_the_cloud_service(self, monkeypatch, mgr, tmp_path):
+        client, tok, direct, cloud = self._client(
+            monkeypatch, mgr, tmp_path, self._CLOUD,
+            cloud_replies=['{"a": [1,', '{"a": [1, 2]}'])
+        r = self._post(client, tok, schema={"a": ["number"]})
+        body = r.get_json()
+        assert r.status_code == 200, body
+        assert body["json"] == {"a": [1, 2]} and "re-sent by the model" in body["json_repair"]
+        assert cloud["n"] == 2 and direct["n"] == 0
+        roles = [m["role"] for m in cloud["requests"][1]["messages"]]
+        assert roles == ["user", "assistant", "user"]
+        assert cloud["requests"][1]["messages"][1]["content"] == '{"a": [1,'
+
+    def test_cut_off_reply_on_the_cloud_route_is_an_error(self, monkeypatch, mgr, tmp_path):
+        client, tok, _direct, cloud = self._client(
+            monkeypatch, mgr, tmp_path, self._CLOUD,
+            cloud_replies=[{"content": [{"type": "text", "text": '{"a": [1, 2'}],
+                            "stop_reason": "max_tokens"}])
+        r = self._post(client, tok, schema={"a": ["number"]})
+        assert r.status_code == 502 and "truncated" in r.get_json()["error"]
+        assert cloud["n"] == 1
 
 
 class TestAiJsonReplyRepair:

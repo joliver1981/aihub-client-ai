@@ -1976,6 +1976,63 @@ def runtime_skill():
     return jsonify(found)
 
 
+_CLOUD_DEFAULT_SYSTEM = "You are an assistant."
+
+
+def _automations_ai_route():
+    """How an automation's AI call reaches the model: the platform's own rule
+    (api_keys_config.get_anthropic_config), the one AI Extract and the agents
+    already follow.
+
+        the customer's own key is switched on  -> straight to Anthropic with it
+        AI_HUB_BYPASS_DOCUMENT_PROXY           -> straight to Anthropic, platform key
+        otherwise (the default)                -> the AI Hub cloud service; no
+                                                  key on this machine is used
+
+    Until 2026-11-24 this call skipped that rule: without a customer key it went
+    straight to Anthropic with the platform key, so it was the one feature that
+    depended on that key's account while everything else ran through the cloud
+    service. AUTOMATIONS_AI_ROUTE=direct brings the old behaviour back.
+
+    Returns (route, key, label): route is "cloud" or "direct"; key is None for
+    the cloud route; label names the route in the app log."""
+    from api_keys_config import get_active_anthropic_key, get_anthropic_config
+    if (os.getenv("AUTOMATIONS_AI_ROUTE") or "").strip().lower() == "direct":
+        own = get_active_anthropic_key()
+        return ("direct", own or getattr(cfg, "ANTHROPIC_API_KEY", "") or "",
+                "direct, customer key" if own else "direct, platform key (AUTOMATIONS_AI_ROUTE)")
+    conf = get_anthropic_config() or {}
+    if conf.get("use_direct_api"):
+        return ("direct", conf.get("api_key") or "",
+                "direct, customer key" if conf.get("source") == "byok" else "direct, platform key")
+    return "cloud", None, "cloud service"
+
+
+def _cloud_ai_messages(body):
+    """One Messages request through the AI Hub cloud service
+    (CommonUtils.AnthropicProxyClient, the route AI Extract uses). Returns the
+    reply in Anthropic's own shape.
+
+    The service answers 500 to a request that carries no system text (measured
+    2026-11-24), so a neutral one is sent when the automation gave none. Like
+    every other call on this route, models that accept a temperature get 0."""
+    from CommonUtils import AnthropicProxyClient
+    client = AnthropicProxyClient()
+    client._set_tracking_params("automations")
+    res = client.messages_create(model=body["model"], max_tokens=body["max_tokens"],
+                                 messages=body["messages"],
+                                 system=body.get("system") or _CLOUD_DEFAULT_SYSTEM)
+    if not isinstance(res, dict):
+        raise RuntimeError("AI Hub cloud service: unreadable reply")
+    if res.get("error") and "content" not in res:
+        detail = str(res.get("details") or "").strip()
+        if detail.startswith("<"):           # the service's HTML error page says nothing useful
+            detail = ""
+        raise RuntimeError(f"AI Hub cloud service: {res['error']}"
+                           + (f" ({detail[:300]})" if detail else ""))
+    return res
+
+
 def _schema_list_key(schema):
     """The key of a schema whose top level is an object holding exactly one list
     ({"assignments": [ ... ]}); None for every other shape."""
@@ -2076,11 +2133,16 @@ def runtime_ai():
     model = _automations_ai_model(data.get("model"))
     max_tokens = min(int(data.get("max_tokens") or 1500), 8000)
 
-    # BYOK: the customer's own Anthropic key; else the platform key
-    from api_keys_config import get_active_anthropic_key
-    key = get_active_anthropic_key() or getattr(cfg, "ANTHROPIC_API_KEY", "") or ""
-    if not key:
+    # The same route as every other AI call on the platform: the customer's
+    # own key when that is switched on, otherwise the cloud service.
+    route, key, via = _automations_ai_route()
+    if route == "direct" and not key:
         return jsonify({"error": "the platform has no Anthropic API key configured"}), 503
+    if route == "cloud" and not (os.getenv("AI_HUB_DOCUMENT_API_URL")
+                                 and os.getenv("AI_HUB_PROXY_ANTHROPIC_MESSAGES")):
+        return jsonify({"error": "the AI Hub cloud service address is not configured on this "
+                                 "machine (AI_HUB_DOCUMENT_API_URL, "
+                                 "AI_HUB_PROXY_ANTHROPIC_MESSAGES)"}), 503
 
     text_prompt = prompt
     if schema is not None:
@@ -2113,14 +2175,17 @@ def runtime_ai():
         body = {"model": model, "max_tokens": max_tokens, "messages": messages}
         if data.get("system"):
             body["system"] = str(data["system"])[:20_000]
-        resp = _requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"x-api-key": key, "anthropic-version": "2023-06-01",
-                     "content-type": "application/json"},
-            json=body, timeout=180)
-        if resp.status_code != 200:
-            raise RuntimeError(f"Anthropic API {resp.status_code}: {resp.text[:300]}")
-        rj = resp.json()
+        if route == "cloud":
+            rj = _cloud_ai_messages(body)
+        else:
+            resp = _requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": key, "anthropic-version": "2023-06-01",
+                         "content-type": "application/json"},
+                json=body, timeout=180)
+            if resp.status_code != 200:
+                raise RuntimeError(f"Anthropic API {resp.status_code}: {resp.text[:300]}")
+            rj = resp.json()
         meta["stop_reason"] = rj.get("stop_reason")
         return "".join(b.get("text", "") for b in rj.get("content", [])
                        if b.get("type") == "text").strip()
@@ -2154,11 +2219,12 @@ def runtime_ai():
             if note:
                 payload["json_repair"] = note
                 logger.info(f"runtime_ai: JSON reply repaired ({note}) (model {model})")
-        logger.info(f"runtime_ai ok (model {model}): {len(image_blocks or [])} image(s), "
+        logger.info(f"runtime_ai ok (model {model}, {via}): {len(image_blocks or [])} image(s), "
                     f"{int(time.time() - t0)}s, stop_reason={meta.get('stop_reason')}")
         return jsonify(payload)
     except Exception as e:
-        logger.warning(f"runtime_ai failed (model {model}) after {int(time.time() - t0)}s: {e}")
+        logger.warning(f"runtime_ai failed (model {model}, {via}) after "
+                       f"{int(time.time() - t0)}s: {e}")
         return jsonify({"error": f"AI call failed: {e}", "model_used": model}), 502
 
 
