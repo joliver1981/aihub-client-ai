@@ -21,7 +21,7 @@ from typing import AsyncIterator, Optional
 from agent_config import (
     AGENT_MODEL, AGENT_MAX_TURNS, CLAUDE_CONFIG_DIR, DATA_DIR, WORKSPACE_DIR,
     ensure_anthropic_key, email_tools_enabled, logger,
-    codename_prompt_line, display_model, mask_model_ids,
+    codename_prompt_line, display_model, mask_model_ids, note_context_1m_refused,
 )
 from platform_tools import AIHUB_TOOLS, CURRENT_USER, reset_coverage
 from authoring_tools import AUTHORING_TOOLS
@@ -987,7 +987,7 @@ def _make_options(session_id: Optional[str], tool_scope: str, cwd: Optional[str]
     """The SDK options for one turn — pure (no key/relay side effects), so
     the startup assertion and /health can build the exact same shape."""
     allowed = (_READ_ALLOWED if tool_scope == "read" else ["mcp__aihub__*"])
-    from agent_config import get_effective_model
+    from agent_config import get_effective_model, runtime_model_id
     # Skill scope (2026-09-02): the CLI the SDK drives ships its OWN bundled
     # skills (e.g. "dataviz"), and skills="all" let the model reach for them —
     # a chart request pulled in a foreign design-system skill instead of the
@@ -1010,7 +1010,8 @@ def _make_options(session_id: Optional[str], tool_scope: str, cwd: Optional[str]
         # Windows caps that at 32,767 chars (see SYSTEM_PROMPT_PATH above).
         # A code-named model reads its own copy (prompt_file_for_model).
         system_prompt={"type": "file", "path": prompt_file_for_model(model)},
-        model=model,
+        # with the runtime's switch for the model's full context window
+        model=runtime_model_id(model),
         tools=["Skill"],            # ONLY the Skill loader — no Bash/Read/Write
         mcp_servers={"aihub": aihub_server},
         allowed_tools=allowed_tools,
@@ -1143,6 +1144,11 @@ async def run_turn(prompt: str, session_id: Optional[str],
                 for block in message.content:
                     if hasattr(block, "text") and getattr(block, "text", None):
                         text = mask_model_ids(block.text) if api_error else block.text
+                        if api_error and note_context_1m_refused(block.text):
+                            # the larger window was refused: it is off from here on
+                            text += ("\n\nThe larger context window is not available for "
+                                     "this model on this account. It has been switched off; "
+                                     "please send your message again.")
                         all_text.append(text)
                         yield {"type": "text", "text": text}
                     elif hasattr(block, "name"):
@@ -1198,6 +1204,7 @@ async def run_turn(prompt: str, session_id: Optional[str],
         # query() raises after yielding an error result; surface honestly.
         logger.error(f"turn error user={user_ctx.get('username')} "
                      f"session={new_session_id}: {e}")
+        note_context_1m_refused(str(e))
         yield {"type": "error", "error": mask_model_ids(str(e)),
                "session_id": new_session_id}
     finally:

@@ -99,25 +99,56 @@ def _result_budget() -> int:
 # ---------------------------------------------------------------------------
 # How much one search returns, and reading on
 # ---------------------------------------------------------------------------
-# A search can match far more pages than a conversation has room for. The models
-# The Agent runs on have a context window of 200,000 tokens (what the runtime
-# reports for them, 2026-11-25): about 800,000 characters for the system prompt,
-# the tools, the whole conversation and every tool result in it. So when the model
-# does not say how many passages it wants, one search returns the best-ranked ones
-# up to AGENT_DOC_SEARCH_RESULT_CHARS characters: 100,000 by default, an eighth of
-# that window, which leaves room for several searches in one conversation. It was
-# 12 passages before, whatever their size, and an answer on the 15th was never
-# read. The result states how many more matched and the model reads on with
-# start_at. Nothing is ever cut inside a passage for this size.
-_DEFAULT_SEARCH_RESULT_CHARS = 100_000
+# When the model does not say how many passages it wants, one search returns
+# everything that matched, best first, as far as two limits that are not ours
+# allow (James 2026-11-25: "set our caps based on the context window; the only
+# caps that have ever hurt this application were self imposed"):
+#   - what one tool result can carry: the runtime's 500,000 characters (see
+#     _result_ceiling). With the full context window this is the limit that binds.
+#   - the model's context window (agent_config.context_window_tokens): 1,000,000
+#     tokens for the current models. One search may take a quarter of it, so that
+#     a conversation holds several before the runtime has to shorten it. On a
+#     200,000-token window (the switch off, or an older model) that is 130,000
+#     characters.
+# It was 12 passages before, whatever their size, and an answer on the 15th was
+# never read. What does not fit is stated in the result and the model reads on
+# with start_at; nothing is ever cut inside a passage for this size.
+#
+# Sizes behind it, all measured 2026-11-25 on the default model:
+#   - manual pages cost 2.55 to 2.72 characters per token (2.64 over 646,956
+#     characters), not the 4 of plain English prose;
+#   - a conversation starts at about 53,000 tokens (system prompt and tool
+#     descriptions) before the first question is read.
+# AGENT_DOC_SEARCH_RESULT_CHARS, when set, replaces the rule with a fixed size
+# (for instance to keep a search under a price step of the model).
+_CHARS_PER_TOKEN = 2.6
+_SEARCH_SHARE_OF_WINDOW = 4
+
+
+def _context_window_tokens() -> int:
+    """The context window of the model this turn runs on."""
+    try:
+        import agent_config
+        role = (CURRENT_USER.get() or {}).get("role")
+        return int(agent_config.context_window_tokens(agent_config.get_effective_model(role)))
+    except Exception as e:
+        logger.warning(f"context window unknown, taking the runtime's default: {e}")
+        return 200_000
 
 
 def _default_search_chars() -> int:
-    try:
-        n = int(os.getenv("AGENT_DOC_SEARCH_RESULT_CHARS") or _DEFAULT_SEARCH_RESULT_CHARS)
-    except (TypeError, ValueError):
-        n = _DEFAULT_SEARCH_RESULT_CHARS
-    return max(1, n)
+    """Characters of passages one search returns when the model names no number
+    (before the limit of one tool result is applied)."""
+    fixed = os.getenv("AGENT_DOC_SEARCH_RESULT_CHARS")
+    if fixed not in (None, ""):
+        try:
+            if int(fixed) > 0:
+                return int(fixed)
+        except (TypeError, ValueError):
+            pass
+        logger.warning(f"AGENT_DOC_SEARCH_RESULT_CHARS={fixed!r} is not a number of characters; "
+                       "sizing the search by the context window instead")
+    return int(_context_window_tokens() / _SEARCH_SHARE_OF_WINDOW * _CHARS_PER_TOKEN)
 
 
 # Reading on must continue the list the model saw the start of. Running the search
@@ -746,19 +777,20 @@ async def _knowledge_agents_note() -> str:
     "when one of them covers the subject you ask it with ask_agent. Only when "
     "the library has no passage AND no agent covers the subject, say you found "
     "nothing among the documents you can search and suggest importing them. "
-    "Each passage is a WHOLE page, best match first. One result shows the "
-    "best-ranked passages and says how many more matched. When the ones shown do "
-    "not answer the question, READ ON (the same query with start_at) before you "
-    "reword the search or conclude the documents do not say.",
+    "Each passage is a WHOLE page, best match first. One result carries as many "
+    "of the matching passages as fit and says when more matched. When the ones "
+    "shown do not answer the question and more matched, READ ON (the same query "
+    "with start_at) before you reword the search or conclude the documents do "
+    "not say.",
     {
         "type": "object",
         "properties": {
             "query": {"type": "string",
                       "description": "The natural-language question to search for"},
             "max_results": {"type": "integer",
-                            "description": "Leave it out for the usual amount: the "
-                                           "best-ranked passages that fit a normal "
-                                           "result. Give a number only when you want "
+                            "description": "Leave it out to get everything that "
+                                           "matched, as far as one result can carry "
+                                           "it. Give a number only when you want "
                                            "exactly that many passages."},
             "start_at": {"type": "integer",
                          "description": "Position of the first passage to return, "
@@ -776,9 +808,9 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
     if not query:
         return _text("Give me a question to search the documents for.",
                      is_error=True)
-    # No max_results: the best-ranked passages up to the usual size of one result
-    # (see _default_search_chars). A number: that many, as far as one result
-    # carries them.
+    # No max_results: everything that matched, best first, as far as one result
+    # and the model's context window allow (see _default_search_chars). A number:
+    # that many, as far as one result carries them.
     try:
         limit = int(args.get("max_results") or 0)
     except (TypeError, ValueError):
@@ -897,7 +929,8 @@ def _render_passages(query: str, found: dict, start_at: int, limit, agents_note:
     """One result from the ranked passages of a search: the ones asked for, each
     WHOLE, and in words what is not in it and how to read it.
 
-    ``limit`` None = the best-ranked ones up to the usual size of one result.
+    ``limit`` None = everything from start_at on, as far as one result and the
+    context window allow (_default_search_chars).
     ``reran`` = the model asked to read on (start_at > 1) but no search of this
     conversation was kept, so these are positions in a search run just now.
     ``query`` is what the model sent; the list may be an earlier search's

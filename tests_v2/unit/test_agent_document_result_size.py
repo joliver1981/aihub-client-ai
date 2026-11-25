@@ -5,9 +5,10 @@ show 12 passages whatever their size: an answer further down a long page, or on 
 page that matched, was simply not in the result. Both are gone.
 
 - A passage is a whole page, to its last character.
-- One search returns the best-ranked passages up to a size (a setting, 100,000 characters
-  by default, sized to the model's context window), states how many more matched, and the
-  model reads on with start_at from the SAME list (kept per user and question).
+- One search returns everything that matched, best first, as far as two limits that are
+  not ours allow: what one tool result can carry, and a quarter of the model's context
+  window. It states when more matched, and the model reads on with start_at from the SAME
+  list (kept per user, conversation and question).
 - The only hard limit is the runtime's (how much one tool result can carry). The tools
   declare its maximum, and whatever still does not fit is reported, never cut silently.
 
@@ -51,6 +52,10 @@ def _text_of(result):
     return " ".join(b.get("text", "") for b in blocks if isinstance(b, dict))
 
 
+FULL_WINDOW = 1_000_000        # the current models
+OLDER_WINDOW = 200_000         # the switch off, or an older model: a search takes 130,000 characters
+
+
 def _has_page(text, n):
     """True when page n's own last word is in the text, i.e. the page is there to its end."""
     return re.search(rf"END-OF-PAGE-{n}(?!\d)", text) is not None
@@ -75,6 +80,8 @@ class _SearchCase(unittest.TestCase):
         self._saved_max = dt.RESULT_MAX_CHARS
         self._saved_keep = (dt._KEPT_SEARCH_SECONDS, dt._KEPT_SEARCH_TOTAL_CHARS)
         self._saved_env = os.environ.pop("AGENT_DOC_SEARCH_RESULT_CHARS", None)
+        self._saved_window = dt._context_window_tokens
+        self.window(FULL_WINDOW)              # what a turn has by default
         dt._kept_searches.clear()
         self._token = CURRENT_USER.set(dict(self.USER))
         self.searches = 0                     # how many times the library was really searched
@@ -83,8 +90,13 @@ class _SearchCase(unittest.TestCase):
             return ""
         dt._knowledge_agents_note = no_note
 
+    def window(self, tokens):
+        """The context window of the model the turn runs on."""
+        dt._context_window_tokens = lambda: tokens
+
     def tearDown(self):
         dt._post_main, dt._knowledge_agents_note = self._saved_post, self._saved_note
+        dt._context_window_tokens = self._saved_window
         dt.RESULT_MAX_CHARS = self._saved_max
         dt._KEPT_SEARCH_SECONDS, dt._KEPT_SEARCH_TOTAL_CHARS = self._saved_keep
         os.environ.pop("AGENT_DOC_SEARCH_RESULT_CHARS", None)
@@ -151,26 +163,76 @@ class TestHowMuchOneSearchReturns(_SearchCase):
         self._serve(pages)
         self.assertIn("the trailer floor must be at least 50 inches high", self._search())
 
-    def test_more_than_the_usual_size_stops_at_a_whole_page_and_says_how_many_are_left(self):
+    def test_with_the_full_context_window_everything_that_matched_comes_back(self):
+        # 130 pages of 3,500 characters = 455,000: 12 pages, then 100,000 characters, used to be all
+        self._serve([_page(n, 3_500) for n in range(1, 131)])
+        text = self._search()
+        self.assertIn("130 passage(s) for", text)
+        self.assertTrue(_has_page(text, 1) and _has_page(text, 130))
+        self.assertNotIn("MORE MATCHED", text)
+
+    def test_with_the_full_window_the_only_limit_is_what_one_result_carries(self):
+        self._serve([_page(n, 20_000) for n in range(1, 61)])     # 1.2 million characters matched
+        text = self._search()
+        shown = [n for n in range(1, 61) if _has_page(text, n)]
+        self.assertEqual(shown, list(range(1, len(shown) + 1)))   # in rank order, none cut in half
+        self.assertEqual(len(shown), 24)                          # 24 x 20,000 fit in 495,000
+        self.assertLessEqual(len(text), dt.RESULT_MAX_CHARS)
+        self.assertIn("Passages 1 to 24 of 60", text)
+        self.assertIn("MORE MATCHED, NOT SHOWN: 36 further passage(s)", text)
+        self.assertIn("start_at=25", text)
+        self.assertIn("before you reword the search or tell the user the documents do not say", text)
+
+    def test_on_a_200000_token_window_one_search_takes_a_quarter_of_it(self):
+        self.window(OLDER_WINDOW)
         self._serve([_page(n, 5_000) for n in range(1, 41)])      # 200,000 characters matched
         text = self._search()
         shown = [n for n in range(1, 41) if _has_page(text, n)]
-        self.assertEqual(shown, list(range(1, len(shown) + 1)))   # in rank order, none cut in half
-        self.assertTrue(18 <= len(shown) <= 20, len(shown))       # about 100,000 characters
-        self.assertLessEqual(len(text), 101_000)
-        self.assertIn(f"Passages 1 to {len(shown)} of 40", text)
-        self.assertIn(f"MORE MATCHED, NOT SHOWN: {40 - len(shown)} further passage(s)", text)
-        self.assertIn(f"start_at={len(shown) + 1}", text)
-        self.assertIn("before you reword the search or tell the user the documents do not say", text)
+        self.assertEqual(shown, list(range(1, 26)))               # 25 x 5,000 fit in 130,000
+        self.assertLessEqual(len(text), 131_000)
+        self.assertIn("Passages 1 to 25 of 40", text)
+        self.assertIn("MORE MATCHED, NOT SHOWN: 15 further passage(s)", text)
+        self.assertIn("start_at=26", text)
 
-    def test_the_usual_size_is_a_setting(self):
+    def test_the_size_follows_the_window_of_the_model_the_user_runs_on(self):
+        self.assertEqual(dt._default_search_chars(), 650_000)     # a quarter of 1,000,000 tokens
+        self.window(OLDER_WINDOW)
+        self.assertEqual(dt._default_search_chars(), 130_000)     # a quarter of 200,000 tokens
+        # the real lookup: the model of the current user's role, and that model's window
+        import agent_config
+        dt._context_window_tokens = self._saved_window
+        saved = agent_config.get_effective_model, agent_config.context_window_tokens
+        seen = []
+        agent_config.get_effective_model = lambda role=None: seen.append(role) or f"model-for-role-{role}"
+        agent_config.context_window_tokens = lambda model: 200_000 if model == "model-for-role-1" else 1_000_000
+        try:
+            self.assertEqual(dt._context_window_tokens(), 1_000_000)          # the test user is role 2
+            one = CURRENT_USER.set(dict(self.USER, role=1))
+            try:
+                self.assertEqual(dt._context_window_tokens(), 200_000)
+            finally:
+                CURRENT_USER.reset(one)
+            self.assertEqual(seen, [2, 1])
+
+            def broken(role=None):
+                raise RuntimeError("settings unreadable")
+            agent_config.get_effective_model = broken
+            self.assertEqual(dt._context_window_tokens(), 200_000)            # the runtime's own default
+        finally:
+            agent_config.get_effective_model, agent_config.context_window_tokens = saved
+
+    def test_a_fixed_size_can_be_set_instead(self):
         self._serve([_page(n, 5_000) for n in range(1, 41)])
-        os.environ["AGENT_DOC_SEARCH_RESULT_CHARS"] = "400000"
-        self.assertIn("40 passage(s) for", self._search())
         os.environ["AGENT_DOC_SEARCH_RESULT_CHARS"] = "20000"
         self.assertIn("Passages 1 to 3 of 40", self._search())
-        os.environ["AGENT_DOC_SEARCH_RESULT_CHARS"] = "not a number"
-        self.assertIn("MORE MATCHED, NOT SHOWN: 2", self._search())           # back to the default
+        os.environ["AGENT_DOC_SEARCH_RESULT_CHARS"] = "100000"
+        self.assertIn("Passages 1 to 19 of 40", self._search())
+        self.window(OLDER_WINDOW)
+        os.environ["AGENT_DOC_SEARCH_RESULT_CHARS"] = "400000"                # larger than the window rule
+        self.assertIn("40 passage(s) for", self._search())
+        for not_a_size in ("not a number", "0", "-5"):
+            os.environ["AGENT_DOC_SEARCH_RESULT_CHARS"] = not_a_size
+            self.assertIn("MORE MATCHED, NOT SHOWN: 15", self._search(), not_a_size)   # the window rule again
 
     def test_a_setting_above_what_one_result_carries_is_held_to_what_it_carries(self):
         os.environ["AGENT_DOC_SEARCH_RESULT_CHARS"] = "9000000"
@@ -180,6 +242,7 @@ class TestHowMuchOneSearchReturns(_SearchCase):
         self.assertIn("MORE MATCHED, NOT SHOWN", text)
 
     def test_the_first_page_is_whole_even_when_it_alone_is_over_the_usual_size(self):
+        self.window(OLDER_WINDOW)                                 # 130,000 characters a search
         self._serve([_page(1, 180_000), _page(2, 800)])
         text = self._search()
         self.assertTrue(_has_page(text, 1))
@@ -212,6 +275,7 @@ class TestReadingOn(_SearchCase):
     """start_at continues the list the model saw the start of, not a second search."""
 
     def test_reading_on_continues_the_same_list_without_searching_again(self):
+        self.window(OLDER_WINDOW)
         self._serve([_page(n, 5_000) for n in range(1, 41)])
         first = self._search(query="Trailer height?")
         shown = len([n for n in range(1, 41) if _has_page(first, n)])
@@ -224,14 +288,15 @@ class TestReadingOn(_SearchCase):
         self.assertFalse(_has_page(more, shown))                   # nothing repeated
         self.assertFalse(_has_page(more, 500))
         self.assertNotIn("NOTE: no earlier search", more)
-        # and on to the end
-        last_shown = max(n for n in range(1, 41) if _has_page(more, n))
-        rest = self._search(query="trailer height?", start_at=last_shown + 1)
-        self.assertTrue(_has_page(rest, 40))
-        self.assertNotIn("MORE MATCHED", rest)
+        # that was the rest of the list, and asking past its end says so
+        self.assertTrue(_has_page(more, 40))
+        self.assertNotIn("MORE MATCHED", more)
+        past = self._search(query="trailer height?", start_at=41)
+        self.assertIn("You have seen them all", past)
         self.assertEqual(self.searches, 1)
 
     def test_every_page_is_read_exactly_once_across_the_parts(self):
+        self.window(OLDER_WINDOW)
         self._serve([_page(n, 7_300) for n in range(1, 61)])
         seen, start = [], 1
         for _ in range(10):
@@ -395,6 +460,7 @@ class TestReadingOn(_SearchCase):
         self.assertEqual(self.searches, 3)
 
     def test_one_list_larger_than_the_memory_is_still_kept_for_its_own_reading_on(self):
+        self.window(OLDER_WINDOW)
         dt._KEPT_SEARCH_TOTAL_CHARS = 10_000
         self._serve([_page(n, 5_000) for n in range(1, 41)])
         first = self._search()

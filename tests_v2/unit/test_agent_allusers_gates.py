@@ -229,9 +229,10 @@ def test_model_pick_by_role_and_overrides():
 def test_build_options_threads_the_role():
     patch, d = _tmp_settings()
     with patch:
-        assert brain.build_options(role=1).model == agent_config.AGENT_MODEL_ROLE1
-        assert brain.build_options(role=3).model == agent_config.AGENT_MODEL
-        assert brain.build_options().model == agent_config.AGENT_MODEL
+        # the id a turn hands the runtime: the role's model, with the runtime's context-window switch
+        assert brain.build_options(role=1).model == agent_config.runtime_model_id(agent_config.AGENT_MODEL_ROLE1)
+        assert brain.build_options(role=3).model == agent_config.runtime_model_id(agent_config.AGENT_MODEL)
+        assert brain.build_options().model == agent_config.runtime_model_id(agent_config.AGENT_MODEL)
     shutil.rmtree(d, ignore_errors=True)
 
 

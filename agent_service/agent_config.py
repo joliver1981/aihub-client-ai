@@ -289,6 +289,85 @@ def get_effective_model(role=None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Context window (James 2026-11-25: size our limits by the provider's context
+# window; "the only caps that have ever hurt this application were self imposed")
+# ---------------------------------------------------------------------------
+# The current models have a context window of 1,000,000 tokens at the API. The
+# runtime the SDK drives is older than they are (CLI 2.1.224): a model id it does
+# not know is run with 200,000, and at that size the runtime SUMMARISES the older
+# part of a conversation without saying so (measured: three long tool results in
+# one turn, the first two came back as the model's own notes). Its switch for the
+# full window is the suffix "[1m]" on the model id (measured: window 1,000,000, a
+# 550,000-token conversation kept word for word; the API is sent the plain id).
+#
+# AGENT_CONTEXT_1M=false keeps the 200,000 the runtime gives by default. If the
+# API ever refuses the larger window for an account, the turn that hit it says so
+# and the switch goes off for the rest of the process: one failed message, not a
+# dead service.
+AGENT_CONTEXT_1M = os.getenv("AGENT_CONTEXT_1M", "true").strip().lower() not in ("false", "0", "no", "off")
+CONTEXT_1M_SUFFIX = "[1m]"
+CONTEXT_WINDOW_1M_TOKENS = 1_000_000
+CONTEXT_WINDOW_RUNTIME_DEFAULT_TOKENS = 200_000
+_context_1m_refused = ""          # the API's own words, once it has refused (this process)
+
+
+def _window_is_200k(model) -> bool:
+    """Models whose window really is 200,000 (the older generations), and ids that
+    are not Claude ids at all (another provider behind the endpoint: left alone).
+    Everything else, models released after this was written included, has the
+    larger window."""
+    m = str(model or "").strip().lower()
+    if not m.startswith("claude-"):
+        return True
+    if re.match(r"^claude-(?:2|3|instant)", m):
+        return True
+    return bool(re.match(r"^claude-(?:haiku|sonnet|opus)-4(?:-[0-5])?(?:-\d{8})?$", m))
+
+
+def plain_model_id(model_id):
+    """A model id without the runtime's suffix: for display, lookups, settings."""
+    if isinstance(model_id, str) and model_id.strip().lower().endswith(CONTEXT_1M_SUFFIX):
+        return model_id.strip()[:-len(CONTEXT_1M_SUFFIX)]
+    return model_id
+
+
+def context_1m_on(model) -> bool:
+    """Does a turn on this model run with the 1,000,000-token window?"""
+    return bool(AGENT_CONTEXT_1M and not _context_1m_refused
+                and not _window_is_200k(plain_model_id(model)))
+
+
+def runtime_model_id(model) -> str:
+    """The id handed to the SDK for a turn: the model's id, with the runtime's
+    switch for the full context window when it applies. Never store or show it."""
+    m = str(plain_model_id(model) or "").strip()
+    return m + CONTEXT_1M_SUFFIX if m and context_1m_on(m) else m
+
+
+def context_window_tokens(model) -> int:
+    """The context window a turn on this model has, in tokens."""
+    return CONTEXT_WINDOW_1M_TOKENS if context_1m_on(model) else CONTEXT_WINDOW_RUNTIME_DEFAULT_TOKENS
+
+
+def note_context_1m_refused(error_text) -> bool:
+    """Called with an API error's text. True when it says the larger context
+    window was refused while we were asking for it: the switch then goes off for
+    this process, so the next message runs with the runtime's default window."""
+    global _context_1m_refused
+    if not AGENT_CONTEXT_1M or _context_1m_refused:
+        return False
+    low = str(error_text or "").lower()
+    if not any(mark in low for mark in ("long context", "context-1m", "1m context")):
+        return False
+    _context_1m_refused = str(error_text)[:300]
+    logger.error("The API refused the 1,000,000-token context window; it is switched off for this "
+                 f"process and turns run with {CONTEXT_WINDOW_RUNTIME_DEFAULT_TOKENS:,} tokens from "
+                 f"now on (set AGENT_CONTEXT_1M=false to make that permanent). The API said: "
+                 f"{mask_model_ids(_context_1m_refused)}")
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Platform version (James 2026-08-20): surface the same APP_VERSION the legacy
 # UI badges, without importing the main app. Dev tree: parse app_config.py.
 # Installs bundle app_config inside the onedir exe (not on disk), so the build
@@ -528,6 +607,10 @@ if MODEL_CODENAMES:
 def display_model(model_id):
     """The name to SHOW for a model id: its code name when mapped, else the
     id unchanged. Never feed the result to the SDK or the settings store."""
+    # The runtime's own suffix on an id ("[1m]", see runtime_model_id) is never
+    # shown: with code names on it would also defeat the lookup and put the real
+    # id on the screen.
+    model_id = plain_model_id(model_id)
     if not MODEL_CODENAMES or not isinstance(model_id, str):
         return model_id
     return MODEL_CODENAMES.get(model_id.strip(), model_id)
@@ -554,7 +637,7 @@ def mask_model_ids(text):
         return text
     ids = sorted(MODEL_CODENAMES, key=len, reverse=True)
     pattern = re.compile(r"(?<![A-Za-z0-9._-])(?:" + "|".join(map(re.escape, ids))
-                         + r")(?![A-Za-z0-9_-]|[.:][A-Za-z0-9])")
+                         + r")(?:\[1m\])?(?![A-Za-z0-9_-]|[.:][A-Za-z0-9])", re.I)
     return pattern.sub(lambda m: display_model(m.group(0)), text)
 
 
@@ -705,6 +788,9 @@ def summary() -> dict:
         "model_default": AGENT_MODEL,
         "model_role1": get_effective_model(role=1),
         "model_role1_default": AGENT_MODEL_ROLE1,
+        # the context window a turn has (tokens): 1,000,000 with AGENT_CONTEXT_1M on
+        "context_window_tokens": context_window_tokens(get_effective_model()),
+        "context_window_tokens_role1": context_window_tokens(get_effective_model(role=1)),
         "turns_per_day": get_turn_cap(),
         "app_version": APP_VERSION,
         "app_root": APP_ROOT,

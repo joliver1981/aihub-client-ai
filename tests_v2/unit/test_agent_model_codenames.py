@@ -77,7 +77,7 @@ DEV = {"user_id": 717172, "role": 2, "username": "codename-dev",
 # Admins also get email_visibility — test_agent_email_visibility.py)
 ME_KEYS = {"user", "model", "model_default", "model_role1", "model_role1_default",
            "turns_per_day", "app_version", "main_port", "server_timezone",
-           "email_hidden"}
+           "email_hidden", "my_connections"}
 
 
 def codenames(mapping):
@@ -360,9 +360,10 @@ def test_turn_prompt_carries_the_line_only_when_the_turn_model_is_mapped():
         assert dev.system_prompt["type"] == "file" and path != B.SYSTEM_PROMPT_PATH
         assert _read(path) == (B.SYSTEM_PROMPT + "\n\n"
                                + C.codename_prompt_line("claude-haiku-5-5") + "\n")
-        assert dev.model == "claude-haiku-5-5"        # the SDK still gets the real id
+        # the SDK still gets the real id (with the runtime's context-window switch, never a code name)
+        assert dev.model == C.runtime_model_id("claude-haiku-5-5") == "claude-haiku-5-5[1m]"
         ru = B._make_options(None, "read", None, 1, [])         # claude-sonnet-5-5
-        assert ru.model == "claude-sonnet-5-5"
+        assert ru.model == C.runtime_model_id("claude-sonnet-5-5") == "claude-sonnet-5-5[1m]"
         assert ru.system_prompt["path"] != path
         assert _read(ru.system_prompt["path"]).endswith(
             C.codename_prompt_line("claude-sonnet-5-5") + "\n")
@@ -381,7 +382,7 @@ def test_turn_prompt_carries_the_line_only_when_the_turn_model_is_mapped():
         off = B._make_options(None, "full", None, 2, [])
         assert off.system_prompt == {"type": "file", "path": B.SYSTEM_PROMPT_PATH}
         assert _read(B.SYSTEM_PROMPT_PATH) == B.SYSTEM_PROMPT
-        assert off.model == "claude-haiku-5-5"
+        assert off.model == C.runtime_model_id("claude-haiku-5-5") == "claude-haiku-5-5[1m]"
 
 
 # ------------------------------------------------- run_turn + history replay
