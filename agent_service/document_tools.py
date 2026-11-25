@@ -32,6 +32,7 @@ true (default true) — flip to false to revert to pre-tool behavior.
 import asyncio
 import fnmatch
 import os
+import time
 from datetime import datetime
 from typing import Any
 
@@ -43,6 +44,140 @@ from agent_config import (
     APP_ROOT, AI_HUB_API_KEY, get_base_url, get_internal_api_key, logger,
 )
 from platform_tools import CURRENT_USER, _text, _unwrap
+
+# ---------------------------------------------------------------------------
+# How much text one tool result can carry
+# ---------------------------------------------------------------------------
+# The limit is not ours to choose. The runtime under the SDK replaces any text
+# result longer than 50,000 characters with a 2 KB preview and the path of a file
+# the model has no tool to open, so a longer result silently becomes a nearly
+# empty one. A tool can declare a larger size, up to the runtime's own maximum of
+# 500,000 characters. Measured 2026-11-25 with SDK 0.2.132: 49,000 characters were
+# delivered whole and 51,000 were replaced by the preview; with the declaration
+# 450,000 were delivered whole.
+#
+# The tools here that return document text declare that maximum and return the
+# text WHOLE. Before, search_documents cut every passage at 4,000 characters with
+# no sign that it had (12 passages x 4,000 stayed just under the 50,000), and an
+# answer that sat further down a long page was simply not there. What still does
+# not fit in one result is never cut silently: whole passages are left off the end,
+# or a long file is returned in parts, and the result says what is missing and how
+# to ask for it.
+_RUNTIME_DEFAULT_RESULT_CHARS = 50_000
+_RUNTIME_MAX_RESULT_CHARS = 500_000
+_RESULT_HEADROOM_CHARS = 5_000      # our own header, notes and code fences
+
+
+def _result_ceiling():
+    """(characters one result may carry, the annotation that declares it).
+
+    The larger size only exists when the installed SDK forwards the declaration to
+    the runtime. Checked from the SDK itself, not assumed: with an SDK that does
+    not, declaring 500,000 would change nothing and every long result would come
+    back as the 2 KB preview. Then the ceiling stays at the runtime's default."""
+    try:
+        import inspect
+        import claude_agent_sdk
+        from mcp.types import ToolAnnotations
+        if "maxResultSizeChars" in inspect.getsource(claude_agent_sdk.create_sdk_mcp_server):
+            return (_RUNTIME_MAX_RESULT_CHARS,
+                    ToolAnnotations(maxResultSizeChars=_RUNTIME_MAX_RESULT_CHARS))
+    except Exception as e:
+        logger.warning(f"tool results stay at the runtime's default size "
+                       f"({_RUNTIME_DEFAULT_RESULT_CHARS:,} characters): {e}")
+    return _RUNTIME_DEFAULT_RESULT_CHARS, None
+
+
+RESULT_MAX_CHARS, _WHOLE_RESULT = _result_ceiling()
+
+
+def _result_budget() -> int:
+    """Characters of document text one result has room for."""
+    return RESULT_MAX_CHARS - _RESULT_HEADROOM_CHARS
+
+
+# ---------------------------------------------------------------------------
+# How much one search returns, and reading on
+# ---------------------------------------------------------------------------
+# A search can match far more pages than a conversation has room for. The models
+# The Agent runs on have a context window of 200,000 tokens (what the runtime
+# reports for them, 2026-11-25): about 800,000 characters for the system prompt,
+# the tools, the whole conversation and every tool result in it. So when the model
+# does not say how many passages it wants, one search returns the best-ranked ones
+# up to AGENT_DOC_SEARCH_RESULT_CHARS characters: 100,000 by default, an eighth of
+# that window, which leaves room for several searches in one conversation. It was
+# 12 passages before, whatever their size, and an answer on the 15th was never
+# read. The result states how many more matched and the model reads on with
+# start_at. Nothing is ever cut inside a passage for this size.
+_DEFAULT_SEARCH_RESULT_CHARS = 100_000
+
+
+def _default_search_chars() -> int:
+    try:
+        n = int(os.getenv("AGENT_DOC_SEARCH_RESULT_CHARS") or _DEFAULT_SEARCH_RESULT_CHARS)
+    except (TypeError, ValueError):
+        n = _DEFAULT_SEARCH_RESULT_CHARS
+    return max(1, n)
+
+
+# Reading on must continue the list the model saw the start of. Running the search
+# a second time is not that: the engine plans every search afresh, so the same
+# question can come back with other passages in other positions, and it takes
+# another 15 to 30 seconds. The ranked passages of a search are therefore kept for
+# a short while, per user, conversation and question, and start_at reads from them.
+# The model does not always repeat its query word for word when it reads on
+# (measured: one of two forced cases added a word). start_at can only mean "after
+# the passages I was shown", so a query that was not searched reads on in the
+# conversation's last search, and the result says in which.
+_KEPT_SEARCH_SECONDS = 900.0
+# Memory this service spends on kept searches, not a limit on any search: the
+# oldest go first, and a search that is no longer kept is simply run again.
+_KEPT_SEARCH_TOTAL_CHARS = 20_000_000
+_kept_searches: dict = {}          # (user id, conversation, question) -> (when, found, characters)
+
+
+def _kept_key(query: str):
+    user = CURRENT_USER.get() or {}
+    uid = user.get("user_id")
+    if not uid:
+        return None                # the service principal is not a person: nothing is kept for it
+    return (str(uid), str(user.get("session_id") or ""), " ".join(str(query).lower().split()))
+
+
+def _keep_search(query: str, found: dict) -> None:
+    key = _kept_key(query)
+    if key is None:
+        return
+    now = time.monotonic()
+    for k in [k for k, v in _kept_searches.items() if now - v[0] > _KEPT_SEARCH_SECONDS]:
+        _kept_searches.pop(k, None)
+    # Taken out and put back, so the order of the dict is the order of searching:
+    # "the last search" and "the oldest" are read from it, not from the clock.
+    _kept_searches.pop(key, None)
+    _kept_searches[key] = (now, found, sum(len(p) for p in found.get("passages") or []))
+    total = sum(v[2] for v in _kept_searches.values())
+    for k in list(_kept_searches):
+        if total <= _KEPT_SEARCH_TOTAL_CHARS:
+            break
+        if k != key:
+            total -= _kept_searches.pop(k)[2]
+
+
+def _kept_search(query: str):
+    """The kept search to read on in, or None: this very query when it was
+    searched, otherwise this conversation's last search."""
+    key = _kept_key(query)
+    if key is None:
+        return None
+    now = time.monotonic()
+    mine = [k for k, v in _kept_searches.items()
+            if k[:2] == key[:2] and now - v[0] <= _KEPT_SEARCH_SECONDS]
+    if key in mine:
+        return _kept_searches[key][1]
+    if mine and key[1]:            # only inside a conversation we can tell apart
+        return _kept_searches[mine[-1]][1]
+    return None
+
 
 # Doc API lives at HOST_PORT+10 (matches CommonUtils.get_document_api_base_url
 # and wsgi_doc_api.py's bind). Import (/document/process) is the only tool that
@@ -610,29 +745,56 @@ async def _knowledge_agents_note() -> str:
     "General Agent): the result names the agents that hold such documents, and "
     "when one of them covers the subject you ask it with ask_agent. Only when "
     "the library has no passage AND no agent covers the subject, say you found "
-    "nothing among the documents you can search and suggest importing them.",
+    "nothing among the documents you can search and suggest importing them. "
+    "Each passage is a WHOLE page, best match first. One result shows the "
+    "best-ranked passages and says how many more matched. When the ones shown do "
+    "not answer the question, READ ON (the same query with start_at) before you "
+    "reword the search or conclude the documents do not say.",
     {
         "type": "object",
         "properties": {
             "query": {"type": "string",
                       "description": "The natural-language question to search for"},
             "max_results": {"type": "integer",
-                            "description": "Max passages to return (default 12)"},
+                            "description": "Leave it out for the usual amount: the "
+                                           "best-ranked passages that fit a normal "
+                                           "result. Give a number only when you want "
+                                           "exactly that many passages."},
+            "start_at": {"type": "integer",
+                         "description": "Position of the first passage to return, "
+                                        "counting from 1 (default 1). With the SAME "
+                                        "query it reads on: the passages after the "
+                                        "ones you already have."},
         },
         "required": ["query"],
         "additionalProperties": False,
     },
+    annotations=_WHOLE_RESULT,
 )
 async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("query", "")).strip()
     if not query:
         return _text("Give me a question to search the documents for.",
                      is_error=True)
+    # No max_results: the best-ranked passages up to the usual size of one result
+    # (see _default_search_chars). A number: that many, as far as one result
+    # carries them.
     try:
-        limit = int(args.get("max_results") or 12)
+        limit = int(args.get("max_results") or 0)
     except (TypeError, ValueError):
-        limit = 12
-    limit = max(1, min(limit, 50))
+        limit = 0
+    limit = limit if limit > 0 else None
+    try:
+        start_at = int(args.get("start_at") or 1)
+    except (TypeError, ValueError):
+        start_at = 1
+    start_at = max(1, start_at)
+
+    # Reading on continues the list the model saw the start of (see _keep_search).
+    found = _kept_search(query) if start_at > 1 else None
+    if found is not None:
+        return _text(_render_passages(query, found, start_at, limit,
+                                      await _knowledge_agents_note(), reran=False))
 
     # The UNIFIED endpoint (additive) normalizes the engine's variable return
     # (JSON dict for field/hybrid, [Source …] text blob for semantic) into one
@@ -667,7 +829,14 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
         # or genuinely find nothing — surface either honestly.
         answer = (result.get("answer") or result.get("text") or "").strip()
         if answer:
-            return _text(f"Results for \"{query}\":\n{answer[:4000]}{agents_note}")
+            room = max(0, _result_budget() - len(agents_note))
+            left = len(answer) - room
+            if left > 0:
+                # the runtime cannot carry more in one result; say so, never cut silently
+                answer = (answer[:room] + f"\n\n[NOT ALL SHOWN: the last {left:,} characters "
+                          "of this answer do not fit in one result. Ask a narrower question "
+                          "to read the rest.]")
+            return _text(f"Results for \"{query}\":\n{answer}{agents_note}")
         if agents_note:
             return _text(f"No document in the library matched \"{query}\". That is the "
                          "document library only." + agents_note)
@@ -676,7 +845,9 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
                      "list_documents or import them with import_documents.")
 
     # Dedupe near-identical passages by (filename, page); keep first (ranked).
-    seen, out = set(), []
+    # Every passage is rendered WHOLE: it is a full page (2026-08-14), and a cut
+    # inside it loses whatever sits further down the page without a trace.
+    seen, passages = set(), []
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -690,12 +861,7 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
         text = _pick(row, "snippet", "matched_text", "highlight", "full_text",
                      "page_text", "text", "content", "chunk", default="")
         did = _pick(row, "document_id", "doc_id")
-        # Passages are FULL PAGES now (2026-08-14), not 512-char chunks — the old
-        # [:800] squeeze silently undid that upgrade on this surface. 4,000 chars
-        # keeps a real lease page (1,500-3,200 chars) intact; 12 passages ≈ 12K
-        # tokens, well within an agent turn.
-        passage_cap = int(os.getenv("AGENT_DOC_PASSAGE_CHARS", "4000"))
-        snippet = " ".join(str(text).split())[:passage_cap]
+        snippet = " ".join(str(text).split())
         loc = f" p.{page}" if page not in (None, "") else ""
         line = (f"• {fname}{loc}"
                 + (f"  [id {did}]" if did else ""))
@@ -708,26 +874,113 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
                 line += f"\n    fields: {kv}"
         if snippet:
             line += f"\n    {snippet}"
-        out.append(line)
-        if len(out) >= limit:
-            break
+        passages.append(line)
 
-    header = f"{len(out)} passage(s) for \"{query}\""
-    conf = qa.get("confidence")
+    found = {
+        "query": query,
+        "passages": passages,
+        # Discovery bridge: the server flags when these documents carry structured
+        # record rows — the right tool for which/how-many questions.
+        "records_hint": result.get("records_hint"),
+        # Several same-type documents all matched every entity the user named —
+        # answer must cover the alternatives, not pick one silently.
+        "ambiguity_hint": result.get("ambiguity_hint"),
+        "confidence": qa.get("confidence"),
+    }
+    _keep_search(query, found)
+    return _text(_render_passages(query, found, start_at, limit, agents_note,
+                                  reran=start_at > 1))
+
+
+def _render_passages(query: str, found: dict, start_at: int, limit, agents_note: str,
+                     reran: bool) -> str:
+    """One result from the ranked passages of a search: the ones asked for, each
+    WHOLE, and in words what is not in it and how to read it.
+
+    ``limit`` None = the best-ranked ones up to the usual size of one result.
+    ``reran`` = the model asked to read on (start_at > 1) but no search of this
+    conversation was kept, so these are positions in a search run just now.
+    ``query`` is what the model sent; the list may be an earlier search's
+    (reading on with other words), and then the result names that search."""
+    asked, query = query, str(found.get("query") or query)
+    other_words = " ".join(asked.lower().split()) != " ".join(query.lower().split())
+    passages = found.get("passages") or []
+    tail = ""
+    if found.get("records_hint"):
+        tail += f"\n\n{found['records_hint']}"
+    if found.get("ambiguity_hint"):
+        tail += f"\n\n{found['ambiguity_hint']}"
+    tail += agents_note
+
+    total = len(passages)
+    if start_at > total:
+        if reran:
+            return (f"No earlier search of this conversation is kept, so this one was run now "
+                    f"and matched {total} passage(s): there is none at position {start_at}. "
+                    f"Read them from the first one (leave start_at out)." + tail)
+        return (f"Only {total} passage(s) matched \"{query}\", so there is none at "
+                f"position {start_at}. You have seen them all."
+                + (f" (start_at reads on in your last search, and that is this one. To search "
+                   f"for \"{asked}\", leave start_at out.)" if other_words else "") + tail)
+
+    # What one result CAN carry is the runtime's limit, not ours (_result_ceiling).
+    # Passages go in whole, in rank order, until the next one would not fit; the
+    # rest are counted and named below, never cut.
+    hard_room = _result_budget() - len(tail)
+    if limit is None:
+        wanted = passages[start_at - 1:]
+        room = min(hard_room, _default_search_chars())
+    else:
+        wanted = passages[start_at - 1:start_at - 1 + limit]
+        room = hard_room
+    out, used = [], 0
+    for line in wanted:
+        need = len(line) + 1
+        if not out and need > hard_room:
+            # One page longer than a whole result. The only case in which text
+            # inside a passage is left out, and the passage says so itself.
+            keep = max(0, hard_room - 300)
+            out.append(line[:keep] + f"\n    [THIS PAGE IS CUT HERE: it has {len(line):,} "
+                       f"characters and one result carries {RESULT_MAX_CHARS:,}. The rest of "
+                       "the page is not shown.]")
+            break
+        if out and used + need > room:
+            break
+        out.append(line)        # the first one always goes in whole when a result can carry it
+        used += need
+    first, last = start_at, start_at + len(out) - 1
+    held_back = (len(wanted) - len(out)) if limit is not None else 0    # asked for, did not fit
+    after = total - last                        # everything ranked after the last one shown
+
+    if total == len(out):
+        header = f"{total} passage(s) for \"{query}\""
+    else:
+        header = f"Passages {first} to {last} of {total} for \"{query}\""
+    conf = found.get("confidence")
     if conf and conf != "unknown":
         header += f" · search confidence: {conf}"
     body = header + ":\n" + "\n".join(out)
-    # Discovery bridge: the server flags when these documents carry structured
-    # record rows — the right tool for which/how-many questions.
-    hint = result.get("records_hint")
-    if hint:
-        body += f"\n\n{hint}"
-    # Several same-type documents all matched every entity the user named —
-    # answer must cover the alternatives, not pick one silently.
-    ambiguity = result.get("ambiguity_hint")
-    if ambiguity:
-        body += f"\n\n{ambiguity}"
-    return _text(body + agents_note)
+    if reran:
+        body = (f"NOTE: no earlier search of this conversation is kept (a search is kept for "
+                f"{int(_KEPT_SEARCH_SECONDS // 60)} minutes), so this one was run now. The "
+                f"positions below are positions in THIS run, and its first {start_at - 1} "
+                f"passage(s) are not shown: read them too (leave start_at out).\n\n") + body
+    elif other_words:
+        body = (f"NOTE: this reads on in your last search, \"{query}\". start_at continues a "
+                f"list you have seen the start of, so \"{asked}\" was not searched. To search "
+                f"for it, leave start_at out.\n\n") + body
+    if held_back:
+        body += (f"\n\nNOT ALL SHOWN: {held_back} of the {len(wanted)} passages you asked for "
+                 f"did not fit in one result (it carries {RESULT_MAX_CHARS:,} characters). They "
+                 f"were left out whole, nothing was cut inside a passage. {after} passage(s) in "
+                 f"all rank after the last one shown: read on with the same query and "
+                 f"start_at={last + 1}.")
+    elif after:
+        body += (f"\n\nMORE MATCHED, NOT SHOWN: {after} further passage(s) rank after these. "
+                 f"If the passages above do not answer the question, read on before you reword "
+                 f"the search or tell the user the documents do not say: call search_documents "
+                 f"with the same query and start_at={last + 1}.")
+    return body + tail
 
 
 # ---------------------------------------------------------------------------
@@ -1027,15 +1280,24 @@ def _resolve_read_path(raw: str):
                     "description": "Force AI vision/OCR for a scanned PDF or a "
                                    "photo of text (default false — native text "
                                    "extraction, which is free and fast)."},
+            "start": {"type": "integer",
+                      "description": "Character position to start reading from "
+                                     "(default 0). Only needed when an earlier read "
+                                     "of the same file said more characters follow."},
         },
         "required": ["path"],
         "additionalProperties": False,
     },
+    annotations=_WHOLE_RESULT,
 )
 async def read_file(args: dict[str, Any]) -> dict[str, Any]:
     path, err = _resolve_read_path(args.get("path"))
     if err:
         return _text(err, is_error=True)
+    try:
+        start = max(0, int(args.get("start") or 0))
+    except (TypeError, ValueError):
+        start = 0
     ncase = os.path.normcase(path)
     for bad in _FORBIDDEN_DIRS:
         if ncase == bad or ncase.startswith(bad + os.sep):
@@ -1085,7 +1347,7 @@ async def read_file(args: dict[str, Any]) -> dict[str, Any]:
                          "I'll extract it; otherwise it can only be downloaded or "
                          "uploaded, not read.", is_error=True)
         text = raw.decode("utf-8-sig", errors="replace")
-        return _text(f"Contents of '{name}' ({_fmt_size(size)}):\n```\n{text}\n```")
+        return _file_text_result(name, _fmt_size(size), text, start)
 
     # Document path: extract text via the engine WITHOUT storing or indexing
     # (do_not_store=true), and without the LLM field/type passes (extract_fields
@@ -1133,8 +1395,29 @@ async def read_file(args: dict[str, Any]) -> dict[str, Any]:
                      "cap — import it and use search_documents, or raise "
                      "AGENT_READ_FILE_MAX_MB.", is_error=True)
     kind = "OCR/vision" if ocr else "native"
-    return _text(f"Contents of '{name}' ({_fmt_size(size)}, {kind} extraction, "
-                 f"not stored):\n```\n{text}\n```")
+    return _file_text_result(name, f"{_fmt_size(size)}, {kind} extraction, not stored",
+                             text, start)
+
+
+def _file_text_result(name: str, label: str, text: str, start: int = 0) -> dict[str, Any]:
+    """A file's text as one tool result: whole when it fits in what the runtime
+    carries (see _result_ceiling), otherwise the part from ``start`` that fits,
+    with where it stands in the file and how to read on. Never cut silently."""
+    total = len(text)
+    if start >= total > 0:
+        return _text(f"'{name}' has {total:,} characters of text; there is nothing at "
+                     f"position {start:,}. You have read it all.")
+    room = _result_budget()
+    part = text[start:start + room]
+    end = start + len(part)
+    if start == 0 and end >= total:
+        return _text(f"Contents of '{name}' ({label}):\n```\n{text}\n```")
+    more = (f"\n\nNOT ALL SHOWN: {total - end:,} more characters follow. One result "
+            f"carries {RESULT_MAX_CHARS:,} characters; read on by calling read_file "
+            f"again with start={end}."
+            if end < total else "\n\nThat is the end of the file.")
+    return _text(f"Contents of '{name}' ({label}) — characters {start + 1:,} to {end:,} "
+                 f"of {total:,}:\n```\n{part}\n```{more}")
 
 
 def _read_bytes(path: str) -> bytes:
