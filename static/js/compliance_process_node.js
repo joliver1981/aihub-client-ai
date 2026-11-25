@@ -58,6 +58,13 @@ const ComplianceProcessNode = {
             fastChk.checked = !(saved === false || saved === 'false');
         }
 
+        // "Agent knowledge only" (no document library index): the same rule.
+        const agentOnlyChk = document.getElementById('cp-skip-library-index');
+        if (agentOnlyChk) {
+            const saved = currentConfig.skipLibraryIndex;
+            agentOnlyChk.checked = !(saved === false || saved === 'false');
+        }
+
         // Show agent options if onMissing is auto_create, and the
         // retailer-agent-override row only when in per_retailer mode.
         this._toggleAgentOptions();

@@ -53,6 +53,9 @@ class ProcessingResult:
     # Whether the document service extracted named fields from every page (False =
     # "Faster processing": that step was left out). None when nothing was ingested.
     page_fields_extracted: Optional[bool] = None
+    # Whether the pages were also written to the document library's search index
+    # (False = "Agent knowledge only"). None when nothing was ingested.
+    library_indexed: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +180,7 @@ class ComplianceEngine:
         retire_superseded: Optional[bool] = None,
         knowledge_attributes: Optional[Dict[str, Any]] = None,
         skip_page_fields: Optional[bool] = None,
+        skip_library_index: Optional[bool] = None,
     ) -> ProcessingResult:
         """Full pipeline: ingest -> extract -> version -> knowledge -> excel.
 
@@ -196,8 +200,16 @@ class ComplianceEngine:
         same either way (pages read, stored, indexed, added to the agent's
         knowledge); only the named fields per page are not produced.
         None = the platform setting COMPLIANCE_SKIP_PAGE_FIELDS (on by default).
+
+        skip_library_index: "Agent knowledge only". A document that goes to an agent
+        is not also written to the document library's search index (the largest
+        remaining part of the time a long manual takes). The agent answers from its
+        own knowledge index; the library search does not cover an agent's documents
+        by design. Without an agent the library index is always written.
+        None = the platform setting COMPLIANCE_SKIP_LIBRARY_INDEX (on by default).
         """
         extract_page_fields = None
+        library_indexed = None
         try:
             doc_hash = self._file_hash(file_path)
             dup_version = self._check_duplicate(set_id, doc_hash)
@@ -223,7 +235,14 @@ class ComplianceEngine:
             if skip_page_fields is None:
                 skip_page_fields = bool(getattr(cfg, "COMPLIANCE_SKIP_PAGE_FIELDS", True))
             extract_page_fields = not skip_page_fields
-            document_id = self._ingest_document(file_path, extract_fields=extract_page_fields)
+            if skip_library_index is None:
+                skip_library_index = bool(getattr(cfg, "COMPLIANCE_SKIP_LIBRARY_INDEX", True))
+            # Only for a document that is going to an agent: with no agent, the
+            # library index is the only place the document can be searched.
+            knowledge_only = bool(skip_library_index and agent_id)
+            library_indexed = not knowledge_only
+            document_id = self._ingest_document(file_path, extract_fields=extract_page_fields,
+                                                knowledge_only=knowledge_only)
             # The duplicate check above compares against this stored hash. Nothing else
             # writes it, so without this line no file was ever recognised as a
             # duplicate: every re-sent manual became a new version.
@@ -294,6 +313,7 @@ class ComplianceEngine:
                 superseded_by=superseded_by,
                 version_check_note=version_check_note,
                 page_fields_extracted=extract_page_fields,
+                library_indexed=library_indexed,
             )
         except Exception as e:
             logger.exception("Compliance processing failed")
@@ -307,16 +327,23 @@ class ComplianceEngine:
                 error=str(e),
                 extraction_diagnostics=getattr(self, "_last_extraction_diagnostics", None),
                 page_fields_extracted=extract_page_fields,
+                library_indexed=library_indexed,
             )
 
     # -- document ingestion --------------------------------------------------
 
-    def _ingest_document(self, file_path: str, extract_fields: bool = True) -> str:
+    def _ingest_document(self, file_path: str, extract_fields: bool = True,
+                         knowledge_only: bool = False) -> str:
         """Ingest a PDF via the document processing API and return document_id.
 
         extract_fields False = "Faster processing": the document service does not make
-        its one AI call per page for named fields. Reading the pages, the document
-        type, storing and indexing are the same either way."""
+        its one AI call per page for named fields.
+
+        knowledge_only True = "Agent knowledge only": the document is stored as an
+        agent's document from the start, which is what it becomes anyway the moment
+        it is given to the agent, so the document service does not write its pages
+        to the document library's search index. Reading the pages, the document
+        type and storing them are the same either way."""
         import requests
 
         doc_api_url = get_document_api_base_url()
@@ -325,7 +352,7 @@ class ComplianceEngine:
         form_data = {
             "filePath": file_path,
             "force_ai_extraction": "true",
-            "is_knowledge_document": "false",
+            "is_knowledge_document": "true" if knowledge_only else "false",
             "extract_fields": "true" if extract_fields else "false",
             "detect_document_type": "true",
         }
@@ -341,10 +368,11 @@ class ComplianceEngine:
             )
 
         logger.info(
-            "Document ingested: %s (%d pages, page fields %s)",
+            "Document ingested: %s (%d pages, page fields %s, library index %s)",
             result["document_id"],
             result.get("page_count", 0),
             "extracted" if extract_fields else "not extracted (faster processing)",
+            "not written (agent knowledge only)" if knowledge_only else "written",
         )
         return result["document_id"]
 

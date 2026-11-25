@@ -1483,6 +1483,17 @@ const nodeConfigTemplates = {
                     </small>
                 </div>
 
+                <!-- Agent knowledge only: no document library index for a document that goes to an agent -->
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" name="skipLibraryIndex" id="cp-skip-library-index" checked>
+                        <label class="form-check-label fw-bold" for="cp-skip-library-index">Agent knowledge only</label>
+                    </div>
+                    <small class="form-text text-muted">
+                        The document is given to the agent and is not also written to the document library's search index. The agent answers from its own knowledge, and the document library search is not meant to cover an agent's documents, so that step only cost time: it was the largest remaining part of processing a long manual. Switch this off to write the pages to the library index as well, as before. When the set has no agent, the library index is always written.
+                    </small>
+                </div>
+
                 <!-- Attributes attached to the document -->
                 <div class="mb-3">
                     <label class="form-label fw-bold">Document Attributes <small class="text-muted">(optional)</small></label>
@@ -1529,6 +1540,7 @@ const nodeConfigTemplates = {
             agentOverrideId: '',
             retireSupersededVersions: true,
             skipPageFields: true,
+            skipLibraryIndex: true,
             knowledgeAttributes: '',
             excelTemplatePath: '',
             outputVariable: 'complianceResult'

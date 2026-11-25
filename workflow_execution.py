@@ -1714,6 +1714,9 @@ Guidelines:
             skipPageFields         (bool) — "Faster processing": leave out the page-by-page field
                                      extraction of the document service (default: on). Everything
                                      else the node does is the same either way.
+            skipLibraryIndex       (bool) — "Agent knowledge only": a document that goes to an agent
+                                     is not also written to the document library's search index
+                                     (default: on). Without an agent that index is always written.
             knowledgeAttributes    (str|dict) — optional attributes attached to the document
                                      ("region=East; department=Toys" or a JSON object; variables
                                      allowed). The retailer is always attached as "customer".
@@ -1722,7 +1725,8 @@ Guidelines:
         Output variable contains:
             { version_id, version_number, retailer_id, set_id, document_id,
               requirements_count, is_duplicate, change_summary, excel_path, error,
-              retired_versions, retired_count, superseded_by, version_check, page_fields }
+              retired_versions, retired_count, superseded_by, version_check, page_fields,
+              library_index }
         """
         node_id = node['id']
         node_config = node.get('config', {})
@@ -1852,6 +1856,17 @@ Guidelines:
             else:
                 skip_page_fields = bool(skip_raw)
 
+            # "Agent knowledge only" (no document library index for a document that goes
+            # to an agent): the same rule again. Missing key = the platform setting
+            # (COMPLIANCE_SKIP_LIBRARY_INDEX, on by default); an explicit false wins.
+            index_raw = node_config.get('skipLibraryIndex')
+            if index_raw is None or index_raw == '':
+                skip_library_index = None
+            elif isinstance(index_raw, str):
+                skip_library_index = index_raw.strip().lower() not in ('false', '0', 'no', 'off')
+            else:
+                skip_library_index = bool(index_raw)
+
             # Optional attributes for the document ("region=East; department=Toys", one
             # name=value per line or ';', or a JSON object). Variables are filled in.
             # The retailer is attached as "customer" by the pipeline itself.
@@ -1888,6 +1903,7 @@ Guidelines:
                 retire_superseded=retire_superseded,
                 knowledge_attributes=knowledge_attributes,
                 skip_page_fields=skip_page_fields,
+                skip_library_index=skip_library_index,
             )
             if result.page_fields_extracted is not None:
                 self.log_execution(
@@ -1896,6 +1912,15 @@ Guidelines:
                     if result.page_fields_extracted else
                     "Page fields: not extracted (Faster processing is on). Everything else "
                     "was done as usual."
+                )
+            if result.library_indexed is not None:
+                self.log_execution(
+                    execution_id, node_id, "info",
+                    "Document library index: written"
+                    + (" (Agent knowledge only is off)" if agent_id else " (the set has no agent)")
+                    if result.library_indexed else
+                    "Document library index: not written (Agent knowledge only is on). The "
+                    "document is the agent's; the agent answers from its own knowledge index."
                 )
 
             # ----- 6. Build output variable payload -----
@@ -1920,6 +1945,9 @@ Guidelines:
                 # "extracted" / "skipped" (Faster processing) / None when nothing was ingested
                 "page_fields": (None if result.page_fields_extracted is None
                                 else "extracted" if result.page_fields_extracted else "skipped"),
+                # "written" / "skipped" (Agent knowledge only) / None when nothing was ingested
+                "library_index": (None if result.library_indexed is None
+                                  else "written" if result.library_indexed else "skipped"),
             }
 
             # ----- 7. Store output variable -----
