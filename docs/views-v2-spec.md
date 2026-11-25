@@ -156,6 +156,22 @@ Two limits made explicit during review (2026-08-07):
   Developer role" error plus the cached last result. Plain-user dashboards
   get live automation data via v2.1 scheduled refresh + cache, not by
   bypassing the platform's run gating.
+- **Changed 2026-11-25 — a regular user can refresh a View shared with them.**
+  A View's automation tiles are a recipe (automation, promoted version,
+  inputs) that only a Developer can save, so a role<2 viewer's refresh is
+  admitted on the standing of whoever saved the tiles the View holds now
+  (`owner_user`, which follows every re-save). The Agent names the View and
+  that person in `payload.view_tile`; the automations service reads that
+  person's CURRENT role itself and admits only `run` of the pinned version and
+  a checkpoint `abort`. The run row keeps the user who clicked as
+  `requested_by`. If the saver is no longer a Developer, the main app is older
+  than the Agent, or `VIEW_VIEWER_REFRESH=false` (kill switch, default on, read
+  by both services), the viewer gets the saved numbers with their time and no
+  error, as before.
+- Two refreshes of one board at the same moment: the runner skips the second
+  run of an automation that is already running, so those tiles show the saved
+  numbers without an error (`refresh_in_flight`), and each refresh merges its
+  results into the cache as stored at that moment, not as read at its start.
 
 ### 4.4 Cost note
 

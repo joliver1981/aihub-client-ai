@@ -2295,7 +2295,9 @@
       }
     } catch (e) { detail.textContent = "Refresh failed: " + e.message; }
   }
-  function savedOnly(t) { return !!(t && t.viewer_only && t.cache); }
+  function savedOnly(t) {
+    return !!(t && (t.viewer_only || t.refresh_in_flight) && t.cache);
+  }
   // The saved-numbers time is stored in UTC; show it in the viewer's own
   // zone: "14:05" for today, "24 Nov, 14:05" for another day.
   function asOfLocal(iso) {

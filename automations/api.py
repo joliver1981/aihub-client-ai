@@ -2591,6 +2591,66 @@ def runtime_resolve():
     return jsonify({"value": value})
 
 
+# ------------------------------------------- shared View tiles (viewers)
+# A saved View's automation tile is a recipe: the automation, its promoted
+# version and its inputs were fixed by the Developer who saved the View, and
+# the scheduled refresh already runs it under that person. A regular user
+# (role < 2) the View is shared with could read the saved numbers but not
+# refresh them (2026-11-25: a team's scanning board).
+#
+# The Agent service owns Views and has already checked that this user can see
+# this one. It names the View and who saved it in payload["view_tile"]; the
+# run is admitted when THAT person is a Developer or Admin TODAY (read here,
+# at the chokepoint, not taken from the caller). The run row keeps the user
+# who clicked as requested_by.
+#
+# Nothing else opens: `run` of the pinned version, and the `abort` of a
+# checkpoint so a refresh never leaves an approval behind. Never dry_run, a
+# chosen version, code, promote, schedule, list or get.
+# Kill switch: VIEW_VIEWER_REFRESH=false (default on).
+
+def _user_role(user_id) -> int:
+    """A user's CURRENT platform role; 0 when unknown or unreadable (which
+    closes the grant below)."""
+    try:
+        conn = _get_manager()._db_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT role FROM [User] WHERE id = ?", int(user_id))
+            row = cursor.fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f"role lookup failed for user {user_id}: {e}")
+        return 0
+
+
+def _view_tile_grant(action, payload, user_id) -> bool:
+    """True when a below-Developer caller may run this ONE action because it
+    is a pinned tile of a View that a current Developer/Admin saved."""
+    if user_id <= 0 or not _env_flag("VIEW_VIEWER_REFRESH", True):
+        return False
+    claim = payload.get("view_tile")
+    if not isinstance(claim, dict):
+        return False
+    if action == "run":
+        payload.pop("version", None)       # the pinned version, nothing else
+    elif not (action == "checkpoint_decision"
+              and payload.get("decision") == "abort"):
+        return False
+    try:
+        shared_by = int(claim.get("shared_by") or 0)
+    except (TypeError, ValueError):
+        return False
+    if shared_by <= 0 or _user_role(shared_by) < 2:
+        return False
+    logger.info(f"internal_manage {action}: user {user_id} refreshes a tile of "
+                f"View '{str(claim.get('view') or '')[:120]}' saved by user "
+                f"{shared_by} (automation {payload.get('automation_id')})")
+    return True
+
+
 # --------------------------------------------- internal (CC builder tools)
 
 @automations_bp.route("/api/internal/manage", methods=["POST"])
@@ -2617,7 +2677,10 @@ def internal_manage():
     except (TypeError, ValueError):
         role, user_id = 0, 0
     if role < 2 or user_id <= 0:
-        return jsonify({"error": "Developer role required"}), 403
+        # The one way in below Developer: a pinned tile of a shared View
+        # (see _view_tile_grant). Everything else stays closed.
+        if not _view_tile_grant(action, payload, user_id):
+            return jsonify({"error": "Developer role required"}), 403
     username = str(uc.get("username") or user_id)
 
     mgr = _get_manager()

@@ -14,6 +14,7 @@ tiles unlock every source the platform can already reach deterministically
 """
 
 import asyncio
+import contextvars
 import json
 import os
 import time
@@ -31,6 +32,34 @@ VIEW_TILE_TIMEOUT = float(os.getenv("VIEW_TILE_TIMEOUT", "120"))
 # pretending they failed.
 VIEW_SERIAL_BUDGET = float(os.getenv("VIEW_SERIAL_BUDGET", "300"))
 TILE_ROW_CAP = 50
+
+# The View being refreshed, for the tile runners (set by run_view).
+_VIEW_CTX: contextvars.ContextVar = contextvars.ContextVar("VIEW_CTX", default=None)
+
+
+def _viewer_claim():
+    """Who saved the View this tile belongs to — sent with the run when the
+    refreshing user is below Developer, so the automations service can admit
+    the pinned recipe on that person's standing (it reads their CURRENT role
+    itself; see _view_tile_grant in automations/api.py). None when the user
+    can run it in their own right, or when VIEW_VIEWER_REFRESH=false."""
+    if os.getenv("VIEW_VIEWER_REFRESH", "true").strip().lower() in (
+            "0", "false", "no", "off"):
+        return None
+    view = _VIEW_CTX.get()
+    if not view:
+        return None
+    if int((CURRENT_USER.get() or {}).get("role") or 0) >= 2:
+        return None
+    try:
+        saved_by = int(view.get("owner_user") or 0)
+    except (TypeError, ValueError):
+        saved_by = 0
+    if saved_by <= 0:
+        return None
+    return {"view": str(view.get("name") or ""),
+            "scope": str(view.get("scope") or ""),
+            "shared_by": saved_by}
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +130,11 @@ async def _run_automation_tile(t: dict, tile: dict) -> None:
     session envelope — set by the endpoint/turn before we get here)."""
     auto_ref = str(t.get("automation_id") or t.get("automation") or "")
     payload = {"automation_id": auto_ref, "inputs": dict(t.get("inputs") or {})}
+    # A regular user refreshing a View that was shared with them: the run is
+    # admitted on the standing of whoever saved the View (2026-11-25).
+    claim = _viewer_claim()
+    if claim:
+        payload["view_tile"] = claim
     try:
         data, status = await _manage("run", payload, timeout=VIEW_TILE_TIMEOUT)
     except Exception as e:
@@ -114,11 +148,12 @@ async def _run_automation_tile(t: dict, tile: dict) -> None:
     # finding, 2026-08-07: the old code claimed "aborted" unconditionally).
     if data.get("waiting_on_checkpoint"):
         cp = data.get("pending_checkpoint") or {}
-        adata, astatus = await _manage(
-            "checkpoint_decision",
-            {"run_id": str(data.get("run_id")),
-             "checkpoint_id": str(cp.get("checkpoint_id")),
-             "decision": "abort"}, timeout=30)
+        abort = {"run_id": str(data.get("run_id")),
+                 "checkpoint_id": str(cp.get("checkpoint_id")),
+                 "decision": "abort"}
+        if claim:
+            abort["view_tile"] = claim
+        adata, astatus = await _manage("checkpoint_decision", abort, timeout=30)
         if astatus < 400 and not adata.get("timed_out"):
             aborted = "run aborted, no approval left pending"
         else:
@@ -140,10 +175,12 @@ async def _run_automation_tile(t: dict, tile: dict) -> None:
         return
 
     if status == 403:
-        # Automation RUNS are Developer+ platform-wide; a role<2 viewer (the
-        # AGENT_ALLOW_ALL_USERS direction) can't trigger one — say so plainly
-        # and let the cache branch serve the last good result. The v2.1 answer
-        # for plain-user dashboards is scheduled refresh + cache.
+        # Automation RUNS are Developer+ platform-wide. A role<2 viewer of a
+        # shared View is admitted on the standing of whoever saved it (the
+        # claim above), so this is now the fallback: the switch is off, the
+        # main app is older than this service, or the person who saved the
+        # View is no longer a Developer. Say so plainly and let the cache
+        # branch serve the last good result.
         #
         # viewer_only tells the Views screen this is not a fault: the viewer
         # simply may not start the run. With saved numbers in the tile's cache
@@ -156,6 +193,19 @@ async def _run_automation_tile(t: dict, tile: dict) -> None:
                          "showing the last saved numbers if there are any")
         return
     run_status = str(data.get("status") or "")
+    if status < 400 and run_status == "skipped":
+        # The runner never starts an automation that is already running, so
+        # two people refreshing one board at the same moment (or a click that
+        # lands on the scheduled refresh) get "skipped" here. Not a fault: the
+        # other refresh is writing these very numbers. The screen shows the
+        # saved ones without an error; `error` stays set so nothing is cached
+        # and the scheduler still sees that this tile was not refreshed.
+        tile["refresh_in_flight"] = True
+        tile["run_id"] = data.get("run_id")
+        tile["error"] = ("another refresh of this tile's automation is running "
+                         "right now — showing the last saved numbers if there "
+                         "are any; refresh again in a moment")
+        return
     if status >= 400 or run_status not in ("success",):
         detail = data.get("error") or (str(data.get("stderr_tail") or "")[-300:])
         tile["error"] = (f"run {run_status or 'failed'} "
@@ -213,6 +263,8 @@ async def run_view(view: dict, only_index: int | None = None) -> dict:
         return {"name": view.get("name"), "error": "tile_index out of range",
                 "tiles": []}
     indices = [only_index] if only_index is not None else list(range(len(tiles_def)))
+    # The tile runners read this (the tasks below copy the context).
+    _VIEW_CTX.set(view)
 
     results = []
     for i in indices:
@@ -275,7 +327,18 @@ async def run_view(view: dict, only_index: int | None = None) -> dict:
     # their last good data. Failed tiles get their slot attached for as-of
     # rendering.
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    cache = list(view.get("tile_cache") or [])
+    # Merge into the cache as it is NOW: with a board open to its whole team,
+    # another refresh may have written slots while this one ran, and a tile
+    # that came back "skipped" should show those numbers, not older ones.
+    # Unreadable -> the copy read at the start, as before.
+    cache = None
+    try:
+        cache = views_store.get_cache(view["view_id"])
+    except Exception:
+        pass
+    if not isinstance(cache, list):
+        cache = view.get("tile_cache")
+    cache = list(cache or [])
     cache += [{}] * (len(tiles_def) - len(cache))
     legacy_at = view.get("cached_at")   # pre-per-tile cache rows lack "at"
     any_success = False

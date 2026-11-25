@@ -996,6 +996,90 @@ class TestInternalManage:
         r = self._post(client, "list", role=1)
         assert r.status_code == 403
 
+    # -- a regular user refreshing a tile of a shared View (2026-11-25) ------
+    CLAIM = {"view": "Team board", "scope": "group", "shared_by": 42}
+
+    def _saver_role(self, monkeypatch, role):
+        import automations.api as api_mod
+        asked = []
+        monkeypatch.setattr(api_mod, "_user_role",
+                            lambda uid: (asked.append(uid), role)[1])
+        return asked
+
+    def test_view_tile_run_is_admitted_on_the_savers_standing(self, client, mgr,
+                                                              monkeypatch):
+        import automations.api as api_mod
+        asked = self._saver_role(monkeypatch, 2)
+        started = {}
+        monkeypatch.setattr(mgr, "get_automation",
+                            lambda aid: {"automation_id": aid, "pinned_version": 1})
+        monkeypatch.setattr(
+            api_mod, "_run_inline",
+            lambda aid, inputs, trigger, version, requested_by, dry_run:
+            (started.update(aid=aid, inputs=inputs, version=version,
+                            requested_by=requested_by, dry_run=dry_run)
+             or {"status": "success", "run_id": "r1"}, 200))
+        r = self._post(client, "run", role=1, payload={
+            "automation_id": "a1", "inputs": {"measure": "board"},
+            "version": 9, "view_tile": self.CLAIM})
+        assert r.status_code == 200, r.get_json()
+        assert asked == [42], "the saver's role is read here, not taken on trust"
+        assert started["requested_by"] == 7, "the run names the user who clicked"
+        assert started["version"] is None, "only the pinned version may run"
+        assert started["dry_run"] is False
+        assert started["inputs"] == {"measure": "board"}
+
+    def test_view_tile_run_refused_when_the_saver_is_not_a_developer(
+            self, client, monkeypatch):
+        self._saver_role(monkeypatch, 1)
+        r = self._post(client, "run", role=1,
+                       payload={"automation_id": "a1", "view_tile": self.CLAIM})
+        assert r.status_code == 403
+
+    def test_view_tile_run_refused_when_switched_off(self, client, monkeypatch):
+        self._saver_role(monkeypatch, 3)
+        monkeypatch.setenv("VIEW_VIEWER_REFRESH", "false")
+        r = self._post(client, "run", role=1,
+                       payload={"automation_id": "a1", "view_tile": self.CLAIM})
+        assert r.status_code == 403
+
+    def test_view_tile_claim_opens_nothing_but_run_and_abort(self, client,
+                                                             monkeypatch):
+        self._saver_role(monkeypatch, 3)
+        for action, extra in (("list", {}), ("get", {}), ("dry_run", {}),
+                              ("create", {"name": "x"}), ("save_code", {}),
+                              ("promote", {}), ("schedule", {}), ("delete", {}),
+                              ("checkpoint_decision", {"decision": "proceed"})):
+            payload = {"automation_id": "a1", "view_tile": self.CLAIM}
+            payload.update(extra)
+            r = self._post(client, action, role=1, payload=payload)
+            assert r.status_code == 403, (action, r.get_json())
+
+    def test_view_tile_abort_of_a_checkpoint_passes_the_gate(self, client,
+                                                             monkeypatch):
+        import automations.api as api_mod
+        self._saver_role(monkeypatch, 2)
+        decided = {}
+        monkeypatch.setattr(
+            api_mod, "_decide_checkpoint",
+            lambda run_id, cp_id, decision, user_id:
+            (decided.update(decision=decision, user_id=user_id)
+             or {"ok": True}, 200))
+        r = self._post(client, "checkpoint_decision", role=1, payload={
+            "run_id": "r1", "checkpoint_id": "c1", "decision": "abort",
+            "view_tile": self.CLAIM})
+        assert r.status_code == 200
+        assert decided == {"decision": "abort", "user_id": 7}
+
+    def test_view_tile_claim_needs_a_real_saver_and_a_real_user(self, client,
+                                                                monkeypatch):
+        self._saver_role(monkeypatch, 3)
+        for claim in ({"view": "x"}, {"shared_by": 0}, {"shared_by": "abc"},
+                      "42", None):
+            r = self._post(client, "run", role=1,
+                           payload={"automation_id": "a1", "view_tile": claim})
+            assert r.status_code == 403, claim
+
     def test_full_build_flow(self, client, monkeypatch):
         import automations.runner as runner_mod
         monkeypatch.setattr(runner_mod, "_load_cfg", lambda: _EnvInjectCfg)

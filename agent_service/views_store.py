@@ -289,11 +289,17 @@ def _save(name, description, tiles, owner_user, scope, group_id,
                         "WHERE ns = ? AND name = ?", (ns, name)).fetchone()
         if row:
             _carry_layout(tiles, row["tiles"])
+            # owner_user follows the recipe: it is whoever saved the tiles
+            # the View holds NOW. A shared View's automation tiles run for
+            # regular viewers on that person's standing (views_tools
+            # _viewer_claim), and only a Developer can save such tiles — so it
+            # must not stay with an earlier saver of a group or tenant View.
+            # Private Views are unaffected (their namespace is the owner).
             c.execute("UPDATE views SET description=?, tiles=?, prev_tiles=?, "
                       "version=version+1, updated_at=?, tile_cache=NULL, "
-                      "cached_at=NULL WHERE view_id=?",
+                      "cached_at=NULL, owner_user=? WHERE view_id=?",
                       (description, json.dumps(tiles), row["tiles"], now,
-                       row["view_id"]))
+                       int(owner_user or 0), row["view_id"]))
             vid, version = row["view_id"], row["version"] + 1
         else:
             vid, version = str(uuid.uuid4()), 1
@@ -418,6 +424,23 @@ def delete(name: str, user_id: int, group_ids, role: int,
         c.execute("DELETE FROM views WHERE view_id = ?", (view["view_id"],))
     logger.info(f"view deleted: [{view['ns']}] {name} by user {user_id}")
     return True, None
+
+
+def get_cache(view_id: str) -> Optional[list]:
+    """The tile cache as it is in the store NOW (None when there is none).
+    A refresh merges into this, not into the copy it read when it started:
+    two refreshes of one board can overlap, and each must keep the slots the
+    other has just written."""
+    with _connect() as c:
+        r = c.execute("SELECT tile_cache FROM views WHERE view_id = ?",
+                      (view_id,)).fetchone()
+    if not r or not r["tile_cache"]:
+        return None
+    try:
+        cache = json.loads(r["tile_cache"])
+    except Exception:
+        return None
+    return cache if isinstance(cache, list) else None
 
 
 def set_cache(view_id: str, tiles_result: list) -> None:
