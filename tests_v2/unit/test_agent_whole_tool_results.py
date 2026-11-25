@@ -275,6 +275,15 @@ class TestToolsThatCutTheirOwnText(_Case):
         self.assertNotIn("(truncated)", out)
         self.assertIn(json.dumps(manifest), out)                # and the manifest its first 600
 
+    def test_an_agents_objective_is_shown_whole(self):
+        import agent_builder_tools as abt
+        objective = "You are the compliance assistant. " + "Follow this rule exactly. " * 120 + "FINAL-INSTRUCTION."
+        shown = abt._fmt_agent({"id": 7, "name": "Compliance", "objective": objective, "enabled": True,
+                                "core_tools": [], "custom_tools": []})
+        self.assertGreater(len(objective), 3_000)
+        self.assertIn("Objective: " + objective, shown)         # it was the first 600 characters and an ellipsis
+        self.assertIn("FINAL-INSTRUCTION.", shown)
+
     def test_all_the_browser_agent_read_on_a_portal_page_is_relayed(self):
         reading = "Account summary. " + "Line of the statement table. " * 300 + "CLOSING-BALANCE 5,751.70"
         self._patched(portal_tools, _stage_files=lambda uid, files: ([], [], []))

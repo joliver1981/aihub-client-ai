@@ -547,7 +547,10 @@ def _fmt_agent(agent: dict, knowledge: Optional[list] = None,
     lines = [f"Agent {agent['id']} — \"{agent['name']}\" ({kind}, {state}"
              + (f", created {agent['created']}" if agent.get("created") else "") + ")"]
     obj = (agent.get("objective") or "").strip()
-    lines.append("Objective: " + (obj if len(obj) <= 600 else obj[:600] + "…"))
+    # WHOLE: changing an objective means sending its full new text, so the model
+    # has to see all of the current one. Cut at 600 characters, a longer objective
+    # could only be written back shortened.
+    lines.append("Objective: " + obj)
     lines.append("Personal MCP connections: "
                  + ("allowed" if agent.get("allow_personal_connections") else "not allowed"))
     core = agent.get("core_tools") or []
