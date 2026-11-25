@@ -1,6 +1,9 @@
 import os
 import json
 import logging
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any, Optional, Union, Type
 from abc import ABC, abstractmethod
 
@@ -73,6 +76,83 @@ class ChromaDBStore(VectorStore):
 
         # Initialize text chunker with configurable parameters
         self.chunker = TextChunker()
+        # What the last add_documents call on THIS thread did when it split the
+        # documents (the store is shared by the service's request threads).
+        self._chunking = threading.local()
+
+    def last_chunking(self) -> Optional[Dict[str, Any]]:
+        """How the documents of this thread's last add_documents call were split:
+        {documents, parallel, seconds, split_by_ai, retried, split_without_ai}."""
+        return getattr(self._chunking, 'last', None)
+
+    def _chunk_documents(self, documents: List[str], metadatas: List[Dict[str, Any]],
+                         ids: List[str]) -> List[List[Dict[str, Any]]]:
+        """The chunks of every document, in the documents' order.
+
+        With smart chunking a document longer than one chunk costs one AI call of
+        several seconds. Made one after another, those calls were 89 to 98% of the
+        time a document took to index (measured 2026-11-25: 172 calls, median 6.5 s;
+        embedding and writing all chunks of a document: 5 to 10 s). They do not
+        depend on each other, so they are made several at a time
+        (VECTOR_CHUNKING_PARALLEL; 1 = one after another, as before). The chunks
+        come back in the order of the documents either way.
+
+        A document whose AI call fails is split the standard way by the chunker
+        itself (no section context, tables may be cut). That must not happen
+        unnoticed: such a document is tried once more, on its own, and whatever is
+        still split without AI is counted, logged with its id, and reported to the
+        caller in last_chunking()."""
+        try:
+            workers = int(getattr(cfg, 'VECTOR_CHUNKING_PARALLEL', 8) or 1)
+        except (TypeError, ValueError):
+            workers = 8
+        workers = max(1, min(workers, len(documents) or 1))
+        items = list(zip(documents, metadatas))
+
+        def split(item):
+            return self.chunker.chunk_text(item[0], item[1])
+
+        started = time.perf_counter()
+        if workers > 1:
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='chunk') as pool:
+                chunk_lists = list(pool.map(split, items))     # map keeps the order
+        else:
+            chunk_lists = [split(item) for item in items]
+
+        smart = bool(getattr(self.chunker, '_use_smart', False))
+        one_chunk = int(getattr(self.chunker, 'chunk_size', 0) or 0)
+
+        def needs_ai(i):
+            return smart and len((documents[i] or '').strip()) > one_chunk
+
+        def without_ai(i):
+            chunks = chunk_lists[i]
+            return bool(chunks) and (chunks[0].get('metadata') or {}).get('splitter_type') != 'llm'
+
+        asked = [i for i in range(len(items)) if needs_ai(i)]
+        retried = [i for i in asked if without_ai(i)]
+        for i in retried:                                      # a second try, without the crowd
+            chunk_lists[i] = split(items[i])
+        left = [i for i in retried if without_ai(i)]
+        stats = {
+            'documents': len(items),
+            'parallel': workers,
+            'seconds': round(time.perf_counter() - started, 1),
+            'split_by_ai': len(asked) - len(left),
+            'retried': len(retried),
+            'split_without_ai': len(left),
+            'split_without_ai_ids': [ids[i] for i in left],
+        }
+        self._chunking.last = stats
+        self.logger.info(
+            f"Chunking: {stats['documents']} document(s), {workers} at a time, {stats['seconds']} s; "
+            f"{stats['split_by_ai']} split by AI, {stats['retried']} tried a second time, "
+            f"{stats['split_without_ai']} split without AI")
+        if left:
+            self.logger.warning(
+                f"Chunking: the AI call failed twice for {len(left)} document(s); they were split the "
+                f"standard way (no section context, tables may be cut): {', '.join(stats['split_without_ai_ids'][:40])}")
+        return chunk_lists
 
     def _get_embedding_function(self):
         """
@@ -285,10 +365,14 @@ class ChromaDBStore(VectorStore):
             all_chunk_metadatas = []
             all_chunk_ids = []
 
-            for doc_text, doc_metadata, doc_id in zip(documents, metadatas, ids):
+            self._chunking.last = None
+            # Every document's chunks first, several documents at a time; the loop
+            # below then only assembles them, in the documents' order.
+            chunk_lists = self._chunk_documents(documents, metadatas, ids) if enable_chunking else None
+
+            for position, (doc_text, doc_metadata, doc_id) in enumerate(zip(documents, metadatas, ids)):
                 if enable_chunking:
-                    # Create chunks for this document
-                    chunks = self.chunker.chunk_text(doc_text, doc_metadata)
+                    chunks = chunk_lists[position]
                     
                     for chunk in chunks:
                         chunk_metadata = chunk['metadata'].copy()
@@ -899,6 +983,15 @@ class LLMDocumentVectorEngine:
         except Exception as e:
             self.logger.error(f"Error adding document batch: {str(e)}")
             return False
+
+    def last_chunking(self) -> Optional[Dict[str, Any]]:
+        """How the documents of this thread's last add were split into chunks (see
+        ChromaDBStore._chunk_documents); None when the store does not report it."""
+        report = getattr(self.vector_store, 'last_chunking', None)
+        try:
+            return report() if callable(report) else None
+        except Exception:
+            return None
     
     def search(self, query: str, filters: Optional[Dict[str, Any]] = None, 
               limit: int = 10, min_score: float = 0.0) -> List[Dict[str, Any]]:

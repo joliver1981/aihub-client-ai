@@ -182,10 +182,20 @@ def add_documents_batch():
         success = engine.add_documents(data)
         
         if success:
-            return jsonify({
+            body = {
                 'status': 'success',
                 'message': f'Added {len(data)} documents successfully'
-            })
+            }
+            # How the pages were split into chunks (several at a time), and how many
+            # had to be split without AI after two failed tries. Additive: a caller
+            # that does not know the field ignores it.
+            try:
+                chunking = engine.last_chunking()
+                if chunking:
+                    body['chunking'] = chunking
+            except Exception:
+                pass
+            return jsonify(body)
         else:
             return jsonify({
                 'status': 'error',

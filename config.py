@@ -968,6 +968,7 @@ DOC_SEARCH_USE_SUMMARIES_BY_DOCTYPE = {
 VECTOR_CHUNK_SIZE = 512                                 # Target chunk size in characters
 VECTOR_CHUNK_OVERLAP = 64                               # Overlap between chunks in characters
 VECTOR_ENABLE_CHUNKING = True                           # Enable/disable chunking
+VECTOR_CHUNKING_PARALLEL = int(os.getenv('VECTOR_CHUNKING_PARALLEL', 8))  # How many pages of one document are split into chunks at the same time when it is added to the search index. With smart chunking every page longer than one chunk costs one AI call of several seconds; one after another that was 89 to 98% of the time a document took to index (measured: 16 pages, about 2 minutes in a row, 20 seconds at 8, 12 seconds at 16). The result is the same, in the same order. 1 = one after another, as before.
 
 # Text Splitter Configuration (using LangChain)
 VECTOR_SPLITTER_TYPE = 'recursive_character'            # recursive_character, token, markdown, html, python
