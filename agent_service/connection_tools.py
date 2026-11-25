@@ -56,8 +56,9 @@ CONNECTION_TOOLS only when on; off = exactly today's behaviour.
 
 Honesty: tool bodies never raise into the loop; empty catalogs, "not
 authorized yet", server rejections and gateway errors all come back as
-readable text; results are previewed at MAX_RESULT_CHARS with honest
-truncation notes.
+readable text; a result is returned whole (it was a 2,500-character
+preview). The only size limit is what one tool result carries, applied to every
+tool in result_size.py.
 """
 
 import json
@@ -71,7 +72,6 @@ from claude_agent_sdk import tool
 from agent_config import AI_HUB_API_KEY, get_base_url, logger
 from platform_tools import CURRENT_USER, _text, _unwrap
 
-MAX_RESULT_CHARS = 2500
 SEAM = "/api/internal/my-connections"
 # Where the user connects an account: The Agent's OWN My Connections screen
 # (rail entry; "#connections" opens it from a chat link). Not the classic
@@ -392,8 +392,8 @@ async def get_connection_tools(args: dict[str, Any]) -> dict[str, Any]:
     "are allowed; writes (sending mail from the user's account, etc.) are "
     "refused unless an admin allowed that exact tool — when refused, offer "
     "The Agent's own mailbox instead and never claim the action happened. "
-    "Large results are previewed truncated — report counts honestly and never "
-    "invent content beyond the preview. The result is the user's PRIVATE "
+    "The whole result is returned; report counts as returned and never "
+    "invent content beyond it. The result is the user's PRIVATE "
     "data: answer them, don't echo more than they asked for.",
     {
         "type": "object",
@@ -470,14 +470,10 @@ async def use_my_connection(args: dict[str, Any]) -> dict[str, Any]:
                      "claim a result.", is_error=True)
     raw_out = res.get("result")
     text = raw_out if isinstance(raw_out, str) else json.dumps(raw_out, default=str)
-    preview = text[:MAX_RESULT_CHARS]
-    suffix = (f"\n…(truncated — {len(text)} chars total; report only what you "
-              "can see, and say the list is partial)"
-              if len(text) > MAX_RESULT_CHARS else "")
     label = ("WRITE done through the user's personal account"
              if is_write else "Read from the user's personal account")
     return _text(f"{label} '{data.get('name')}' — {tool_name} as "
-                 f"{user.get('username') or 'this user'}:\n{preview}{suffix}")
+                 f"{user.get('username') or 'this user'}:\n{text}")
 
 
 CONNECTION_TOOLS = [list_my_connections, get_connection_tools, use_my_connection]

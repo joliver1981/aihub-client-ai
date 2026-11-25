@@ -58,13 +58,15 @@ from document_tools import _ALLOWED_EXTS   # single source: what the doc
 import email_client
 import email_store
 
-# Per-call default vs hard ceiling for attachment text. The ceiling mirrors
-# the platform's MAX_ATTACHMENT_CHARS default (config.py, 500k); the default
-# is lower on purpose — tool output lands in the SDK transcript and compounds
-# every turn, so the model asks for more only when it needs more.
-ATTACH_READ_DEFAULT = int(os.getenv("AGENT_EMAIL_ATTACH_READ_CHARS", "100000"))
+# Attachment text: the ceiling mirrors the platform's MAX_ATTACHMENT_CHARS default
+# (config.py, 500k), which is what the extraction itself stops at. A read asks for
+# that much unless a smaller size is set (it used to ask for 100,000 and leave the
+# model to notice the note and ask again).
 ATTACH_READ_CEILING = int(os.getenv("AGENT_EMAIL_ATTACH_MAX_CHARS", "500000"))
-BODY_CHARS = int(os.getenv("AGENT_EMAIL_BODY_CHARS", "15000"))
+ATTACH_READ_DEFAULT = int(os.getenv("AGENT_EMAIL_ATTACH_READ_CHARS", "0") or 0) or ATTACH_READ_CEILING
+# A message body is shown WHOLE. It was cut at 15,000 characters; the setting
+# still cuts it when someone sets it to a number, 0 (the default) means no cut.
+BODY_CHARS = int(os.getenv("AGENT_EMAIL_BODY_CHARS", "0") or 0)
 SAVE_MAX_MB = int(os.getenv("AGENT_EMAIL_SAVE_MAX_MB", "50"))
 _PENDING_SHOWN = 10          # live-feed rows surfaced by list_my_email
 
@@ -360,10 +362,11 @@ async def read_email(args: dict[str, Any]) -> dict[str, Any]:
         body = str(body or "")
         lines.append("--- body" + (" (converted from HTML)" if via_html
                                    else "") + " ---")
-        lines.append(body[:BODY_CHARS] if body else "(empty body)")
-        if len(body) > BODY_CHARS:
+        cut = BODY_CHARS if 0 < BODY_CHARS < len(body) else 0
+        lines.append((body[:cut] if cut else body) if body else "(empty body)")
+        if cut:
             lines.append(f"(body truncated at {BODY_CHARS} of {len(body)} "
-                         "chars)")
+                         "chars by the setting AGENT_EMAIL_BODY_CHARS)")
     else:
         lines.append("Body NOT RETAINED: the cloud keeps mail ~3 days and "
                      "this message's body is no longer available — the "
@@ -434,9 +437,9 @@ async def list_email_attachments(args: dict[str, Any]) -> dict[str, Any]:
     "current user's agent inbox (PDF/Word/Excel/CSV/images — OCR fallback "
     "for scans, all server-side). Both ids are required and must belong "
     "together: event_id owns the mail, attachment_id names the file on it "
-    "(get both from read_email or list_email_attachments). Default "
-    "max_chars is generous; raise it (up to the platform cap) only when "
-    "the full text truly matters. For the original FILE, use "
+    "(get both from read_email or list_email_attachments). The whole text "
+    "is returned, as far as the platform extracts it; when the result says "
+    "it was truncated, say so. For the original FILE, use "
     "save_attachment instead.",
     {
         "type": "object",

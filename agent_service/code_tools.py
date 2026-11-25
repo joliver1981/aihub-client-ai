@@ -21,6 +21,7 @@ import functools
 import json
 import os
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -185,8 +186,14 @@ async def execute_python(uid: int, code: str, *, extra_files: Optional[list] = N
         # as it did inline: the wait is not abandoned on cancel, and where a
         # cancel interrupts it anyway the thread removes the work dir itself.
         # Kill switch: AGENT_RUN_PYTHON_OFFLOAD=false runs it inline, as before.
+        # max_output_chars: the shared lane cuts what a script printed at
+        # CODE_INTERPRETER_MAX_OUTPUT_CHARS (50,000) for its other callers. Here the
+        # whole output goes back: the size of a tool result is decided in one
+        # place for every tool of The Agent (result_size.py: the runtime's
+        # 500,000 characters, cut with its beginning AND its end kept, and a note).
         run = functools.partial(run_script, code or "", workdir, python_exe,
-                                timeout=timeout, env=env, preamble=preamble)
+                                timeout=timeout, env=env, preamble=preamble,
+                                max_output_chars=sys.maxsize)
 
         def run_in_thread():
             with script["lock"]:
@@ -212,7 +219,8 @@ async def execute_python(uid: int, code: str, *, extra_files: Optional[list] = N
 
         out = res["stdout"] or ""
         if res["returncode"] != 0:
-            tail = (res["stderr"] or "").strip()[-4000:]
+            # the whole error output: the first lines of a long traceback are often the cause
+            tail = (res["stderr"] or "").strip()
             out += ("\n" if out else "") + f"Error (exit {res['returncode']}): {tail}"
 
         # -- deliver produced files as the chat's native download links
@@ -298,8 +306,9 @@ async def run_python(args: dict[str, Any]) -> dict[str, Any]:
                              extra_files=args.get("files") or [], lane="run_python")
     if not r["configured"] or r["timed_out"]:
         return _text(r["error"], is_error=True)
+    # Everything the code printed. It used to be cut at 18,000 characters with no
+    # sign that it had: the end of a long listing was simply not there.
     reply = r["output"].strip() or ("(no output)" if not r["links"] else "")
-    reply = reply[:18000]
     if r["manifest"]:
         reply += r["manifest"]
     if r["links"]:

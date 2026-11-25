@@ -450,7 +450,9 @@ async def get_connection_schema(args: dict[str, Any]) -> dict[str, Any]:
             if not tables:
                 return _text(f"{note}Connection {conn_id} ({conn_name}) reports no tables.")
             lines = []
-            for t in tables[:200]:
+            # every table: the list used to stop at 200 without saying so, and a
+            # table past that looked as if it did not exist
+            for t in tables:
                 name = t.get("TABLE_NAME") or t.get("table_name")
                 doc = " (documented)" if t.get("is_documented") else ""
                 lines.append(f"- {name}{doc}")
@@ -469,7 +471,7 @@ async def get_connection_schema(args: dict[str, Any]) -> dict[str, Any]:
                  f"source: {data.get('source', '?')}"]
         if data.get("table_description"):
             lines.append(f"Description: {data['table_description']}")
-        for c in cols[:120]:
+        for c in cols:                 # every column (it was the first 120)
             tags = []
             if c.get("is_primary_key"):
                 tags.append("PK")
@@ -486,8 +488,6 @@ async def get_connection_schema(args: dict[str, Any]) -> dict[str, Any]:
             elif c.get("values_too_many"):
                 line += " (too many distinct values to enumerate)"
             lines.append(line)
-        if len(cols) > 120:
-            lines.append(f"…(+{len(cols) - 120} more columns)")
         if data.get("source") == "dictionary_only":
             lines.append("NOTE: live DB unreachable — this is Data Dictionary info and may be stale.")
         return _text("\n".join(lines))

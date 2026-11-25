@@ -41,6 +41,7 @@ from image_tools import IMAGE_TOOLS
 from connection_tools import CONNECTION_TOOLS
 from workflow_tools import WORKFLOW_TOOLS
 from workflow_file_tools import WORKFLOW_FILE_TOOLS
+from result_size import declare_whole_results
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -180,9 +181,11 @@ _WORKFLOW_TOOLS_ON = os.getenv("AGENT_WORKFLOW_TOOLS", "true").lower() == "true"
 # without them (the platform's own WORKFLOW_FILE_DROPS_ENABLED also gates).
 _WORKFLOW_FILE_TOOLS_ON = os.getenv("AGENT_WORKFLOW_FILE_TOOLS", "true").lower() == "true"
 
-aihub_server = create_sdk_mcp_server(
-    name="aihub", version="0.11.0",
-    tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
+# Every tool declares the largest result the runtime carries (500,000 characters;
+# its default of 50,000 turns a longer result into a 2 KB preview), and a result
+# larger than that is cut with a plain note, never silently: result_size.py.
+AIHUB_SERVER_TOOLS = declare_whole_results(
+          AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
           + INTEGRATION_TOOLS + FILE_TOOLS
           + (CODE_TOOLS if _CODE_TOOLS_ON else [])
           + (DOCUMENT_TOOLS if _DOCUMENT_TOOLS_ON else [])
@@ -196,6 +199,7 @@ aihub_server = create_sdk_mcp_server(
           + (CONNECTION_TOOLS if _MY_CONNECTIONS_ON else [])
           + (WORKFLOW_TOOLS if _WORKFLOW_TOOLS_ON else [])
           + (WORKFLOW_FILE_TOOLS if _WORKFLOW_FILE_TOOLS_ON else []))
+aihub_server = create_sdk_mcp_server(name="aihub", version="0.12.0", tools=AIHUB_SERVER_TOOLS)
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when

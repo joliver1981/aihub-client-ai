@@ -280,7 +280,7 @@ def _finish_run(res: dict, uid, kind: str = "portal task") -> dict:
             f"The {kind} finished with NO file downloaded. Browser agent's READING "
             "of the page — text it saw on screen, NOT a downloaded document, and "
             "only as reliable as its interpretation of the page:\n"
-            f"{reading[:1500]}\n"
+            f"{reading}\n"
             "If the user asked for a FILE, say plainly that none was downloaded. If "
             "they asked for information shown on the page, answer from this "
             "reading and say it came from reading the portal page, not from a "

@@ -468,9 +468,12 @@ async def get_automation(args: dict[str, Any]) -> dict[str, Any]:
         f"pinned v{a.get('pinned_version')} | versions {a.get('versions')}",
         f"lifecycle: {'ephemeral (one-off, pre-approved for deletion)' if _is_ephemeral(a) else 'keep'}",
         f"description: {a.get('description', '')}",
-        f"manifest: {json.dumps(a.get('manifest') or {})[:600]}",
+        f"manifest: {json.dumps(a.get('manifest') or {})}",
         "--- code (current) ---",
-        code[:4000] + ("…(truncated)" if len(code) > 4000 else ""),
+        # WHOLE: this is what the model reads before it changes an automation, and
+        # saving replaces the code. Cut at 4,000 characters it could only write
+        # back what it had seen of a longer one.
+        code,
     ]
     return _text("\n".join(lines))
 

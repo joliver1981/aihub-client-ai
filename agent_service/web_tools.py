@@ -28,7 +28,6 @@ TAVILY_URL = "https://api.tavily.com/search"
 DDG_LITE_URL = "https://lite.duckduckgo.com/lite/"
 _UA = "Mozilla/5.0 (compatible; AIHub-TheAgent/1.0)"
 MAX_RESULTS = 10
-_SNIPPET_CAP = 400
 
 
 def tavily_key() -> str:
@@ -149,9 +148,7 @@ def format_results(query: str, engine: str, answer: str, results: list) -> str:
     if results:
         lines.append("Sources:")
         for i, r in enumerate(results, 1):
-            snip = r.get("snippet") or ""
-            if len(snip) > _SNIPPET_CAP:
-                snip = snip[:_SNIPPET_CAP] + "…"
+            snip = r.get("snippet") or ""          # whole: it was cut at 400 characters
             lines.append(f"{i}. {r.get('title') or 'Untitled'} — {r.get('link') or ''}"
                          + (f"\n   {snip}" if snip else ""))
     else:

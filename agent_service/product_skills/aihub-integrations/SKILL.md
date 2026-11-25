@@ -20,8 +20,9 @@ skill for the general rule).
    Never assume; installs differ.
 2. `get_integration_operations(id)` — exact operation keys and parameters.
 3. `execute_integration_operation(id, operation, parameters_json)` — runs
-   server-side under the platform's auth. Results come back truncated at
-   ~2500 chars — report only what you can see, with honest counts.
+   server-side under the platform's auth. The whole result comes back. Report
+   what it holds, with the counts as returned; if a result says it was not all
+   shown, say so and ask for less at a time.
 4. `delete_*` operations require the user's explicit confirmation
    (confirmed=true on the second call).
 5. `list_mcp_servers` (Developer+) lists the MCP servers configured on the

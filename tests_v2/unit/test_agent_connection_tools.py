@@ -287,7 +287,7 @@ def test_get_connection_tools_not_authorized_not_found_denied():
 # use_my_connection
 # ---------------------------------------------------------------------------
 
-def test_use_my_connection_read_path_truncates_and_labels():
+def test_use_my_connection_read_path_returns_the_whole_result_and_labels():
     posted = {}
 
     async def fake_get(path, user):
@@ -313,7 +313,8 @@ def test_use_my_connection_read_path_truncates_and_labels():
         assert posted["body"]["context"]["source"] == "the_agent"
         assert posted["body"]["context"]["user_id"] == 13
         assert out.startswith("Read from the user's personal account 'EveriAI Graph'")
-        assert "truncated — 3000 chars total" in out and out.count("X") == C.MAX_RESULT_CHARS
+        # the whole result: it used to be a 2,500-character preview with a note
+        assert out.count("X") == 3000 and "truncated" not in out
     finally:
         CURRENT_USER.reset(tok)
 

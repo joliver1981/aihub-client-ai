@@ -48,45 +48,16 @@ from platform_tools import CURRENT_USER, _text, _unwrap
 # ---------------------------------------------------------------------------
 # How much text one tool result can carry
 # ---------------------------------------------------------------------------
-# The limit is not ours to choose. The runtime under the SDK replaces any text
-# result longer than 50,000 characters with a 2 KB preview and the path of a file
-# the model has no tool to open, so a longer result silently becomes a nearly
-# empty one. A tool can declare a larger size, up to the runtime's own maximum of
-# 500,000 characters. Measured 2026-11-25 with SDK 0.2.132: 49,000 characters were
-# delivered whole and 51,000 were replaced by the preview; with the declaration
-# 450,000 were delivered whole.
-#
-# The tools here that return document text declare that maximum and return the
-# text WHOLE. Before, search_documents cut every passage at 4,000 characters with
-# no sign that it had (12 passages x 4,000 stayed just under the 50,000), and an
-# answer that sat further down a long page was simply not there. What still does
-# not fit in one result is never cut silently: whole passages are left off the end,
-# or a long file is returned in parts, and the result says what is missing and how
-# to ask for it.
-_RUNTIME_DEFAULT_RESULT_CHARS = 50_000
-_RUNTIME_MAX_RESULT_CHARS = 500_000
-_RESULT_HEADROOM_CHARS = 5_000      # our own header, notes and code fences
-
-
-def _result_ceiling():
-    """(characters one result may carry, the annotation that declares it).
-
-    The larger size only exists when the installed SDK forwards the declaration to
-    the runtime. Checked from the SDK itself, not assumed: with an SDK that does
-    not, declaring 500,000 would change nothing and every long result would come
-    back as the 2 KB preview. Then the ceiling stays at the runtime's default."""
-    try:
-        import inspect
-        import claude_agent_sdk
-        from mcp.types import ToolAnnotations
-        if "maxResultSizeChars" in inspect.getsource(claude_agent_sdk.create_sdk_mcp_server):
-            return (_RUNTIME_MAX_RESULT_CHARS,
-                    ToolAnnotations(maxResultSizeChars=_RUNTIME_MAX_RESULT_CHARS))
-    except Exception as e:
-        logger.warning(f"tool results stay at the runtime's default size "
-                       f"({_RUNTIME_DEFAULT_RESULT_CHARS:,} characters): {e}")
-    return _RUNTIME_DEFAULT_RESULT_CHARS, None
-
+# The limit is the runtime's, not ours: result_size.py has it, and how it was
+# measured, for every tool of The Agent. The two tools here that return document
+# text do better than the general rule there (cut to what one result carries, with
+# a note): search_documents leaves whole passages off the end and reads on,
+# read_file returns a long file in parts. Before, search_documents cut every
+# passage at 4,000 characters with no sign that it had, and an answer that sat
+# further down a long page was simply not there.
+from result_size import (                                              # noqa: E402
+    RESULT_HEADROOM_CHARS as _RESULT_HEADROOM_CHARS, result_ceiling as _result_ceiling,
+)
 
 RESULT_MAX_CHARS, _WHOLE_RESULT = _result_ceiling()
 

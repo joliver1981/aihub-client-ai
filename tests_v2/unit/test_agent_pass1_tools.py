@@ -91,7 +91,9 @@ def test_tavily_parse_and_format():
     answer, results = W.parse_tavily(
         {"answer": "42", "results": [{"title": "T", "url": "https://x", "content": "c" * 500}]}, 5)
     out = W.format_results("q", "tavily", answer, results)
-    assert "Summary" in out and "42" in out and "https://x" in out and "…" in out
+    assert "Summary" in out and "42" in out and "https://x" in out
+    # the snippet is returned whole (it used to be cut at 400 characters with an ellipsis)
+    assert "c" * 500 in out and "…" not in out
 
 
 def test_search_web_falls_back_to_duckduckgo_and_reports_failure_honestly():

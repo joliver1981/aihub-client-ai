@@ -321,6 +321,18 @@ def test_read_email_html_only_falls_back_to_stripped_html():
         assert "<div>" not in _txt(res)
 
 
+def test_read_email_body_is_whole_by_default():
+    # it was cut at 15,000 characters; the setting now means "no cut" unless someone sets a number
+    long_body = "Dear team, " + "this is one line of a long thread. " * 1200 + "LAST-WORDS-OF-THE-MAIL"
+    assert et.BODY_CHARS == 0 and len(long_body) > 40_000
+    with temp_ledger(),             patched(email_client, poll=_async([]), attachments_for=_async([]),
+                    full_message=_async({"body_text": long_body})):
+        _seed(800001)
+        text = _txt(_run("read_email", {"event_id": 800001}))
+        assert long_body in text and "LAST-WORDS-OF-THE-MAIL" in text
+        assert "truncated" not in text
+
+
 def test_read_email_body_truncated_at_cap():
     with temp_ledger(), \
             patched(et, BODY_CHARS=50), \

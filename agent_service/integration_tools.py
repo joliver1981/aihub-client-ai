@@ -27,7 +27,9 @@ from claude_agent_sdk import tool
 
 from platform_tools import CURRENT_USER, _text, _get, _post
 
-MAX_RESULT_CHARS = 2500      # honest preview cap; full payloads stay server-side
+# An operation's result is returned WHOLE (it was a 2,500-character preview: a
+# list of twenty files came back as its first three). The only size limit is what
+# one tool result carries, applied to every tool in result_size.py.
 DESTRUCTIVE_PREFIXES = ("delete_",)
 
 
@@ -150,8 +152,8 @@ async def get_integration_operations(args: dict[str, Any]) -> dict[str, Any]:
     "platform owns auth and runs the operation server-side. Check "
     "get_integration_operations first for the exact key and parameters. "
     "Destructive operations (delete_*) require confirmed=true AFTER the "
-    "user explicitly confirms. Large results are previewed here truncated — "
-    "report counts honestly, never invent content beyond the preview.",
+    "user explicitly confirms. The whole result is returned; report counts "
+    "as returned and never invent content beyond it.",
     {
         "type": "object",
         "properties": {
@@ -195,11 +197,8 @@ async def execute_integration_operation(args: dict[str, Any]) -> dict[str, Any]:
                          f"{data.get('message', data)}", is_error=True)
         payload = data.get("result", data)
         raw = json.dumps(payload, default=str)
-        preview = raw[:MAX_RESULT_CHARS]
-        suffix = (f"\n…(truncated — {len(raw)} chars total; report only what "
-                  "you can see)" if len(raw) > MAX_RESULT_CHARS else "")
         return _text(f"Operation '{op}' on {intg['integration_name']} "
-                     f"succeeded:\n{preview}{suffix}")
+                     f"succeeded:\n{raw}")
     except Exception as e:
         return _text(f"Operation failed: {e}", is_error=True)
 
