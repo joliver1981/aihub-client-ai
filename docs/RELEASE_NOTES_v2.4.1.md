@@ -26,6 +26,14 @@ Includes everything released since v2.4.0.
 
 - **Fixed:** a **Conditional** step that came out FALSE with nothing connected on its false side was marked Failed and failed the run. The condition was evaluated, so the step is now Completed and that branch ends there. A condition that cannot be evaluated still fails.
 
+## Automations
+
+- **AI calls from automations take the same route as the rest of the platform** — the customer's own Anthropic key when one is switched on under API Keys, otherwise the AI Hub cloud service, like AI Extract and the agents. Before, `aihub.llm` and `aihub.ai_extract` went straight to Anthropic with the platform's key, so an automation's AI step could stop with an Anthropic account error while every other AI feature kept working.
+  - Each call's line in the app log names the route it took (`cloud service`, `direct, customer key` or `direct, platform key`).
+  - When the cloud service cannot be reached the step fails with a message that says so. No other key is tried.
+  - The setting `AUTOMATIONS_AI_ROUTE=direct` in `.env` brings the earlier behaviour back.
+- **Fixed:** when the AI's reply to an automation could not be read as JSON, the question was asked again from scratch. The second reply could be shorter and still valid, so items were dropped without an error. The unreadable reply is now sent back to the model to be re-sent as valid JSON with nothing dropped, and a reply written as several separate JSON objects is joined into one. The response field `json_repair` and the app log say when this happened.
+
 ## Email (Microsoft 365)
 
 - **Fixed:** after an Admin granted consent in Microsoft Entra, sends kept failing with 403 for up to about 90 minutes or until a restart. The saved token is now replaced once when Microsoft refuses it, so sends work straight after consent.
@@ -41,3 +49,5 @@ Includes everything released since v2.4.0.
 Run the v2.4.1 installer, restart the AI Hub services and hard-refresh your browser (Ctrl+Shift+R). No database migration is required.
 
 No setting has to be added for an existing install. After the upgrade every user of The Agent sees **My Connections** in the rail. It shows "Nothing to connect yet" until an Admin makes an account type available to users.
+
+Automations that use AI now reach it through the AI Hub cloud service unless the customer's own Anthropic key is switched on. The cloud service address is the one AI Extract already uses (`AI_HUB_DOCUMENT_API_URL` and `AI_HUB_PROXY_ANTHROPIC_MESSAGES` in `.env`), so an install where AI Extract works needs no change.
