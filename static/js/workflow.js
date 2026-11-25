@@ -1472,6 +1472,17 @@ const nodeConfigTemplates = {
                     </small>
                 </div>
 
+                <!-- Faster processing: no page-by-page field extraction -->
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" name="skipPageFields" id="cp-skip-page-fields" checked>
+                        <label class="form-check-label fw-bold" for="cp-skip-page-fields">Faster processing</label>
+                    </div>
+                    <small class="form-text text-muted">
+                        Leaves out the step that asks AI to pull named fields out of every page, one page at a time: the largest single part of the time a long manual takes. Everything else is unchanged: every page is still read, stored and added to the agent's knowledge, so the agent answers questions about the document the same way. Switch this off only when you need those per-page fields.
+                    </small>
+                </div>
+
                 <!-- Attributes attached to the document -->
                 <div class="mb-3">
                     <label class="form-label fw-bold">Document Attributes <small class="text-muted">(optional)</small></label>
@@ -1517,6 +1528,7 @@ const nodeConfigTemplates = {
             agentObjectiveTemplate: '',
             agentOverrideId: '',
             retireSupersededVersions: true,
+            skipPageFields: true,
             knowledgeAttributes: '',
             excelTemplatePath: '',
             outputVariable: 'complianceResult'

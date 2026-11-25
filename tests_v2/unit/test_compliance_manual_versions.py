@@ -199,7 +199,7 @@ def pipeline(engine, monkeypatch, tmp_path):
     f = tmp_path / "x.pdf"
     f.write_bytes(b"%PDF-1.4 fake")
     monkeypatch.setattr(engine, "_check_duplicate", lambda *_: None)
-    monkeypatch.setattr(engine, "_ingest_document", lambda fp: "doc-new")
+    monkeypatch.setattr(engine, "_ingest_document", lambda fp, **kw: "doc-new")
     monkeypatch.setattr(engine, "_store_document_hash", lambda doc_id, doc_hash: True)
     monkeypatch.setattr(engine, "_create_version", lambda *_: (200, 1))
     monkeypatch.setattr(engine.__class__, "get_document_set",

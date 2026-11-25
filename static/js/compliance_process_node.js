@@ -49,6 +49,15 @@ const ComplianceProcessNode = {
             retireChk.checked = !(saved === false || saved === 'false');
         }
 
+        // "Faster processing" (no page-by-page field extraction): the same rule. A
+        // node saved before the option existed shows ticked, which is how the engine
+        // treats it (the platform setting, on by default).
+        const fastChk = document.getElementById('cp-skip-page-fields');
+        if (fastChk) {
+            const saved = currentConfig.skipPageFields;
+            fastChk.checked = !(saved === false || saved === 'false');
+        }
+
         // Show agent options if onMissing is auto_create, and the
         // retailer-agent-override row only when in per_retailer mode.
         this._toggleAgentOptions();

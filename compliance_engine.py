@@ -50,6 +50,9 @@ class ProcessingResult:
     superseded_by: Optional[Dict[str, Any]] = None
     # One line saying what the version check did (or why it could not run).
     version_check_note: Optional[str] = None
+    # Whether the document service extracted named fields from every page (False =
+    # "Faster processing": that step was left out). None when nothing was ingested.
+    page_fields_extracted: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +176,7 @@ class ComplianceEngine:
         excel_template_path: Optional[str] = None,
         retire_superseded: Optional[bool] = None,
         knowledge_attributes: Optional[Dict[str, Any]] = None,
+        skip_page_fields: Optional[bool] = None,
     ) -> ProcessingResult:
         """Full pipeline: ingest -> extract -> version -> knowledge -> excel.
 
@@ -185,7 +189,15 @@ class ComplianceEngine:
         (region, department, ...). The retailer is always attached as "customer" —
         from the run, never from the file name — so the agent's knowledge search can
         be limited to the customer a question is about (knowledge_scope.py).
+
+        skip_page_fields: "Faster processing". Leave out the document service's
+        page-by-page field extraction: one AI call per page, about 10 seconds a page,
+        the largest single part of the time a manual takes. Everything else is the
+        same either way (pages read, stored, indexed, added to the agent's
+        knowledge); only the named fields per page are not produced.
+        None = the platform setting COMPLIANCE_SKIP_PAGE_FIELDS (on by default).
         """
+        extract_page_fields = None
         try:
             doc_hash = self._file_hash(file_path)
             dup_version = self._check_duplicate(set_id, doc_hash)
@@ -208,7 +220,10 @@ class ComplianceEngine:
                     ) if agent_id else None,
                 )
 
-            document_id = self._ingest_document(file_path)
+            if skip_page_fields is None:
+                skip_page_fields = bool(getattr(cfg, "COMPLIANCE_SKIP_PAGE_FIELDS", True))
+            extract_page_fields = not skip_page_fields
+            document_id = self._ingest_document(file_path, extract_fields=extract_page_fields)
             # The duplicate check above compares against this stored hash. Nothing else
             # writes it, so without this line no file was ever recognised as a
             # duplicate: every re-sent manual became a new version.
@@ -278,6 +293,7 @@ class ComplianceEngine:
                 retired_documents=retired_documents,
                 superseded_by=superseded_by,
                 version_check_note=version_check_note,
+                page_fields_extracted=extract_page_fields,
             )
         except Exception as e:
             logger.exception("Compliance processing failed")
@@ -290,12 +306,17 @@ class ComplianceEngine:
                 requirements=[],
                 error=str(e),
                 extraction_diagnostics=getattr(self, "_last_extraction_diagnostics", None),
+                page_fields_extracted=extract_page_fields,
             )
 
     # -- document ingestion --------------------------------------------------
 
-    def _ingest_document(self, file_path: str) -> str:
-        """Ingest a PDF via the document processing API and return document_id."""
+    def _ingest_document(self, file_path: str, extract_fields: bool = True) -> str:
+        """Ingest a PDF via the document processing API and return document_id.
+
+        extract_fields False = "Faster processing": the document service does not make
+        its one AI call per page for named fields. Reading the pages, the document
+        type, storing and indexing are the same either way."""
         import requests
 
         doc_api_url = get_document_api_base_url()
@@ -305,7 +326,7 @@ class ComplianceEngine:
             "filePath": file_path,
             "force_ai_extraction": "true",
             "is_knowledge_document": "false",
-            "extract_fields": "true",
+            "extract_fields": "true" if extract_fields else "false",
             "detect_document_type": "true",
         }
 
@@ -320,9 +341,10 @@ class ComplianceEngine:
             )
 
         logger.info(
-            "Document ingested: %s (%d pages)",
+            "Document ingested: %s (%d pages, page fields %s)",
             result["document_id"],
             result.get("page_count", 0),
+            "extracted" if extract_fields else "not extracted (faster processing)",
         )
         return result["document_id"]
 

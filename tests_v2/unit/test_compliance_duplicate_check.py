@@ -129,7 +129,7 @@ class TestDuplicateKnowledgeNote:
         monkeypatch.setattr(engine, "_duplicate_knowledge_note",
                             lambda agent_id, doc_id: f"note for agent {agent_id} doc {doc_id}")
         ingested = []
-        monkeypatch.setattr(engine, "_ingest_document", lambda fp: ingested.append(fp) or "x")
+        monkeypatch.setattr(engine, "_ingest_document", lambda fp, **kw: ingested.append(fp) or "x")
         out = engine.process_compliance_document(file_path=str(f), retailer_id=1, set_id=2,
                                                  uploaded_by=3, agent_id=7)
         assert out.is_duplicate and out.version_number == 2

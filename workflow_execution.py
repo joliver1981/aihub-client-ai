@@ -1711,6 +1711,9 @@ Guidelines:
             retireSupersededVersions (bool) — when the document is a newer version of a manual
                                      the agent already holds for this retailer, take the older
                                      version out of the agent's knowledge (default: on)
+            skipPageFields         (bool) — "Faster processing": leave out the page-by-page field
+                                     extraction of the document service (default: on). Everything
+                                     else the node does is the same either way.
             knowledgeAttributes    (str|dict) — optional attributes attached to the document
                                      ("region=East; department=Toys" or a JSON object; variables
                                      allowed). The retailer is always attached as "customer".
@@ -1719,7 +1722,7 @@ Guidelines:
         Output variable contains:
             { version_id, version_number, retailer_id, set_id, document_id,
               requirements_count, is_duplicate, change_summary, excel_path, error,
-              retired_versions, retired_count, superseded_by, version_check }
+              retired_versions, retired_count, superseded_by, version_check, page_fields }
         """
         node_id = node['id']
         node_config = node.get('config', {})
@@ -1837,6 +1840,18 @@ Guidelines:
             else:
                 retire_superseded = bool(retire_raw)
 
+            # "Faster processing" (no page-by-page field extraction) — on unless the node
+            # says otherwise. Same rule as above: a node saved before the option existed
+            # has no key and gets the platform setting (COMPLIANCE_SKIP_PAGE_FIELDS, on by
+            # default); an explicit false on the node always wins.
+            skip_raw = node_config.get('skipPageFields')
+            if skip_raw is None or skip_raw == '':
+                skip_page_fields = None
+            elif isinstance(skip_raw, str):
+                skip_page_fields = skip_raw.strip().lower() not in ('false', '0', 'no', 'off')
+            else:
+                skip_page_fields = bool(skip_raw)
+
             # Optional attributes for the document ("region=East; department=Toys", one
             # name=value per line or ';', or a JSON object). Variables are filled in.
             # The retailer is attached as "customer" by the pipeline itself.
@@ -1872,7 +1887,16 @@ Guidelines:
                 excel_template_path=excel_template,
                 retire_superseded=retire_superseded,
                 knowledge_attributes=knowledge_attributes,
+                skip_page_fields=skip_page_fields,
             )
+            if result.page_fields_extracted is not None:
+                self.log_execution(
+                    execution_id, node_id, "info",
+                    "Page fields: extracted from every page (Faster processing is off)"
+                    if result.page_fields_extracted else
+                    "Page fields: not extracted (Faster processing is on). Everything else "
+                    "was done as usual."
+                )
 
             # ----- 6. Build output variable payload -----
             output_payload = {
@@ -1893,6 +1917,9 @@ Guidelines:
                 "retired_count": len(result.retired_documents or []),
                 "superseded_by": (result.superseded_by or {}).get("filename"),
                 "version_check": result.version_check_note,
+                # "extracted" / "skipped" (Faster processing) / None when nothing was ingested
+                "page_fields": (None if result.page_fields_extracted is None
+                                else "extracted" if result.page_fields_extracted else "skipped"),
             }
 
             # ----- 7. Store output variable -----
