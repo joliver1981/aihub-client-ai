@@ -7209,7 +7209,6 @@ function replaceVariableReferences(str, variables) {
 
 // Update node actions to handle workflow variables
 // Enhance all node configuration templates to include variable selector
-// TODO fix issue causing multiple input-group tags that with no end tag
 function enhanceConfigTemplates() {
     // For each configuration template type
     Object.keys(nodeConfigTemplates).forEach(type => {
@@ -7233,12 +7232,24 @@ function enhanceConfigTemplates() {
                 return '<div class="input-group">'+match+'<button type="button" class="btn btn-outline-secondary" onclick="showVariableSelector(this)"><i class="bi bi-braces"></i></button></div>';
             }
         ).replace(
-            /<textarea([^>]*)>/g,
-            (match, attributes) => {
-                if (match.includes('input-group') || match.includes('showVariableSelector') || match.includes('data-no-enhance')) {
+            // The WHOLE element, opening tag to closing tag. A textarea is a
+            // container: wrapping only its opening tag (as this did until
+            // 2026-11-24) put the button and the wrapper's </div> inside the
+            // textarea as its text, left the wrapper open, and so nested every
+            // field after it one level deeper (in the Loop dialog that put
+            // Output Mode inside the hidden default-value group).
+            /<textarea\b([^>]*)>[\s\S]*?<\/textarea>/g,
+            (match, attributes, offset, whole) => {
+                if (attributes.includes('data-no-enhance')) {
                     return match;
                 }
-                return '<div class="input-group">'+match+'<button type="button" class="btn btn-outline-secondary" onclick="showVariableSelector(this)"><i class="bi bi-braces"></i></button></div>';
+                // Already followed by its own variable button (a hand-written
+                // input-group in the template): leave it as written.
+                if (/^\s*<button\b[^>]*showVariableSelector/.test(whole.slice(offset + match.length, offset + match.length + 300))) {
+                    return match;
+                }
+                const size = /\bform-control-sm\b/.test(attributes) ? ' input-group-sm' : '';
+                return '<div class="input-group'+size+'">'+match+'<button type="button" class="btn btn-outline-secondary" onclick="showVariableSelector(this)"><i class="bi bi-braces"></i></button></div>';
             }
         );
         
