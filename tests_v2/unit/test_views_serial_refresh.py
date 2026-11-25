@@ -144,6 +144,49 @@ def test_single_tile_refresh_is_unaffected():
     assert result["tiles"][0]["rows"] == [[9]]
 
 
+def _run_as_viewer(tile_cache):
+    """A viewer who may not start automation runs: the manage seam answers
+    403 for every tile. Returns (result, cache writes)."""
+    writes = []
+
+    async def refused(action, payload, timeout=0):
+        return {"error": "Developer role required"}, 403
+
+    original = (V._manage, V.views_store.set_cache)
+    V._manage = refused
+    V.views_store.set_cache = lambda *a, **k: writes.append(a)
+    try:
+        view = {"view_id": "v1", "name": "V", "scope": "group", "version": 1,
+                "tiles": [_tile("a", auto="SAME"), _tile("b", auto="SAME")],
+                "tile_cache": tile_cache}
+        result = asyncio.run(V.run_view(view))
+    finally:
+        V._manage, V.views_store.set_cache = original
+    return result, writes
+
+
+def test_viewer_who_may_not_refresh_gets_the_saved_numbers_marked_as_such():
+    saved = [{"columns": ["n"], "rows": [[7]], "at": "2026-11-25T14:05:00+00:00"},
+             {"columns": ["n"], "rows": [[8]], "at": "2026-11-25T14:05:03+00:00"}]
+    result, writes = _run_as_viewer(saved)
+    for tile, slot in zip(result["tiles"], saved):
+        assert tile["viewer_only"] is True
+        # still an error for the scheduler, the email and the cache merge
+        assert "Developer or Admin" in tile["error"]
+        assert tile["cache"]["rows"] == slot["rows"]
+        assert tile["cache"]["cached_at"] == slot["at"]
+    assert writes == [], "a refused refresh must never overwrite the saved numbers"
+
+
+def test_viewer_who_may_not_refresh_and_nothing_saved_keeps_the_message():
+    result, writes = _run_as_viewer([])
+    for tile in result["tiles"]:
+        assert tile["viewer_only"] is True
+        assert tile["error"]
+        assert "cache" not in tile
+    assert writes == []
+
+
 if __name__ == "__main__":
     passed = failed = 0
     for name, fn in sorted(globals().items()):

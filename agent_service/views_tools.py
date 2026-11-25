@@ -144,9 +144,16 @@ async def _run_automation_tile(t: dict, tile: dict) -> None:
         # AGENT_ALLOW_ALL_USERS direction) can't trigger one — say so plainly
         # and let the cache branch serve the last good result. The v2.1 answer
         # for plain-user dashboards is scheduled refresh + cache.
-        tile["error"] = ("refreshing automation tiles requires a Developer "
-                        "role on this install — showing the last cached "
-                        "result if one exists")
+        #
+        # viewer_only tells the Views screen this is not a fault: the viewer
+        # simply may not start the run. With saved numbers in the tile's cache
+        # slot the screen shows them with their time and no error; `error`
+        # stays set so the scheduler, the email and the cache merge still see
+        # that nothing was refreshed (2026-11-25, a team's shared board showed
+        # a red line on every tile to its regular users).
+        tile["viewer_only"] = True
+        tile["error"] = ("only a Developer or Admin can refresh this tile — "
+                         "showing the last saved numbers if there are any")
         return
     run_status = str(data.get("status") or "")
     if status >= 400 or run_status not in ("success",):

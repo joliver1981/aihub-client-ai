@@ -2242,8 +2242,17 @@
       }
       const d = await r.json();
       if (seq !== runSeq) return;
-      meta.textContent = `${d.scope || ""} · v${d.version} · refreshed ` +
-        new Date().toLocaleTimeString();
+      // When every tile shows saved numbers (a viewer who may not start the
+      // runs), nothing was refreshed just now: say when the numbers are from.
+      const shown = d.tiles || [];
+      if (shown.length && shown.every(savedOnly)) {
+        const oldest = shown.map(t => t.cache.cached_at || "").sort()[0];
+        meta.textContent = `${d.scope || ""} · v${d.version} · numbers saved ` +
+          (asOfLocal(oldest) || "earlier");
+      } else {
+        meta.textContent = `${d.scope || ""} · v${d.version} · refreshed ` +
+          new Date().toLocaleTimeString();
+      }
       detail.innerHTML = "";
       const grid = el("div", "tiles");
       (d.tiles || []).forEach(t => {
@@ -2286,6 +2295,18 @@
       }
     } catch (e) { detail.textContent = "Refresh failed: " + e.message; }
   }
+  function savedOnly(t) { return !!(t && t.viewer_only && t.cache); }
+  // The saved-numbers time is stored in UTC; show it in the viewer's own
+  // zone: "14:05" for today, "24 Nov, 14:05" for another day.
+  function asOfLocal(iso) {
+    const raw = String(iso || "");
+    const d = new Date(raw);
+    if (!raw || isNaN(d)) return raw.slice(0, 16).replace("T", " ");
+    const hm = { hour: "2-digit", minute: "2-digit" };
+    if (d.toDateString() === new Date().toDateString())
+      return d.toLocaleTimeString([], hm);
+    return d.toLocaleString([], Object.assign({ day: "numeric", month: "short" }, hm));
+  }
   function buildTile(t) {
     const tile = el("div", "tile");
     if (t.index !== undefined) tile.dataset.idx = t.index;
@@ -2302,12 +2323,16 @@
       title.textContent += ` · ▷ ${t.automation || "automation"}`;
     tile.appendChild(title);
     if (t.error) {
-      tile.classList.add("err");
-      tile.appendChild(el("div", "terr", t.error));
+      // A viewer who may not start the run (viewer_only) and has saved
+      // numbers sees those numbers with their time: no red line, it is not
+      // a fault. Every other failure keeps its message.
+      if (!savedOnly(t)) {
+        tile.classList.add("err");
+        tile.appendChild(el("div", "terr", t.error));
+      }
       if (t.cache) {
-        const asOf = (t.cache.cached_at || "").slice(0, 16).replace("T", " ");
         renderTileData(tile, t.cache.columns || [], t.cache.rows || [],
-                       t, asOf || "earlier");
+                       t, asOfLocal(t.cache.cached_at) || "earlier");
       }
     } else {
       renderTileData(tile, t.columns || [], t.rows || [], t, null);
