@@ -18,7 +18,7 @@ want again ("save this as a view").
    `probe_connection_query` before pinning it. Never pin SQL you haven't run.
 2. `save_view` with up to 8 tiles. Two tile types:
    - **SQL tile**: `{"title", "connection", "sql", "viz"}` — one frozen
-     SELECT through the read-only gate (~50-row server cap).
+     SELECT through the read-only gate (a tile keeps up to 10,000 rows).
    - **Automation tile**: `{"type": "automation", "title", "automation",
      "inputs", "viz"}` — renders a PROMOTED automation's output (scrapes,
      web APIs with secrets, transforms). The automation's last stdout line

@@ -18076,6 +18076,23 @@ def discover_query_api(connection_id):
         max_cell = max(0, int(cfg.VIEW_TILE_MAX_CELL))
         # one row more than is shown: "there are more rows" is then known, not guessed
         gate_cap = (row_cap + 1) if row_cap else None
+    # The Agent's own data query ('purpose': 'agent_query'): the rows a person's
+    # question is answered from. Every column, every cell whole, and as many rows
+    # as the model asks for ('row_cap'; 50 when it names none) up to
+    # AGENT_QUERY_MAX_ROWS (0 = no ceiling). The probe above is unchanged.
+    agent_mode = str(body.get('purpose') or '') == 'agent_query'
+    row_ceiling = None
+    if agent_mode:
+        row_ceiling = max(0, int(cfg.AGENT_QUERY_MAX_ROWS))
+        try:
+            asked = max(1, int(body.get('row_cap') or cfg.DISCOVER_QUERY_ROW_CAP))
+        except (TypeError, ValueError):
+            asked = cfg.DISCOVER_QUERY_ROW_CAP
+        row_cap = min(asked, row_ceiling) if row_ceiling else asked
+        max_cols = max(0, int(cfg.AGENT_QUERY_MAX_COLS))
+        max_cell = max(0, int(cfg.AGENT_QUERY_MAX_CELL))
+        gate_cap = row_cap + 1
+    sized_mode = tile_mode or agent_mode
     try:
         from sql_gate import gate_sql
         target_conn_str, _cid, db_type = get_database_connection_string(connection_id)
@@ -18105,14 +18122,14 @@ def discover_query_api(connection_id):
                 out[c] = (s if not max_cell or len(s) <= max_cell
                           else s[:max_cell] + '…')
             rows.append(out)
-        # a tile: rows were left out only when the query really returned more
-        more_rows = bool(tile_mode and row_cap and len(df) > row_cap)
+        # a tile or The Agent's query: rows were left out only when the query really returned more
+        more_rows = bool(sized_mode and row_cap and len(df) > row_cap)
         return jsonify({
             'success': True, 'columns': cols, 'rows': rows,
-            'row_count': int(len(rows)) if tile_mode else int(len(df)),
+            'row_count': int(len(rows)) if sized_mode else int(len(df)),
             'truncated_columns': max(0, len(df.columns) - len(cols)),
-            'cap_applied': more_rows if tile_mode else bool(gate.cap_applied),
-            'row_cap': row_cap, 'more_rows': more_rows,
+            'cap_applied': more_rows if sized_mode else bool(gate.cap_applied),
+            'row_cap': row_cap, 'more_rows': more_rows, 'row_ceiling': row_ceiling,
             'sql': gate.sql,
         })
     except Exception as e:

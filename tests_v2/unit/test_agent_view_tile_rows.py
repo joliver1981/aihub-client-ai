@@ -183,7 +183,7 @@ def test_the_query_seam_gives_a_tile_its_own_limits_and_leaves_the_probe_as_it_w
     for name in ("VIEW_TILE_ROW_CAP", "VIEW_TILE_MAX_COLS", "VIEW_TILE_MAX_CELL"):
         assert f"cfg.{name}" in body
     assert "gate_cap = (row_cap + 1) if row_cap else None" in body      # knows whether more rows exist
-    assert "more_rows = bool(tile_mode and row_cap and len(df) > row_cap)" in body
+    assert "more_rows = bool(sized_mode and row_cap and len(df) > row_cap)" in body       # sized_mode: a tile or The Agent's query
     # the probe: still clamped to its own setting, columns and cells from its own settings
     assert "cfg.DISCOVER_QUERY_ROW_CAP))" in body
     assert "max_cols, max_cell, gate_cap = cfg.DISCOVER_QUERY_MAX_COLS, cfg.DISCOVER_QUERY_MAX_CELL, row_cap" in body

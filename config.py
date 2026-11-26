@@ -570,6 +570,16 @@ DISCOVER_QUERY_MAX_CELL = int(os.getenv('DISCOVER_QUERY_MAX_CELL', '200'))
 VIEW_TILE_ROW_CAP = int(os.getenv('VIEW_TILE_ROW_CAP', '10000'))
 VIEW_TILE_MAX_COLS = int(os.getenv('VIEW_TILE_MAX_COLS', '0'))      # every column
 VIEW_TILE_MAX_CELL = int(os.getenv('VIEW_TILE_MAX_CELL', '0'))      # every cell whole
+# The same seam, asked by The Agent for the rows it answers a person's question
+# from ('purpose': 'agent_query'). It used the code-writing probe's limits, so a
+# long cell reached the model cut at 200 characters and a 26th column not at
+# all. Now every column and every cell whole (0 = no limit), and as many rows
+# as the model asks for (50 when it names no number) up to AGENT_QUERY_MAX_ROWS
+# (0 = no ceiling). 10,000 is the same number a View tile keeps; past it the
+# answer is an export or an aggregate, and the result says so.
+AGENT_QUERY_MAX_ROWS = int(os.getenv('AGENT_QUERY_MAX_ROWS', '10000'))
+AGENT_QUERY_MAX_COLS = int(os.getenv('AGENT_QUERY_MAX_COLS', '0'))
+AGENT_QUERY_MAX_CELL = int(os.getenv('AGENT_QUERY_MAX_CELL', '0'))
 GENERAL_CHAT_AI_PROCESSING_ROW_LIMIT = 50               # AI processing row limit - beyond this datasets will be injected directly and bypass LLM (using data agents via general agent communication)
 REFINE_TABLE_SELECTION = True
 CHECK_FOR_MISSING_HEADERS = True

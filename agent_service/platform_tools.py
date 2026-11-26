@@ -496,11 +496,26 @@ async def get_connection_schema(args: dict[str, Any]) -> dict[str, Any]:
         return _text(f"Schema lookup failed: {e}", is_error=True)
 
 
+# The Agent's own data query. Rows when the model names no number: the 50 it
+# always asked for. AGENT_QUERY_SIZED=false sends the request the old way (the
+# code-writing probe's limits: 50 rows, 25 columns, 200 characters a cell).
+_QUERY_DEFAULT_ROWS = 50
+
+
+def _agent_query_sized() -> bool:
+    return os.getenv("AGENT_QUERY_SIZED", "true").strip().lower() not in ("0", "false", "no", "off")
+
+
 @tool(
     "probe_connection_query",
-    "Run ONE small read-only SELECT against a connection to verify assumptions "
-    "(row counts, filter values, joins) before answering. The server enforces "
-    "read-only and caps rows (~50). Zero rows is a finding — usually a filter "
+    "Run ONE read-only SELECT against a connection: to verify assumptions (row "
+    "counts, filter values, joins) or to read the rows an answer needs. The "
+    "server enforces read-only. You get every column and every cell whole, and "
+    "50 rows unless you pass max_rows. When the result says the query returns "
+    "MORE rows than it shows, you have NOT seen all of them: ask again with a "
+    "larger max_rows, let SQL do the counting (COUNT / SUM / GROUP BY), or use "
+    "export_data for a full extract; never answer as if the rows shown were all. "
+    "Zero rows is a finding — usually a filter "
     "value that doesn't exist; say so rather than guessing — and zero rows on "
     "ONE connection says nothing about the others. CHARTS: pass "
     "chart='bar'|'line'|'area'|'pie'|'doughnut'|'hbar' (and chart_title) to get "
@@ -513,6 +528,10 @@ async def get_connection_schema(args: dict[str, Any]) -> dict[str, Any]:
         "properties": {
             "connection": {"type": "string", "description": "Connection id or name"},
             "sql": {"type": "string", "description": "A single SELECT statement"},
+            "max_rows": {"type": "integer",
+                         "description": "Rows to return (default 50). Ask for as many as "
+                                        "the answer needs; the result says when the query "
+                                        "returns more than it shows."},
             "chart": {"type": "string",
                       "enum": ["bar", "line", "area", "pie", "doughnut", "hbar"],
                       "description": "Optional: also return a chart block of the rows"},
@@ -530,8 +549,16 @@ async def probe_connection_query(args: dict[str, Any]) -> dict[str, Any]:
         conn_id = str(row.get("id"))
         conn_name = str(row.get("name") or conn_id)
         rnote = _resolution_note(args["connection"], row)
-        data, status = await _post(f"/api/discover/query/{conn_id}",
-                                   {"sql": str(args["sql"]).strip()})
+        query = {"sql": str(args["sql"]).strip()}
+        if _agent_query_sized():
+            # The Agent's own query: every column, whole cells, the rows asked
+            # for. A main app that does not know 'purpose' answers as before.
+            try:
+                want = max(1, int(args.get("max_rows") or _QUERY_DEFAULT_ROWS))
+            except (TypeError, ValueError):
+                want = _QUERY_DEFAULT_ROWS
+            query.update(purpose="agent_query", row_cap=want)
+        data, status = await _post(f"/api/discover/query/{conn_id}", query)
         if data.get("access") == "denied":
             # Connection ACL: the platform's own wording — an access
             # restriction, never "does not exist".
@@ -555,16 +582,37 @@ async def probe_connection_query(args: dict[str, Any]) -> dict[str, Any]:
                          "with get_connection_schema before assuming the data is "
                          "missing." + coverage_footer())
         lines = [rnote + " | ".join(str(c) for c in cols)]
-        for r in rows[:15]:
+        # Every row that came back. It used to show the first 15 while the note
+        # under them said how many "were returned" (up to 50): the model was
+        # told it had rows it had never seen.
+        for r in rows:
             # rows arrive as dicts keyed by column — iterating the dict itself
             # would render the KEYS (column names) instead of the values
             vals = [r.get(c) for c in cols] if isinstance(r, dict) else list(r)
             lines.append(" | ".join(str(v) for v in vals))
-        note = f"\n({data.get('row_count')} rows returned"
-        if data.get("cap_applied"):
-            note += f", server cap {data.get('row_cap')} applied"
+        if "more_rows" in data and query.get("purpose"):
+            # a main app that knows The Agent's query: "more" is exact
+            if data.get("more_rows"):
+                ceiling = int(data.get("row_ceiling") or 0)
+                if ceiling and len(rows) >= ceiling:
+                    how = (f"{ceiling:,} is the most one query returns here: let SQL "
+                           "aggregate (COUNT / SUM / GROUP BY), narrow the query, or use "
+                           "export_data for the full set")
+                else:
+                    how = ("call again with a larger max_rows"
+                           + (f" (up to {ceiling:,})" if ceiling else "")
+                           + ", or let SQL aggregate (COUNT / SUM / GROUP BY)")
+                note = (f"\n(The first {len(rows):,} rows are shown and the query returns MORE "
+                        f"than these. You have not seen all of them: {how}.")
+            else:
+                note = f"\n({len(rows):,} rows returned, all of them shown"
+        else:
+            note = f"\n({data.get('row_count')} rows returned"
+            if data.get("cap_applied"):
+                note += f", server cap {data.get('row_cap')} applied"
         if data.get("truncated_columns"):
-            note += ", some columns truncated"
+            note += (f"; {data.get('truncated_columns')} more column(s) were NOT returned "
+                     "(the server's column limit): select fewer columns to see them")
         note += ")"
         chart_part = ""
         if args.get("chart"):
