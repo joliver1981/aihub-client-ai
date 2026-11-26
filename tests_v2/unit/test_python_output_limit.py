@@ -109,6 +109,9 @@ def test_the_smaller_cuts_of_the_same_output_are_gone():
     ga = (REPO_ROOT / "GeneralAgent.py").read_text(encoding="utf-8")
     assert "(res['stderr'] or '').strip()[-4000:]" not in ga
     assert "stderr_tail = (res['stderr'] or '').strip()\n" in ga
+    # and the General Agent's tool no longer cuts its whole result once more at 18,000
+    # characters, which it did without a word (found by calling the tool for real)
+    assert "result = result[:18000]" not in ga
 
 
 def test_an_upgraded_install_gets_the_new_number():

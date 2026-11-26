@@ -1439,7 +1439,10 @@ def run_python_code(code: str) -> str:
         result = out.strip()
         if not result and not blocks:
             result = "(no output)"
-        result = result[:18000]
+        # The output is returned as far as the lane carries it
+        # (CODE_INTERPRETER_MAX_OUTPUT_CHARS, 500,000), and the lane says so when
+        # it cuts. It used to be cut here again, at 18,000 characters, with
+        # nothing telling the model that the rest was missing.
         if blocks:
             result += (("\n\n" if result else "") +
                        "Files created — include this artifact JSON verbatim in your reply "
