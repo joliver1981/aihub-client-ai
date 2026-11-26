@@ -100,12 +100,29 @@ def test_display_filename_drops_only_the_upload_prefix():
     assert B.display_filename(None) == ""
 
 
-def test_about_line_is_one_line_and_bounded():
+def test_about_line_is_one_line_and_whole():
     assert B.about_line("You answer questions about\n  customers' vendor manuals.") == \
         "You answer questions about customers' vendor manuals."
-    long = B.about_line("word " * 200)
-    assert len(long) <= B._ABOUT_CHARS + 1 and long.endswith("…")
+    # whole (it was the first 220 characters): two agents whose objectives start
+    # alike are told apart by what comes later
+    start = "You answer questions about vendor compliance manuals. " * 6
+    east = B.about_line(start + "\nYou hold the manuals of the EAST region customers only.")
+    west = B.about_line(start + "\nYou hold the manuals of the WEST region customers only.")
+    assert len(start) > 220 and B._ABOUT_CHARS == 0
+    assert east.endswith("EAST region customers only.") and west.endswith("WEST region customers only.")
+    assert east != west and "…" not in east and "\n" not in east
     assert B.about_line(None) == ""
+
+
+def test_about_line_is_cut_only_when_the_setting_names_a_length():
+    saved = B._ABOUT_CHARS
+    try:
+        B._ABOUT_CHARS = 40
+        cut = B.about_line("word " * 200)
+        assert len(cut) <= 41 and cut.endswith("…")
+        assert B.about_line("short one") == "short one"
+    finally:
+        B._ABOUT_CHARS = saved
 
 
 def test_knowledge_sources_developer_sees_enabled_general_agents_with_documents():

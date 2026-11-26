@@ -235,7 +235,15 @@ async def _all_agents() -> list:
 # and 6 document names each, so the seventh document of an agent, or the
 # twenty-sixth agent, could not be picked from a search result.
 _KNOWLEDGE_INLINE_AGENTS = None   # None = every agent is spelled out inside a search result
-_ABOUT_CHARS = 220
+# What an agent says it is for, next to its name in every listing: WHOLE. Which
+# agent to ask is decided from this text, and it used to be the first 220
+# characters of the objective, so two agents whose objectives start alike could
+# not be told apart. AGENT_ABOUT_CHARS cuts it again when someone sets a number
+# (an install with very many agents and long objectives); 0 = whole.
+try:
+    _ABOUT_CHARS = max(0, int(os.getenv("AGENT_ABOUT_CHARS", "0") or 0))
+except ValueError:
+    _ABOUT_CHARS = 0
 
 _UPLOAD_PREFIX_LEN = 37           # "<uuid4>_" that the knowledge upload puts before the file name
 
@@ -253,9 +261,12 @@ def display_filename(name: str) -> str:
 
 
 def about_line(objective: str) -> str:
-    """Start of an agent's objective, on one line — what the agent says it is for."""
+    """An agent's objective on one line — what the agent says it is for. Whole,
+    unless the setting AGENT_ABOUT_CHARS names a length."""
     s = " ".join(str(objective or "").split())
-    return s if len(s) <= _ABOUT_CHARS else s[:_ABOUT_CHARS].rstrip() + "…"
+    if not _ABOUT_CHARS or len(s) <= _ABOUT_CHARS:
+        return s
+    return s[:_ABOUT_CHARS].rstrip() + "…"
 
 
 def knowledge_sources(agents: list, knowledge: list, role: int, user_group_ids: set) -> list:
