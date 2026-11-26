@@ -65,6 +65,25 @@ def result_budget() -> int:
     return RESULT_MAX_CHARS - RESULT_HEADROOM_CHARS
 
 
+CHARS_PER_TOKEN = 2.6               # measured on real documents (manual pages: 2.55 to 2.72)
+
+
+def context_window_chars() -> int:
+    """Characters of text the context window of the model this turn runs on holds
+    at all. Since results come in parts, this is what bounds a text a tool hands
+    over: a longer one cannot be read within one conversation, in however many
+    parts, so it has to be worked on as a file instead."""
+    try:
+        import agent_config
+        from platform_tools import CURRENT_USER
+        role = (CURRENT_USER.get() or {}).get("role")
+        tokens = int(agent_config.context_window_tokens(agent_config.get_effective_model(role)))
+    except Exception as e:
+        logger.warning(f"context window unknown, taking the runtime's default: {e}")
+        tokens = 200_000
+    return int(tokens * CHARS_PER_TOKEN)
+
+
 # ---------------------------------------------------------------------------
 # A result in parts
 # ---------------------------------------------------------------------------

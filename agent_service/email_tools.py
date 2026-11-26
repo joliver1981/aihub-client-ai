@@ -57,13 +57,24 @@ from document_tools import _ALLOWED_EXTS   # single source: what the doc
                                            # engine actually ingests
 import email_client
 import email_store
+from result_size import context_window_chars as _context_window_chars
 
-# Attachment text: the ceiling mirrors the platform's MAX_ATTACHMENT_CHARS default
-# (config.py, 500k), which is what the extraction itself stops at. A read asks for
-# that much unless a smaller size is set (it used to ask for 100,000 and leave the
-# model to notice the note and ask again).
-ATTACH_READ_CEILING = int(os.getenv("AGENT_EMAIL_ATTACH_MAX_CHARS", "500000"))
-ATTACH_READ_DEFAULT = int(os.getenv("AGENT_EMAIL_ATTACH_READ_CHARS", "0") or 0) or ATTACH_READ_CEILING
+# Attachment text: a read returns the WHOLE text. It stopped at 500,000
+# characters (some 150 to 190 pages), which was the size of one tool result; a
+# longer result now comes in parts (result_size), so that number no longer
+# bounds anything. What does is the model's context window: a text longer than
+# the window cannot be read in one conversation at all, and the read says so and
+# points to the file (see _attach_read_ceiling). Both settings are optional,
+# 0 = not set: AGENT_EMAIL_ATTACH_MAX_CHARS fixes the most one read returns,
+# AGENT_EMAIL_ATTACH_READ_CHARS what a read returns when the model names no size.
+ATTACH_READ_CEILING = int(os.getenv("AGENT_EMAIL_ATTACH_MAX_CHARS", "0") or 0)
+ATTACH_READ_DEFAULT = int(os.getenv("AGENT_EMAIL_ATTACH_READ_CHARS", "0") or 0)
+
+
+def _attach_read_ceiling() -> int:
+    """The most characters one read of an attachment returns: the setting when
+    someone set it, otherwise what the context window of this turn's model holds."""
+    return ATTACH_READ_CEILING or _context_window_chars()
 # A message body is shown WHOLE. It was cut at 15,000 characters; the setting
 # still cuts it when someone sets it to a number, 0 (the default) means no cut.
 BODY_CHARS = int(os.getenv("AGENT_EMAIL_BODY_CHARS", "0") or 0)
@@ -434,8 +445,9 @@ async def list_email_attachments(args: dict[str, Any]) -> dict[str, Any]:
     "for scans, all server-side). Both ids are required and must belong "
     "together: event_id owns the mail, attachment_id names the file on it "
     "(get both from read_email or list_email_attachments). The whole text "
-    "is returned, as far as the platform extracts it; when the result says "
-    "it was truncated, say so. For the original FILE, use "
+    "is returned; a long one arrives in parts, and you read the parts to the "
+    "last one before you treat it as read. When the result says it is NOT "
+    "all of the text, say so. For the original FILE, use "
     "save_attachment instead.",
     {
         "type": "object",
@@ -446,9 +458,8 @@ async def list_email_attachments(args: dict[str, Any]) -> dict[str, Any]:
                               "description": "The attachment's id ON that "
                                              "email"},
             "max_chars": {"type": "integer",
-                          "description": f"Max characters returned (default "
-                                         f"{ATTACH_READ_DEFAULT}, ceiling "
-                                         f"{ATTACH_READ_CEILING})"},
+                          "description": "Characters to return. Leave it out "
+                                         "for the whole text."},
         },
         "required": ["event_id", "attachment_id"],
         "additionalProperties": False,
@@ -465,13 +476,15 @@ async def read_attachment(args: dict[str, Any]) -> dict[str, Any]:
         return _text(str(e), is_error=True)
 
     # The main-app extract route does NOT clamp — this clamp is the cap.
+    ceiling = _attach_read_ceiling()
+    default = ATTACH_READ_DEFAULT or ceiling
     requested = args.get("max_chars")
     try:
         requested = int(requested) if requested is not None \
-            else ATTACH_READ_DEFAULT
+            else default
     except (TypeError, ValueError):
-        requested = ATTACH_READ_DEFAULT
-    max_chars = min(max(1000, requested), ATTACH_READ_CEILING)
+        requested = default
+    max_chars = min(max(1000, requested), ceiling)
 
     result = await email_client.extract_attachment_text(attachment_id,
                                                         max_chars)
@@ -487,10 +500,20 @@ async def read_attachment(args: dict[str, Any]) -> dict[str, Any]:
               f"{_fmt_size(int(att.get('size') or 0))}) — extracted via "
               f"{result.get('extraction_method') or 'text extractor'}")
     if result.get("truncated"):
-        header += (f"; TRUNCATED at {max_chars} of "
-                   f"{result.get('original_length') or '?'} chars — call "
-                   f"again with a higher max_chars (ceiling "
-                   f"{ATTACH_READ_CEILING}) if the rest matters")
+        total = result.get("original_length") or "?"
+        header += f"; TRUNCATED at {max_chars} of {total} chars — NOT all of the text: "
+        if max_chars < ceiling:
+            header += ("that is the size that was asked for; call again "
+                       "without max_chars for the whole text")
+        elif ATTACH_READ_CEILING:
+            header += (f"the setting AGENT_EMAIL_ATTACH_MAX_CHARS stops a read at "
+                       f"{ATTACH_READ_CEILING}. To work on all of it, "
+                       "save_attachment and process the file with run_python")
+        else:
+            header += ("this text is longer than the model of this conversation "
+                       "can hold at all. To work on all of it, save_attachment "
+                       "and process the file with run_python (search it, count, "
+                       "extract the part that matters)")
     if not text.strip():
         return _text(f"{header}\n(extraction succeeded but produced no text "
                      "— likely an image-only or empty file; OCR already ran "

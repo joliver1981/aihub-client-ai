@@ -391,9 +391,78 @@ def test_read_attachment_clamps_max_chars():
         _run("read_attachment", {"event_id": 800001, "attachment_id": 9001})
         _run("read_attachment", {"event_id": 800001, "attachment_id": 9001,
                                  "max_chars": 10})
-        assert calls[0] == et.ATTACH_READ_CEILING     # over-ask clamps down
-        assert calls[1] == et.ATTACH_READ_DEFAULT     # default
+        # No setting: the most one read returns is what the model's context
+        # window holds (it was 500,000 characters, the size of one tool result).
+        window = et._context_window_chars()
+        assert window >= 500_000 and et._attach_read_ceiling() == window
+        assert calls[0] == window                     # over-ask clamps down to the window
+        assert calls[1] == window                     # default: the whole text
         assert calls[2] == 1000                       # floor
+
+
+def test_read_attachment_is_whole_past_the_old_500000_and_the_settings_still_bound():
+    calls = []
+    with temp_ledger(), patched(email_client, poll=_async([]),
+                                attachments_for=_async(_ATTS),
+                                extract_attachment_text=_extract_capture(calls)), \
+            patched(et, _context_window_chars=lambda: 2_600_000):
+        _seed(800001)
+        _run("read_attachment", {"event_id": 800001, "attachment_id": 9001})
+        _run("read_attachment", {"event_id": 800001, "attachment_id": 9001,
+                                 "max_chars": 900000})
+        assert calls == [2_600_000, 900000]           # nothing stops at 500,000 any more
+        with patched(et, ATTACH_READ_CEILING=300000):         # AGENT_EMAIL_ATTACH_MAX_CHARS
+            _run("read_attachment", {"event_id": 800001, "attachment_id": 9001})
+            _run("read_attachment", {"event_id": 800001, "attachment_id": 9001,
+                                     "max_chars": 900000})
+        assert calls[2:] == [300000, 300000]
+        with patched(et, ATTACH_READ_DEFAULT=50000):          # AGENT_EMAIL_ATTACH_READ_CHARS
+            _run("read_attachment", {"event_id": 800001, "attachment_id": 9001})
+            _run("read_attachment", {"event_id": 800001, "attachment_id": 9001,
+                                     "max_chars": 900000})
+        assert calls[4:] == [50000, 900000]
+
+
+def test_read_attachment_says_why_a_text_is_not_all_there_and_what_to_do():
+    result = {"success": True, "text": "t" * 20, "truncated": True,
+              "original_length": 9876543, "extraction_method": "pdfplumber"}
+
+    def read(args, **et_patch):
+        with temp_ledger(), patched(email_client, poll=_async([]),
+                                    attachments_for=_async(_ATTS),
+                                    extract_attachment_text=_extract_capture([], result)), \
+                patched(et, _context_window_chars=lambda: 2_600_000, **et_patch):
+            _seed(800001)
+            return _txt(_run("read_attachment", dict({"event_id": 800001,
+                                                      "attachment_id": 9001}, **args)))
+    # the model asked for a size: the whole text is one call away
+    text = read({"max_chars": 5000})
+    assert "TRUNCATED at 5000 of 9876543 chars" in text
+    assert "call again without max_chars for the whole text" in text
+    # longer than the model can hold at all: work on the file
+    text = read({})
+    assert "TRUNCATED at 2600000 of 9876543 chars" in text
+    assert "longer than the model of this conversation can hold at all" in text
+    assert "save_attachment and process the file with run_python" in text
+    # a setting stops it: named
+    text = read({}, ATTACH_READ_CEILING=300000)
+    assert "the setting AGENT_EMAIL_ATTACH_MAX_CHARS stops a read at 300000" in text
+
+
+def test_the_window_in_characters_follows_the_model_of_the_turn():
+    import agent_config
+    import result_size
+    with patched(agent_config, get_effective_model=lambda role=None: f"m{role}",
+                 context_window_tokens=lambda m: 1_000_000 if m == "m3" else 200_000):
+        CURRENT_USER.set({"user_id": UID, "role": 3, "username": "unit-user"})
+        assert result_size.context_window_chars() == 2_600_000
+        CURRENT_USER.set({"user_id": UID, "role": 1, "username": "unit-user"})
+        assert result_size.context_window_chars() == 520_000
+
+    def boom(_m):
+        raise RuntimeError("no model table")
+    with patched(agent_config, context_window_tokens=boom):
+        assert result_size.context_window_chars() == 520_000      # unknown: the runtime's default window
 
 
 def test_read_attachment_truncation_reported():
@@ -408,6 +477,7 @@ def test_read_attachment_truncation_reported():
         text = _txt(_run("read_attachment", {"event_id": 800001,
                                              "attachment_id": 9001}))
         assert "TRUNCATED" in text and "123456" in text
+        assert "NOT all of the text" in text
 
 
 def test_read_attachment_extraction_failure_honest():
