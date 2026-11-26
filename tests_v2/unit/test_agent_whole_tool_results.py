@@ -11,8 +11,8 @@ reading at 1,500, an e-mail body at 15,000, a table list at 200 tables and a col
 What must hold (agent_service/result_size.py and the tools):
 - every tool of the server declares the runtime's maximum;
 - those tools return their text whole;
-- a result larger than the maximum is cut to what one result carries, with its beginning
-  and its end kept, the gap marked and a note at the end: never the silent 2 KB preview.
+- a result longer than the maximum is handed over in parts with nothing left out (the
+  first by the tool, the rest by read_more): never the runtime's silent 2 KB preview.
 
 Needs the agent env (claude_agent_sdk); self-skips elsewhere. Standalone, with that env's
 python: tests_v2/unit/test_agent_whole_tool_results.py
@@ -134,33 +134,68 @@ class TestEveryToolDeclaresTheMaximum(_Case):
         self.assertEqual((rs.RESULT_MAX_CHARS, rs.result_budget()), (500_000, 495_000))
 
 
-class TestAResultLargerThanOneResultCarries(_Case):
+class TestAResultLongerThanOneResultCarries(_Case):
+    """Nothing is left out: the result is handed over in parts, the first by the tool, the rest by read_more."""
+
+    def setUp(self):
+        super().setUp()
+        self._kept = (dict(rs._kept_results), rs._KEPT_RESULT_SECONDS, rs._KEPT_RESULT_TOTAL_CHARS)
+        rs._kept_results.clear()
+
+    def tearDown(self):
+        rs._kept_results.clear()
+        rs._kept_results.update(self._kept[0])
+        rs._KEPT_RESULT_SECONDS, rs._KEPT_RESULT_TOTAL_CHARS = self._kept[1], self._kept[2]
+        super().tearDown()
+
+    @staticmethod
+    def _split(text):
+        """(the part's own text, its note) of one result."""
+        body, note = text.rsplit("\n\n[PART ", 1)
+        return body, "[PART " + note
+
+    @staticmethod
+    def _rid(note):
+        return note.split('result_id="', 1)[1].split('"', 1)[0]
+
+    def _read_all(self, first_text):
+        body, note = self._split(first_text)
+        bodies, notes = [body], [note]
+        while "read_more" in notes[-1]:
+            part = int(notes[-1].split("part=", 1)[1].split(")", 1)[0])
+            text = _txt(_run(rs.read_more.handler({"result_id": self._rid(notes[-1]), "part": part})))
+            body, note = self._split(text)
+            bodies.append(body)
+            notes.append(note)
+        return bodies, notes
 
     def test_a_result_that_fits_is_returned_as_it_is(self):
         for chars in (10, 60_000, 494_000):
             r = _text_result(_numbered(chars))
             self.assertIs(rs.fit_result(r, "t"), r, chars)
+        self.assertEqual(rs._kept_results, {})
 
-    def test_an_oversize_result_keeps_its_beginning_and_its_end_and_says_what_is_missing(self):
+    def test_a_longer_result_comes_in_parts_and_the_parts_are_the_whole_text(self):
         whole = _numbered(1_300_000)
-        out = _txt(rs.fit_result(_text_result(whole), "probe_connection_query"))
-        self.assertLessEqual(len(out), 500_000)                 # over it the runtime shows a 2 KB preview
-        self.assertGreater(len(out), 480_000)                   # and it uses what one result carries
-        self.assertTrue(out.startswith("FIRST-LINE\nrow 0000001 of the result"))
-        self.assertIn("LAST-LINE", out)                         # the end: totals, notes, error lines
-        marker = out.split("[... ", 1)[1].split(" characters left out here ...]", 1)[0]
-        left = int(marker.replace(",", ""))
-        self.assertGreater(left, 800_000)
-        self.assertTrue(out.rstrip().endswith("work on the file.]"))
-        self.assertIn(f"this result is {len(whole):,} characters long and one tool result carries 500,000", out)
-        self.assertIn(f"{left:,} characters in between were left out", out)
-        self.assertIn("Do not treat what is above as complete", out)
-        # head + tail + what was left out = the whole text
-        head = out.split("\n\n[... ", 1)[0]
-        tail = out.split(" characters left out here ...]\n\n", 1)[1].split("\n\n[NOT ALL SHOWN", 1)[0]
-        self.assertEqual(len(head) + len(tail) + left, len(whole))
-        self.assertTrue(whole.startswith(head) and whole.endswith(tail))
-        self.assertGreater(len(tail), 90_000)                   # a fifth of it comes from the end
+        first = _txt(rs.fit_result(_text_result(whole), "probe_connection_query"))
+        self.assertLessEqual(len(first), 500_000)               # over it the runtime shows a 2 KB preview
+        self.assertTrue(first.startswith("FIRST-LINE\nrow 0000001 of the result"))
+        self.assertIn("[PART 1 OF 3: this result of probe_connection_query is "
+                      f"{len(whole):,} characters long and one tool result carries 500,000.", first)
+        self.assertIn("Nothing is left out", first)
+        bodies, notes = self._read_all(first)
+        self.assertEqual(len(bodies), 3)
+        self.assertEqual("".join(bodies), whole)                # every character, once, in order
+        self.assertTrue(all(len(b) + 600 < 500_000 for b in bodies))
+        self.assertTrue(all(b.endswith("\n") for b in bodies[:-1]))          # cut at the end of a line
+        self.assertIn("[PART 3 OF 3, the last one", notes[-1])
+        self.assertIn("You now have all of it", notes[-1])
+        self.assertTrue(bodies[-1].endswith("LAST-LINE"))
+
+    def test_text_with_no_line_ends_is_still_whole_across_the_parts(self):
+        whole = "x" * 700_000 + "END"
+        bodies, _notes = self._read_all(_txt(rs.fit_result(_text_result(whole), "t")))
+        self.assertEqual("".join(bodies), whole)
 
     def test_the_error_flag_and_a_picture_are_kept(self):
         r = {"content": [{"type": "text", "text": _numbered(700_000)},
@@ -169,23 +204,68 @@ class TestAResultLargerThanOneResultCarries(_Case):
         self.assertTrue(out["is_error"])
         self.assertEqual([b["type"] for b in out["content"]], ["text", "image"])
         self.assertLessEqual(len(_txt(out)), 500_000)
-        self.assertEqual(len(r["content"][0]["text"]) > 600_000, True)          # the input is not changed
+        self.assertGreater(len(r["content"][0]["text"]), 600_000)             # the input is not changed
 
-    def test_several_text_parts_are_counted_together(self):
+    def test_several_text_parts_of_one_result_are_counted_together(self):
         r = {"content": [{"type": "text", "text": "A" * 300_000}, {"type": "text", "text": "B" * 300_000}]}
-        out = _txt(rs.fit_result(r, "t"))
-        self.assertLessEqual(len(out), 500_000)
-        self.assertTrue(out.startswith("AAAA") and "BBBB\n\n[NOT ALL SHOWN" in out)
+        bodies, _notes = self._read_all(_txt(rs.fit_result(r, "t")))
+        self.assertEqual("".join(bodies), "A" * 300_000 + "\n" + "B" * 300_000)
 
     def test_what_is_not_a_text_result_is_left_alone(self):
         for r in (None, "text", {"content": "text"}, {"no": "content"}, {"content": []}):
             self.assertEqual(rs.fit_result(r, "t"), r)
 
-    def test_with_an_sdk_that_cannot_declare_the_size_the_cut_is_at_the_runtime_default(self):
-        rs.RESULT_MAX_CHARS = 50_000
-        out = _txt(rs.fit_result(_text_result(_numbered(120_000)), "t"))
-        self.assertLessEqual(len(out), 50_000)
-        self.assertIn("one tool result carries 50,000", out)
+    def test_only_the_person_and_the_conversation_that_got_part_one_can_read_on(self):
+        first = _txt(rs.fit_result(_text_result(_numbered(700_000)), "t"))
+        rid = self._rid(self._split(first)[1])
+        mine = _run(rs.read_more.handler({"result_id": rid, "part": 2}))
+        self.assertFalse(mine["is_error"])
+        for other in ({"user_id": 555002, "username": "someone-else", "role": 3, "session_id": "conversation-w"},
+                      {"user_id": 987655, "username": "whole-test", "role": 3, "session_id": "another-conversation"},
+                      {"user_id": 0, "username": "service", "role": 3}):
+            token = CURRENT_USER.set(other)
+            try:
+                res = _run(rs.read_more.handler({"result_id": rid, "part": 2}))
+            finally:
+                CURRENT_USER.reset(token)
+            self.assertTrue(res["is_error"], other)
+            self.assertIn("There is no kept result with the id", _txt(res))   # as if it did not exist
+            self.assertNotIn("row 00", _txt(res))
+
+    def test_a_wrong_id_or_part_says_so(self):
+        first = _txt(rs.fit_result(_text_result(_numbered(700_000)), "t"))
+        rid = self._rid(self._split(first)[1])
+        self.assertIn("There is no kept result", _txt(_run(rs.read_more.handler({"result_id": "nope", "part": 2}))))
+        for bad in (0, 3, -1, "x"):
+            res = _run(rs.read_more.handler({"result_id": rid, "part": bad}))
+            self.assertTrue(res["is_error"])
+            self.assertIn("That result has 2 parts", _txt(res))
+
+    def test_the_parts_are_kept_for_a_while_and_reading_one_keeps_them_longer(self):
+        first = _txt(rs.fit_result(_text_result(_numbered(1_300_000)), "t"))
+        rid = self._rid(self._split(first)[1])
+        rs._kept_results[rid]["when"] -= rs._KEPT_RESULT_SECONDS - 5          # almost gone
+        self.assertFalse(_run(rs.read_more.handler({"result_id": rid, "part": 2}))["is_error"])
+        rs._kept_results[rid]["when"] -= rs._KEPT_RESULT_SECONDS - 5          # reading part 2 kept it alive
+        self.assertFalse(_run(rs.read_more.handler({"result_id": rid, "part": 3}))["is_error"])
+        rs._kept_results[rid]["when"] -= rs._KEPT_RESULT_SECONDS + 5          # now really past its time
+        gone = _run(rs.read_more.handler({"result_id": rid, "part": 3}))
+        self.assertTrue(gone["is_error"])
+        self.assertIn("call the tool that produced it again", _txt(gone))
+
+    def test_kept_results_stay_inside_their_memory_and_the_oldest_goes_first(self):
+        rs._KEPT_RESULT_TOTAL_CHARS = 1_500_000
+        first_rid = self._rid(self._split(_txt(rs.fit_result(_text_result(_numbered(800_000)), "a")))[1])
+        second_rid = self._rid(self._split(_txt(rs.fit_result(_text_result(_numbered(800_000)), "b")))[1])
+        self.assertEqual(list(rs._kept_results), [second_rid])
+        self.assertTrue(_run(rs.read_more.handler({"result_id": first_rid, "part": 2}))["is_error"])
+        self.assertFalse(_run(rs.read_more.handler({"result_id": second_rid, "part": 2}))["is_error"])
+
+    def test_one_result_larger_than_the_memory_is_still_kept_for_its_own_parts(self):
+        rs._KEPT_RESULT_TOTAL_CHARS = 100_000
+        whole = _numbered(1_300_000)
+        bodies, _notes = self._read_all(_txt(rs.fit_result(_text_result(whole), "t")))
+        self.assertEqual("".join(bodies), whole)
 
     def test_the_servers_copy_of_a_tool_is_guarded(self):
         @tool("zz_big", "returns a text of the size asked for", {"type": "object", "properties": {}})
@@ -194,13 +274,54 @@ class TestAResultLargerThanOneResultCarries(_Case):
         guarded = rs.declare_whole_results([zz_big])[0]
         small = _run(guarded.handler({"chars": 70_000}))
         self.assertTrue(_txt(small).endswith("LAST-LINE"))                       # over the old default, whole
-        self.assertNotIn("NOT ALL SHOWN", _txt(small))
+        self.assertNotIn("[PART ", _txt(small))
         big = _run(guarded.handler({"chars": 900_000, "fail": True}))
         self.assertLessEqual(len(_txt(big)), 500_000)
-        self.assertIn("NOT ALL SHOWN", _txt(big))
+        self.assertIn("[PART 1 OF 2", _txt(big))
         self.assertTrue(big["is_error"])
         # the tool itself, called directly, still returns everything
         self.assertGreater(len(_txt(_run(zz_big.handler({"chars": 900_000})))), 900_000)
+
+    def test_read_more_is_a_tool_of_the_server_and_of_the_read_only_side_threads(self):
+        self.assertIn("read_more", [t.name for t in brain.AIHUB_SERVER_TOOLS])
+        self.assertIn("read_more", brain._READ_TOOL_NAMES)
+        self.assertIs(next(t for t in brain.AIHUB_SERVER_TOOLS if t.name == "read_more"), rs.read_more)
+
+
+class TestWithNobodyToHandPartsTo(_Case):
+    """A call outside a person's turn: the text is cut, with its beginning and end kept, and says so."""
+
+    def setUp(self):
+        super().setUp()
+        self._nobody = CURRENT_USER.set({"user_id": 0, "username": "service", "role": 3})
+
+    def tearDown(self):
+        CURRENT_USER.reset(self._nobody)
+        super().tearDown()
+
+    def test_the_beginning_and_the_end_are_kept_and_the_gap_is_stated(self):
+        whole = _numbered(1_300_000)
+        out = _txt(rs.fit_result(_text_result(whole), "probe_connection_query"))
+        self.assertLessEqual(len(out), 500_000)
+        self.assertGreater(len(out), 480_000)
+        self.assertTrue(out.startswith("FIRST-LINE\nrow 0000001 of the result"))
+        self.assertIn("LAST-LINE", out)                         # the end: totals, notes, error lines
+        left = int(out.split("[... ", 1)[1].split(" characters left out here ...]", 1)[0].replace(",", ""))
+        self.assertGreater(left, 800_000)
+        self.assertTrue(out.rstrip().endswith("work on the file.]"))
+        self.assertIn(f"this result is {len(whole):,} characters long and one tool result carries 500,000", out)
+        self.assertIn(f"{left:,} characters in between were left out", out)
+        head = out.split("\n\n[... ", 1)[0]
+        tail = out.split(" characters left out here ...]\n\n", 1)[1].split("\n\n[NOT ALL SHOWN", 1)[0]
+        self.assertEqual(len(head) + len(tail) + left, len(whole))
+        self.assertTrue(whole.startswith(head) and whole.endswith(tail))
+        self.assertEqual(rs._kept_results, {})
+
+    def test_with_an_sdk_that_cannot_declare_the_size_the_cut_is_at_the_runtime_default(self):
+        rs.RESULT_MAX_CHARS = 50_000
+        out = _txt(rs.fit_result(_text_result(_numbered(120_000)), "t"))
+        self.assertLessEqual(len(out), 50_000)
+        self.assertIn("one tool result carries 50,000", out)
 
 
 class TestToolsThatCutTheirOwnText(_Case):

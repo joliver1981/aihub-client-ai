@@ -43,6 +43,7 @@ try:
     from connection_tools import CONNECTION_TOOLS   # noqa: E402
     from workflow_tools import WORKFLOW_TOOLS       # noqa: E402
     from workflow_file_tools import WORKFLOW_FILE_TOOLS  # noqa: E402
+    from result_size import RESULT_TOOLS            # noqa: E402
     HAVE_SDK = True
 except ImportError as e:
     HAVE_SDK = False
@@ -63,7 +64,8 @@ else:
                  + INTEGRATION_TOOLS + FILE_TOOLS + DOCUMENT_TOOLS
                  + PORTAL_TOOLS + EMAIL_TOOLS + AGENT_BUILDER_TOOLS + WEB_TOOLS
                  + EXPORT_TOOLS + MAP_TOOLS + IMAGE_TOOLS + CONNECTION_TOOLS
-                 + WORKFLOW_TOOLS + WORKFLOW_FILE_TOOLS)
+                 + WORKFLOW_TOOLS + WORKFLOW_FILE_TOOLS
+                 + RESULT_TOOLS)
     ALL_NAMES = {getattr(t, "name", "") for t in ALL_TOOLS}
 
 # Read-shaped name prefixes. A registered tool matching one of these, not in

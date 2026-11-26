@@ -41,7 +41,7 @@ from image_tools import IMAGE_TOOLS
 from connection_tools import CONNECTION_TOOLS
 from workflow_tools import WORKFLOW_TOOLS
 from workflow_file_tools import WORKFLOW_FILE_TOOLS
-from result_size import declare_whole_results
+from result_size import RESULT_TOOLS, declare_whole_results
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -183,7 +183,7 @@ _WORKFLOW_FILE_TOOLS_ON = os.getenv("AGENT_WORKFLOW_FILE_TOOLS", "true").lower()
 
 # Every tool declares the largest result the runtime carries (500,000 characters;
 # its default of 50,000 turns a longer result into a 2 KB preview), and a result
-# larger than that is cut with a plain note, never silently: result_size.py.
+# longer than that is handed over in parts with nothing left out: result_size.py.
 AIHUB_SERVER_TOOLS = declare_whole_results(
           AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
           + INTEGRATION_TOOLS + FILE_TOOLS
@@ -198,7 +198,8 @@ AIHUB_SERVER_TOOLS = declare_whole_results(
           + (IMAGE_TOOLS if _IMAGE_TOOLS_ON else [])
           + (CONNECTION_TOOLS if _MY_CONNECTIONS_ON else [])
           + (WORKFLOW_TOOLS if _WORKFLOW_TOOLS_ON else [])
-          + (WORKFLOW_FILE_TOOLS if _WORKFLOW_FILE_TOOLS_ON else []))
+          + (WORKFLOW_FILE_TOOLS if _WORKFLOW_FILE_TOOLS_ON else [])
+          + RESULT_TOOLS)             # read_more: the further parts of a result longer than one result
 aihub_server = create_sdk_mcp_server(name="aihub", version="0.12.0", tools=AIHUB_SERVER_TOOLS)
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
@@ -283,6 +284,8 @@ _READ_TOOL_NAMES = [
     # a connection offers; use_my_connection stays out — a side thread must
     # never act (or send) as the user.
     "list_my_connections", "get_connection_tools",
+    # the further parts of a long result of any of the tools above
+    "read_more",
 ]
 _READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
 
