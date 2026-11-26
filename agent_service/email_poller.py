@@ -31,14 +31,51 @@ import workitem_store
 POLL_SECONDS = max(int(os.getenv("AGENT_EMAIL_POLL_SECONDS", "60")), 30)
 COOLDOWN_MINUTES = int(os.getenv("AGENT_EMAIL_COOLDOWN_MINUTES", "2"))
 DAILY_CAP = int(os.getenv("AGENT_EMAIL_MAX_PER_DAY", "100"))
-MAX_ATTACHMENTS = int(os.getenv("AGENT_EMAIL_MAX_ATTACHMENTS", "10"))
-# Pre-extracted attachment text is a PROMPT budget, not a platform cap. With
-# the email READING tools registered the default halves: the turn can call
-# read_attachment for the full text (up to the platform cap) whenever the
-# preview is not enough. Without the tools the preview is all the turn will
-# ever see, so the old 20k stands. AGENT_EMAIL_ATTACH_CHARS overrides either.
-ATTACH_CHARS_EACH = int(os.getenv(
-    "AGENT_EMAIL_ATTACH_CHARS", "10000" if email_tools_enabled() else "20000"))
+# How much of an inbound mail the session is handed (James 2026-11-25: "this will
+# bite us eventually and users will point out 'How come The Agent got whatever
+# wrong?'"). The session used to get the first 15,000 characters of the body,
+# the first 10,000 of each attachment and the first ten attachments; whatever
+# came after was not there, and of an eleventh attachment not even the name.
+#
+# Now it gets the mail WHOLE: the body, and every attachment's text. The only
+# bound is the model's context window, which the mail shares with the model's
+# own instructions and with the work it then does: the mail may take a quarter
+# of it (the same share one document search may take), about 650,000 characters
+# with a 1,000,000-token window, some 200 pages. What does not fit is NAMED,
+# with its size and the tool call that reads it, never dropped.
+_MAIL_SHARE_OF_WINDOW = 4
+_CHARS_PER_TOKEN = 2.6          # measured on real documents (see document_tools)
+_MIN_ROOM_CHARS = 2_000         # less room than this is not worth starting an attachment in
+
+
+def _setting(name: str) -> int:
+    try:
+        return max(0, int(os.getenv(name, "0") or 0))
+    except ValueError:
+        return 0
+
+
+# Optional settings, all 0 = not set (the context window decides):
+#   AGENT_EMAIL_PROMPT_CHARS     characters of one mail handed to the session
+#   AGENT_EMAIL_ATTACH_CHARS     characters of ONE attachment handed over
+#   AGENT_EMAIL_MAX_ATTACHMENTS  attachments whose text is handed over
+PROMPT_CHARS = _setting("AGENT_EMAIL_PROMPT_CHARS")
+ATTACH_CHARS_EACH = _setting("AGENT_EMAIL_ATTACH_CHARS")
+MAX_ATTACHMENTS = _setting("AGENT_EMAIL_MAX_ATTACHMENTS")
+
+
+def mail_budget_chars(role=None) -> int:
+    """Characters of one inbound mail the session of a user with this role is
+    handed: a quarter of the context window of the model that session runs on."""
+    if PROMPT_CHARS:
+        return PROMPT_CHARS
+    try:
+        import agent_config
+        window = int(agent_config.context_window_tokens(agent_config.get_effective_model(role)))
+    except Exception as e:
+        logger.warning(f"context window unknown, taking the runtime's default: {e}")
+        window = 200_000
+    return int(window / _MAIL_SHARE_OF_WINDOW * _CHARS_PER_TOKEN)
 
 
 def enabled() -> bool:
@@ -89,9 +126,10 @@ async def build_prompt(ev: dict, owner: dict) -> str:
         "needed, just do the work and summarize.",
     ]
     if str(owner.get("reply_instructions") or "").strip():
+        # whole: these are the user's own rules (they were cut at 2,000 characters)
         parts.append("The user's STANDING INSTRUCTIONS for handling their "
                      "email (style, personality, rules — follow them):\n"
-                     + str(owner["reply_instructions"]).strip()[:2000])
+                     + str(owner["reply_instructions"]).strip())
     event_id = int(_event_field(ev, "event_id", "id", default=0) or 0)
     parts += [
         f"From: {sender}",
@@ -105,34 +143,78 @@ async def build_prompt(ev: dict, owner: dict) -> str:
         parts.append(f"Email event_id: {event_id} — read_email / "
                      "list_email_attachments / read_attachment / "
                      "save_attachment accept this id.")
-    parts += [
-        "",
-        str(body or "(empty body)")[:15000],
-    ]
+    tools = bool(event_id and email_tools_enabled())
+    room = mail_budget_chars(owner.get("role"))
+    left_out = []                       # what the session was not handed, for the log
+
+    body = str(body or "(empty body)")
+    if len(body) > room:
+        # A body longer than the session can take in one message. Its beginning
+        # is here; the rest is one tool call away and the session is told so.
+        parts += ["", body[:room],
+                  f"[THE BODY IS NOT ALL HERE: it is {len(body):,} characters long and the "
+                  f"first {room:,} are above. "
+                  + (f"read_email(event_id={event_id}) returns the whole body; read it "
+                     "before you act on this mail.]" if tools else
+                     "The rest could not be handed to this session; say so in what you "
+                     "report, and do not treat the mail as fully read.]")]
+        left_out.append(f"body: {len(body) - room:,} of {len(body):,} characters")
+        room = 0
+    else:
+        parts += ["", body]
+        room -= len(body)
 
     if event_id and _event_field(ev, "has_attachments", "attachment_count",
                                  default=None):
-        atts = (await email_client.attachments_for(event_id))[:MAX_ATTACHMENTS]
+        atts = await email_client.attachments_for(event_id)
         if atts:
-            parts.append("\nAttachments (extracted text):")
-            if email_tools_enabled():
+            parts.append(f"\nAttachments ({len(atts)}), with their extracted text:")
+            if tools:
                 parts.append(
-                    "(previews below may be truncated — "
-                    f"read_attachment(event_id={event_id}, attachment_id=...) "
-                    "returns the full text; save_attachment writes the "
-                    "original file for import_documents / "
-                    "offer_file_download)")
-            for a in atts:
+                    "(an attachment's text is whole unless a note under it says "
+                    f"otherwise; read_attachment(event_id={event_id}, "
+                    "attachment_id=...) returns the text of any of them, and "
+                    "save_attachment writes the original file for "
+                    "import_documents / offer_file_download)")
+            how = (f"read_attachment(event_id={event_id}, attachment_id={{aid}}) returns it"
+                   if tools else
+                   "it could not be handed to this session; say so in what you report")
+            for n, a in enumerate(atts, 1):
                 aid = a.get("attachment_id") or a.get("id")
                 name = a.get("filename", f"attachment {aid}")
-                ext = await email_client.extract_attachment_text(
-                    int(aid), ATTACH_CHARS_EACH)
-                if ext.get("success"):
-                    parts.append(f"--- {name} (attachment_id {aid}) ---\n"
-                                 f"{str(ext.get('text') or '')[:ATTACH_CHARS_EACH]}")
-                else:
-                    parts.append(f"--- {name} (attachment_id {aid}) --- "
-                                 f"(extraction failed: {ext.get('error')})")
+                head = f"--- {name} (attachment_id {aid}) ---"
+                if MAX_ATTACHMENTS and n > MAX_ATTACHMENTS:
+                    parts.append(f"{head}\n[NOT INCLUDED: the setting AGENT_EMAIL_MAX_ATTACHMENTS "
+                                 f"hands over the text of the first {MAX_ATTACHMENTS} attachments; "
+                                 f"{how.format(aid=aid)}.]")
+                    left_out.append(f"{name}: not included (attachment {n}, setting)")
+                    continue
+                if room < _MIN_ROOM_CHARS:
+                    parts.append(f"{head}\n[NOT INCLUDED: the mail above already fills the room "
+                                 f"this session has for it; {how.format(aid=aid)}. Read it "
+                                 "before you act on anything it may contain.]")
+                    left_out.append(f"{name}: not included (no room left)")
+                    continue
+                want = min(room, ATTACH_CHARS_EACH) if ATTACH_CHARS_EACH else room
+                ext = await email_client.extract_attachment_text(int(aid), want)
+                if not ext.get("success"):
+                    parts.append(f"{head} (extraction failed: {ext.get('error')})")
+                    continue
+                text = str(ext.get("text") or "")[:want]
+                parts.append(f"{head}\n{text}")
+                room -= len(text)
+                total = int(ext.get("original_length") or 0)
+                if ext.get("truncated") or total > len(text):
+                    size = f"{total:,} characters long" if total > len(text) else "longer than this"
+                    parts.append(f"[NOT ALL OF {name} IS HERE: its text is {size} and the first "
+                                 f"{len(text):,} are above; {how.format(aid=aid)}. Read the "
+                                 "rest before you act on anything it may contain.]")
+                    left_out.append(f"{name}: the first {len(text):,} characters"
+                                    + (f" of {total:,}" if total > len(text) else ""))
+    if left_out:
+        logger.info(f"inbound mail {event_id}: not all of it fits the session's first message "
+                    f"({mail_budget_chars(owner.get('role')):,} characters); named in the prompt, "
+                    f"to be read with the email tools: {'; '.join(left_out)}")
     return "\n".join(parts)
 
 
@@ -196,8 +278,9 @@ async def process_event(ev: dict, owner: dict, own_addresses: set,
         workitem_store.create_item(
             "acknowledge",
             f"{'✉' if ok else '⚠'} Email: {subject or '(no subject)'}",
+            # whole: what The Agent did with the mail (it was cut at 2,000 characters)
             summary=(f"From {sender} to {address}.\n\n"
-                     + (summary[:2000] or "(the session produced no text)")),
+                     + (summary or "(the session produced no text)")),
             payload={"kind": "agent_email_fyi", "event_id": event_id,
                      "sender": sender, "subject": subject, "ok": ok,
                      "tools_used": tools_run[:20],
