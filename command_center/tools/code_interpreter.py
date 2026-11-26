@@ -57,7 +57,9 @@ _SDK_ENV = "CC_RUN_PYTHON_SDK"
 
 # Default cap on streamed stdout/stderr characters returned to the model.
 # 0 disables truncation. Overridable via CODE_INTERPRETER_MAX_OUTPUT_CHARS.
-_DEFAULT_MAX_STREAM_CHARS = 50000
+# 500,000 since 2026-11-25 (it was 50,000), the same as the shared lane
+# (code_exec.executor) the General Agent runs on.
+_DEFAULT_MAX_STREAM_CHARS = 500000
 
 
 def _max_stream_chars() -> int:

@@ -1349,7 +1349,9 @@ def run_python_code(code: str) -> str:
 
         out = res['stdout'] or ''
         if res['returncode'] != 0:
-            stderr_tail = (res['stderr'] or '').strip()[-4000:]
+            # the whole error text, as far as the lane's output limit carries it
+            # (it was the last 4,000 characters)
+            stderr_tail = (res['stderr'] or '').strip()
             out += ('\n' if out else '') + f"Error (exit {res['returncode']}): {stderr_tail}"
 
         # -- harvest: every new file becomes a downloadable artifact block

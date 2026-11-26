@@ -13,7 +13,11 @@ from typing import Dict, Iterable, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 _SCRIPT_NAME = "_exec_script.py"
-_DEFAULT_MAX_CHARS = 50_000
+# Characters of stdout (and of stderr) one run hands back. 500,000 since
+# 2026-11-25 (James: "GA and CC - Increase this to 500,000"); it was 50,000, and
+# output past it was cut with one line saying so. CODE_INTERPRETER_MAX_OUTPUT_CHARS
+# overrides it. The Agent passes its own size and is not bound by this.
+_DEFAULT_MAX_CHARS = 500_000
 
 
 def _max_chars() -> int:

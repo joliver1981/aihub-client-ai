@@ -4224,7 +4224,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         if res.get("timed_out"):
             return f"The code timed out: {stderr or 'execution exceeded the time limit.'}"
         if res.get("returncode", 0) != 0:
-            tail = "\n".join(stderr.splitlines()[-15:]) if stderr else "Unknown error."
+            # the whole error text, as far as the interpreter's output limit carries
+            # it (it was the last 15 lines: a long traceback lost its beginning)
+            tail = stderr if stderr else "Unknown error."
             msg = f"The code raised an error:\n```\n{tail}\n```"
             if stdout:
                 msg = f"Output before the error:\n```\n{stdout}\n```\n\n" + msg
@@ -4244,7 +4246,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             captured = ""
             if stdout:
                 logger.info(f"[converse/tool] run_python stdout (with {len(out_blocks)} output block(s)): {stdout[:200]}")
-                captured = f"```\n{stdout[:8000]}\n```"
+                # everything the code printed (it was the first 8,000 characters)
+                captured = f"```\n{stdout}\n```"
             if manifest:
                 captured += manifest
             if captured:

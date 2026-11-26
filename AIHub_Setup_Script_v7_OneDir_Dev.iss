@@ -1442,6 +1442,21 @@ begin
                mbError, MB_OK);
       end;
 
+      // --- CODE_INTERPRETER_MAX_OUTPUT_CHARS (2026-11-25: 500000) ---
+      // How much of what Python code prints the General Agent and Command
+      // Center get back. Every .env we shipped carries the old value 50000, and
+      // an UPGRADED install keeps its own .env, so raising the code default
+      // alone would change nothing on any existing client. FORCE, for the same
+      // reason as the engine defaults above. NOTE: this also overrides a value
+      // a client chose on purpose (0 = no limit, or a smaller number); such a
+      // client edits this line again after setup.
+      if not ForceEnvKeyValue(EnvConfigFile, 'CODE_INTERPRETER_MAX_OUTPUT_CHARS', '500000') then
+      begin
+        MsgBox('Warning: Failed to write CODE_INTERPRETER_MAX_OUTPUT_CHARS to .env.' + #13#10 +
+               'You may need to set it manually: CODE_INTERPRETER_MAX_OUTPUT_CHARS=500000',
+               mbError, MB_OK);
+      end;
+
       // --- BROWSER_USE_RESTRICT_DOMAINS / BROWSER_USE_ALLOW_ALL_USERS (v2.0) ---
       // The Browser Use service (portal RPA) shipped with these in dist\.env
       // since 2026-06, but an UPGRADED install keeps its original .env, so any
