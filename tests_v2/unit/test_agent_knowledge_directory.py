@@ -127,9 +127,13 @@ def test_knowledge_line_states_the_exact_count():
     src = B.knowledge_sources(_agents(), _knowledge(), 2, set())
     line = B.knowledge_line(src[0])
     assert line.startswith("9 knowledge documents (e.g. Acme Routing Guide 2026.pdf; Globex Vendor Manual.pdf")
-    assert line.endswith("; +3 more)")
+    assert line.endswith("; +3 more)")                    # this source carries 6 of its 9 names
     assert B.knowledge_line(src[1]) == "1 knowledge document (Handbook.pdf)"
     assert B.knowledge_line({"documents": 3, "names": []}) == "3 knowledge documents"
+    # every name an agent holds is shown (it used to be the first 6)
+    names = [f"Manual {i:02d}.pdf" for i in range(1, 41)]
+    assert B.knowledge_line({"documents": 40, "names": names}) == (
+        "40 knowledge documents (" + "; ".join(names) + ")")
 
 
 def test_format_knowledge_sources_says_how_many_are_left_out():
@@ -334,7 +338,9 @@ def test_query_counts_active_documents_for_the_asking_user():
     assert "ak.is_active = 1" in cur.sql and "ISNULL(ak.added_by, 'USER') = 'USER'" in cur.sql
     by = {r["agent_id"]: r for r in out}
     assert by[10] == {"agent_id": 10, "documents": 2, "names": ["new.pdf", "older.pdf"]}
-    assert by[12]["documents"] == 9 and len(by[12]["names"]) == B._KNOWLEDGE_NAMES_SHOWN
+    # every document name is collected (it used to be the newest 6)
+    assert by[12]["documents"] == 9 and by[12]["names"] == [f"d{i}.pdf" for i in range(9)]
+    assert B._KNOWLEDGE_INLINE_AGENTS is None             # and every agent is spelled out in a search result
 
 
 if __name__ == "__main__":

@@ -211,10 +211,10 @@ def test_coverage_footer_states_the_boundary_as_data():
     ctx["_coverage"]["queried"] = []
     assert P.coverage_footer(ctx).startswith(
         "\nQueried this turn: (none). Not queried: EDW (SQL Server), ERPDB")
-    # long tails are capped, never dropped silently
+    # every connection that was not queried is named (it used to be the first 12 and a count)
     many = {"known": [f"C{i}" for i in range(20)], "queried": ["C0"]}
     line = P.coverage_footer({"_coverage": many})
-    assert "C12" in line and "(+7 more)" in line
+    assert all(f"C{i}" in line for i in range(1, 20)) and "more" not in line
 
 
 def test_every_probe_result_ends_with_the_coverage_line():

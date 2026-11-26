@@ -68,7 +68,7 @@ ATTACH_READ_DEFAULT = int(os.getenv("AGENT_EMAIL_ATTACH_READ_CHARS", "0") or 0) 
 # still cuts it when someone sets it to a number, 0 (the default) means no cut.
 BODY_CHARS = int(os.getenv("AGENT_EMAIL_BODY_CHARS", "0") or 0)
 SAVE_MAX_MB = int(os.getenv("AGENT_EMAIL_SAVE_MAX_MB", "50"))
-_PENDING_SHOWN = 10          # live-feed rows surfaced by list_my_email
+# list_my_email shows every pending message of the live feed (it showed the first 10).
 
 
 class EmailAccess(Exception):
@@ -280,16 +280,12 @@ async def list_my_email(args: dict[str, Any]) -> dict[str, Any]:
                 continue
             pending.append(p)
         if pending:
-            shown = pending[:_PENDING_SHOWN]
             lines.append(f"PENDING — in the cloud feed, not processed yet "
-                         f"({len(pending)} waiting"
-                         + (f", first {len(shown)} shown" if
-                            len(pending) > len(shown) else "")
-                         + "); you can read_email these now:")
-            for p in shown:
+                         f"({len(pending)} waiting); you can read_email these now:")
+            for p in pending:
                 lines.append(f"  event_id={p['event_id']} [pending] from "
                              f"{p['sender'] or '?'}: "
-                             f"{(p['subject'] or '(no subject)')[:80]}")
+                             f"{p['subject'] or '(no subject)'}")
 
     for e in rows:
         lines.append(f"  event_id={e['event_id']} {e['processed_at'][:16]} "

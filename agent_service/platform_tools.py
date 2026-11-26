@@ -95,9 +95,6 @@ def coverage_snapshot(ctx: Optional[dict] = None) -> tuple:
     return list(rec.get("known") or []), list(rec.get("queried") or [])
 
 
-_FOOTER_MAX_NAMES = 12
-
-
 def coverage_footer(ctx: Optional[dict] = None) -> str:
     """One line for the END of every query result: which connections this
     turn's row-level queries touched and which they have not. Names only —
@@ -111,10 +108,9 @@ def coverage_footer(ctx: Optional[dict] = None) -> str:
     left = [k for k in known if k.lower() not in qset]
     if not left:
         return f"\nQueried this turn: all {len(known)} connections."
-    more = (f" (+{len(left) - _FOOTER_MAX_NAMES} more)"
-            if len(left) > _FOOTER_MAX_NAMES else "")
+    # every connection not queried is named (it was the first 12 and a count)
     return (f"\nQueried this turn: {', '.join(done) or '(none)'}. "
-            f"Not queried: {', '.join(left[:_FOOTER_MAX_NAMES])}{more}.")
+            f"Not queried: {', '.join(left)}.")
 
 _TIMEOUT = httpx.Timeout(30.0, read=120.0)
 
@@ -482,8 +478,10 @@ async def get_connection_schema(args: dict[str, Any]) -> dict[str, Any]:
             line = f"- {c.get('COLUMN_NAME')} ({c.get('DATA_TYPE')}){tag}{desc}"
             vals = c.get("column_values")
             if vals:
-                shown = ", ".join(str(v) for v in vals[:12])
-                more = f" …(+{c['distinct_count'] - 12} more)" if c.get("distinct_count", 0) > 12 else ""
+                # every value the platform enumerated for the column (it was the first 12)
+                shown = ", ".join(str(v) for v in vals)
+                rest = int(c.get("distinct_count") or 0) - len(vals)
+                more = f" …(+{rest} more)" if rest > 0 else ""
                 line += f" values: [{shown}]{more}"
             elif c.get("values_too_many"):
                 line += " (too many distinct values to enumerate)"
@@ -603,7 +601,6 @@ async def probe_connection_query(args: dict[str, Any]) -> dict[str, Any]:
 # result says which connections matched, which had no match, and which could
 # not be listed — so an unlisted connection reads as UNCHECKED, never as empty.
 # ---------------------------------------------------------------------------
-_SEARCH_MAX_PER_CONN = 40
 _SEARCH_TIMEOUT = httpx.Timeout(15.0, read=45.0)
 
 
@@ -686,10 +683,8 @@ async def search_tables(args: dict[str, Any]) -> dict[str, Any]:
                 continue
             found = [n for n in names if _match_table(n, pats)]
             if found:
-                shown = ", ".join(found[:_SEARCH_MAX_PER_CONN])
-                extra = (f" (+{len(found) - _SEARCH_MAX_PER_CONN} more)"
-                         if len(found) > _SEARCH_MAX_PER_CONN else "")
-                hits.append(f"- {label}: {shown}{extra}")
+                # every matching table (it was the first 40 per connection and a count)
+                hits.append(f"- {label}: {', '.join(found)}")
             else:
                 misses.append(label)
         scope = " available to your account" if restricted_caller() else ""
@@ -865,18 +860,16 @@ async def find_user_contact(args: dict[str, Any]) -> dict[str, Any]:
     if not rows:
         return _text(f"No user matches '{q}' in the directory." if q
                      else "The user directory is empty.")
-    cap = 50 if not q else 15
+    # every user found (it was the first 50, or the first 15 of a search)
     lines = [f"- {u['name'] or '(no name)'} (username {u['username'] or '—'}): "
              f"email {u['email'] or '(none)'}; phone {u['phone'] or '(none)'}"
-             for u in rows[:cap]]
+             for u in rows]
     if not q:
         head = f"All {len(rows)} platform users:"
     else:
         head = (f"{len(rows)} users match '{q}'"
                 + (" — ask which one they mean:" if len(rows) > 1 else ":"))
-    return _text(head + "\n" + "\n".join(lines)
-                 + (f"\n… {len(rows) - cap} more not shown — search by name to narrow"
-                    if len(rows) > cap else ""))
+    return _text(head + "\n" + "\n".join(lines))
 
 
 @tool(
@@ -932,14 +925,19 @@ async def list_playbooks(args: dict[str, Any]) -> dict[str, Any]:
         "properties": {
             "automation_id": {"type": "string",
                               "description": "Optional automation id for its run history"},
-            "limit": {"type": "integer", "description": "Max rows (default 10)"},
+            "limit": {"type": "integer",
+                      "description": "How many of the most recent rows (default 10); "
+                                     "ask for as many as you need"},
         },
         "required": [],
         "additionalProperties": False,
     },
 )
 async def list_recent_runs(args: dict[str, Any]) -> dict[str, Any]:
-    limit = min(int(args.get("limit") or 10), 50)
+    try:
+        limit = max(1, int(args.get("limit") or 10))      # the number asked for (it stopped at 50)
+    except (TypeError, ValueError):
+        limit = 10
     try:
         if args.get("automation_id"):
             user = CURRENT_USER.get()

@@ -69,7 +69,7 @@ _DEFAULT_OBJECTIVE = ("You are a helpful AI assistant named {name}. "
 # request (extraction + AI typing); large PDFs take minutes.
 _KNOWLEDGE_READ_TIMEOUT = float(os.getenv("AGENT_KNOWLEDGE_UPLOAD_TIMEOUT", "1800"))
 
-_LIST_CAP = 60
+# list_agents lists every agent it finds (it used to stop at the newest 60).
 
 
 # ---------------------------------------------------------------------------
@@ -230,8 +230,11 @@ async def _all_agents() -> list:
 # search_documents adds it to every result, so it is in front of the model at
 # the moment it would otherwise conclude "not found".
 
-_KNOWLEDGE_NAMES_SHOWN = 6        # document names shown per agent (the count is always exact)
-_KNOWLEDGE_INLINE_AGENTS = 25     # agents spelled out inside a search result; the rest are counted and listable
+# Every agent that holds knowledge documents is named, with every document it
+# holds: which agent to ask is decided from these names. It used to be 25 agents
+# and 6 document names each, so the seventh document of an agent, or the
+# twenty-sixth agent, could not be picked from a search result.
+_KNOWLEDGE_INLINE_AGENTS = None   # None = every agent is spelled out inside a search result
 _ABOUT_CHARS = 220
 
 _UPLOAD_PREFIX_LEN = 37           # "<uuid4>_" that the knowledge upload puts before the file name
@@ -275,11 +278,11 @@ def knowledge_sources(agents: list, knowledge: list, role: int, user_group_ids: 
 
 
 def knowledge_line(src: dict) -> str:
-    """'<N> knowledge documents (e.g. a; b; … +M more)' for one agent."""
+    """'<N> knowledge documents (a; b; c)' for one agent: every name it holds."""
     n = int(src["documents"])
     names = [x for x in (src.get("names") or []) if x]
-    shown = "; ".join(names[:_KNOWLEDGE_NAMES_SHOWN])
-    more = n - min(len(names), _KNOWLEDGE_NAMES_SHOWN)
+    shown = "; ".join(names)
+    more = n - len(names)            # only when a document has no file name
     tail = ""
     if shown:
         tail = f" ({'e.g. ' if more > 0 else ''}{shown}{f'; +{more} more' if more > 0 else ''})"
@@ -317,8 +320,7 @@ def _q_knowledge_agents(user_id):
         for aid, fname in cur.fetchall():
             row = out.setdefault(int(aid), {"agent_id": int(aid), "documents": 0, "names": []})
             row["documents"] += 1
-            if len(row["names"]) < _KNOWLEDGE_NAMES_SHOWN:
-                row["names"].append(str(fname or ""))
+            row["names"].append(str(fname or ""))
         return list(out.values())
     return fn
 
@@ -697,7 +699,7 @@ async def list_agents(args: dict[str, Any]) -> dict[str, Any]:
                          + (f" matching '{needle}'" if needle else "") + ".")
         rows.sort(key=lambda a: a["id"], reverse=True)
         lines = []
-        for a in rows[:_LIST_CAP]:
+        for a in rows:
             tag = "general"
             if a["is_data_agent"]:
                 tag = "data" + (f": {', '.join(a['connections'])}" if a.get("connections") else "")
@@ -710,12 +712,8 @@ async def list_agents(args: dict[str, Any]) -> dict[str, Any]:
                     "documents": k["documents"],
                     "names": [display_filename(n) for n in (k.get("names") or [])]})
             lines.append(f"- id {a['id']} — {a['name']} ({tag}{st}{shared}){knows}")
-        more = ""
-        if len(rows) > _LIST_CAP:
-            more = (f"\n… {len(rows) - _LIST_CAP} more not shown (newest first) — "
-                    "narrow with name_contains.")
         note = "" if role >= 2 else "\n(Showing only agents shared with your groups.)"
-        return _text(f"Agents ({len(rows)}):\n" + "\n".join(lines) + more + note)
+        return _text(f"Agents ({len(rows)}):\n" + "\n".join(lines) + note)
     except Exception as e:
         logger.error(f"list_agents failed: {e}")
         return _text(f"Could not list agents: {e}", is_error=True)

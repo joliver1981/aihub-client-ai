@@ -282,7 +282,15 @@ def test_find_user_contact_searches_and_lists_the_directory():
         def close(self):
             pass
 
-    fake_rt = types.SimpleNamespace(_db=lambda: _Conn())
+    class _Unavailable(Exception):
+        pass
+
+    def _no_feed(_name):
+        raise _Unavailable("no feed in this test: the directory is read from the database")
+
+    # the tool asks the platform feed first and reads the database when there is none
+    fake_rt = types.SimpleNamespace(_db=lambda: _Conn(), fetch=_no_feed,
+                                    ReadthroughUnavailable=_Unavailable)
     with mock.patch.dict(sys.modules, {"readthrough": fake_rt}):
         res = _run(P.find_user_contact.handler({"query": "smith"}))
         out = _txt(res)
@@ -294,6 +302,13 @@ def test_find_user_contact_searches_and_lists_the_directory():
         assert out.startswith("All 3 platform users:") and out.index("Ann Lee") < out.index("John Smith")
         res = _run(P.find_user_contact.handler({"query": "zzz"}))
         assert "No user matches" in _txt(res)
+        # every user is listed (it used to be the first 50, or the first 15 of a search)
+        rows[:] = [(i, f"Pat Number{i:03d}", f"pat{i:03d}", f"pat{i:03d}@x.co", "") for i in range(1, 121)]
+        out = _txt(_run(P.find_user_contact.handler({})))
+        assert out.startswith("All 120 platform users:") and out.count("\n- ") == 120
+        assert "not shown" not in out
+        out = _txt(_run(P.find_user_contact.handler({"query": "pat"})))
+        assert out.startswith("120 users match 'pat'") and "Number120" in out and "not shown" not in out
 
 
 def test_list_mcp_servers_formats_and_gates():

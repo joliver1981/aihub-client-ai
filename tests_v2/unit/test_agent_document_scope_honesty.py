@@ -138,12 +138,12 @@ def test_restricted_scope_with_no_visible_types_is_stated_honestly():
                          "currently hold documents.)")
 
 
-def test_scope_line_caps_the_names():
+def test_scope_line_names_every_type():
+    # it used to name the first 20 and count the rest
     names = [f"type_{i:02d}" for i in range(25)]
     line = document_tools.access_scope_line({"accessible_document_types": names})
-    assert line.startswith("\n(Your access covers: type_00, type_01, ")
-    assert "type_19" in line and "type_20" not in line
-    assert line.endswith(", +5 more.)")
+    assert line == "\n(Your access covers: " + ", ".join(names) + ".)"
+    assert "more" not in line
 
 
 def test_scope_line_is_built_from_the_servers_list_alone():

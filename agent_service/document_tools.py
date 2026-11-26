@@ -429,7 +429,6 @@ async def list_server_files(args: dict[str, Any]) -> dict[str, Any]:
         return _text(f"Could not read {raw}: {e}", is_error=True)
 
     dirs, files, importable = [], [], 0
-    CAP = 500
     for name in names:
         full = os.path.join(path, name)
         if os.path.isdir(full):
@@ -447,14 +446,12 @@ async def list_server_files(args: dict[str, Any]) -> dict[str, Any]:
              f"  {len(dirs)} folder(s), {len(files)} file(s)"
              + (f" matching {pattern}" if pattern else "")
              + f" · {importable} importable document(s)"]
-    for d in dirs[:CAP]:
+    # every folder and file (the listing used to stop at 500 of each)
+    for d in dirs:
         lines.append(f"  [dir]  {d}")
-    for name, size, mt, ok in files[:CAP]:
+    for name, size, mt, ok in files:
         flag = "" if ok else "  (unsupported)"
         lines.append(f"  {name}  ·  {_fmt_size(size)}  ·  {mt}{flag}")
-    shown = len(dirs[:CAP]) + len(files[:CAP])
-    if len(dirs) + len(files) > shown:
-        lines.append(f"  … {len(dirs) + len(files) - shown} more not shown")
     if importable:
         lines.append(f"\nTo bring these into AI Hub for search, call "
                      f"import_documents with path={path!r}.")
@@ -1005,9 +1002,6 @@ def _render_passages(query: str, found: dict, start_at: int, limit, agents_note:
 # `stats.accessible_document_types` ONLY for a caller whose grants leave part
 # of the store hidden, so an admin or any unrestricted caller gets no line and
 # no change at all.
-_SCOPE_MAX_NAMES = 20
-
-
 def access_scope_line(stats) -> str:
     """'\\n(Your access covers: a, b.)' for a restricted caller, else ''."""
     names = stats.get("accessible_document_types") if isinstance(stats, dict) else None
@@ -1019,10 +1013,8 @@ def access_scope_line(stats) -> str:
         # inside the grant (the grant covers only empty types).
         return ("\n(Your access covers none of the document types that "
                 "currently hold documents.)")
-    shown = ", ".join(names[:_SCOPE_MAX_NAMES])
-    more = (f", +{len(names) - _SCOPE_MAX_NAMES} more"
-            if len(names) > _SCOPE_MAX_NAMES else "")
-    return f"\n(Your access covers: {shown}{more}.)"
+    # every document type the access covers (it was the first 20 and a count)
+    return f"\n(Your access covers: {', '.join(names)}.)"
 
 
 @tool(

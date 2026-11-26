@@ -27,7 +27,10 @@ from platform_tools import _text
 TAVILY_URL = "https://api.tavily.com/search"
 DDG_LITE_URL = "https://lite.duckduckgo.com/lite/"
 _UA = "Mozilla/5.0 (compatible; AIHub-TheAgent/1.0)"
-MAX_RESULTS = 10
+# What the search provider itself allows for one search (its documented range is
+# 0 to 20, its default 10). We asked for 5 and never more than 10.
+MAX_RESULTS = 20
+DEFAULT_RESULTS = 10
 
 
 def tavily_key() -> str:
@@ -184,12 +187,12 @@ async def _search_ddg(query: str, n: int) -> list:
     "your training data. YES, you have web access: use this instead of guessing "
     "at live facts or saying you can't browse. Returns the provider's short "
     "summary (when available) plus titled sources with links — cite them in "
-    "your reply. Be specific in the query. num_results 1-10 (default 5).",
+    "your reply. Be specific in the query. num_results 1-20 (default 10).",
     {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "What to search for"},
-            "num_results": {"type": "integer", "description": "1-10, default 5"},
+            "num_results": {"type": "integer", "description": "1-20, default 10"},
         },
         "required": ["query"],
         "additionalProperties": False,
@@ -200,9 +203,9 @@ async def search_web(args: dict[str, Any]) -> dict[str, Any]:
     if not query:
         return _text("Give me something to search for.", is_error=True)
     try:
-        n = max(1, min(MAX_RESULTS, int(args.get("num_results") or 5)))
+        n = max(1, min(MAX_RESULTS, int(args.get("num_results") or DEFAULT_RESULTS)))
     except (TypeError, ValueError):
-        n = 5
+        n = DEFAULT_RESULTS
     key = tavily_key()
     engine = default_engine()
     errors = []
