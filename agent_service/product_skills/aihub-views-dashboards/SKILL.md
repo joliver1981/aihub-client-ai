@@ -96,9 +96,10 @@ No API key / internal data? A plain SQL tile with `viz: "ticker"` works too
 
 ## Gotchas
 
-- Tiles are pulses and top-N lists, not exports: ~50 rows per tile, and an
-  automation tile's JSON line must stay under ~1900 chars (the run seam
-  returns a 2000-char stdout tail).
+- A table tile is paged on screen (15 rows a page, with filter, sort and
+  CSV) and keeps up to 10,000 rows, for SQL and automation tiles alike; when
+  a query returns more, the tile says that rows were left out. For more than
+  that, export a file.
 - A failed/slow tile shows its error PLUS the cached last-good result
   labeled "as of <time>" — never present cache as fresh.
 - Views deep-link: `#view=<name>&scope=<scope>` opens straight to a view —

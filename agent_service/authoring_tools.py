@@ -111,10 +111,20 @@ def _summarize_run(data: dict) -> str:
     files = data.get("output_files") or []
     if files:
         lines.append("  output files: " + ", ".join(files[:10]))
-    if data.get("stdout_tail"):
-        lines.append("--- stdout (tail) ---\n" + str(data["stdout_tail"])[-800:])
-    if status in ("failed", "error", "unverified") and data.get("stderr_tail"):
-        lines.append("--- stderr (tail) ---\n" + str(data["stderr_tail"])[-800:])
+    # The run's output, whole, when the main app sends it (full_output); from an
+    # older main app, the 2,000-character tail it sends, all of it. It used to be
+    # the last 800 characters of that tail.
+    if isinstance(data.get("stdout"), str):
+        if data["stdout"].strip():
+            lines.append("--- stdout ---\n" + data["stdout"])
+    elif data.get("stdout_tail"):
+        lines.append("--- stdout (the last 2,000 characters) ---\n" + str(data["stdout_tail"]))
+    if status in ("failed", "error", "unverified"):
+        if isinstance(data.get("stderr"), str):
+            if data["stderr"].strip():
+                lines.append("--- stderr ---\n" + data["stderr"])
+        elif data.get("stderr_tail"):
+            lines.append("--- stderr (the last 2,000 characters) ---\n" + str(data["stderr_tail"]))
     return "\n".join(lines)
 
 
@@ -226,6 +236,7 @@ async def _run_action(action: str, automation_ref: str, inputs_json: str,
             return _text("inputs_json is not valid JSON", is_error=True)
     if version and int(version) > 0:
         payload["version"] = int(version)
+    payload["full_output"] = True           # the run's whole output, not its last 2,000 characters
 
     data, status = await _manage(action, payload, timeout=900)
 

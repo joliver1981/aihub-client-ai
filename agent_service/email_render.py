@@ -479,7 +479,7 @@ def _tile_table(columns, rows, row_count=None, cap_applied=False) -> str:
     if len(columns) > EMAIL_COL_CAP:
         bits.append(f"first {EMAIL_COL_CAP} of {len(columns)} columns")
     if cap_applied:
-        bits.append("server row cap applied")
+        bits.append("the result has more rows than a tile keeps")
     return html + _note(" · ".join(bits))
 
 

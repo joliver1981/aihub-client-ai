@@ -61,10 +61,10 @@ secrets, Python transforms). Contract:
 - **Never call `aihub.checkpoint()` in a tile automation** — a dashboard
   refresh cannot wait on approvals; the refresh aborts the run and the tile
   errors.
-- Keep it fast (tile budget ~120s) and small (~50 rows — pulse numbers and
-  top-N lists, not exports). The run seam returns only the final ~2000 chars
-  of stdout, so the JSON line must stay under ~1900 chars — print fewer
-  rows/columns rather than a wide dump.
+- Keep it fast (tile budget ~120s). A table tile is paged on screen (15 rows
+  a page, with filter, sort and CSV) and keeps up to 10,000 rows; the JSON
+  line can be as long as the table needs. For more rows than that, write a
+  file instead of a tile.
 
 ## Delivering produced files
 

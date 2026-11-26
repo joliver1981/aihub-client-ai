@@ -31,7 +31,29 @@ VIEW_TILE_TIMEOUT = float(os.getenv("VIEW_TILE_TIMEOUT", "120"))
 # (see _group_key). Tiles that never get their turn say so rather than
 # pretending they failed.
 VIEW_SERIAL_BUDGET = float(os.getenv("VIEW_SERIAL_BUDGET", "300"))
-TILE_ROW_CAP = 50
+
+
+def _tile_row_cap() -> int:
+    """Rows one tile keeps (VIEW_TILE_ROW_CAP, 0 = every row). The Views screen
+    pages a table 15 rows at a time, so this is not about how much a person can
+    read: it is what the screen draws and what the shared tile cache holds.
+    Measured 2026-11-25 in the browser: 10,000 rows x 10 columns are 1.3 MB and
+    are drawn in about a second; 50,000 took 20 seconds. It was 50. The main
+    app's query seam reads the same setting for SQL tiles (config.py)."""
+    try:
+        return max(0, int(os.getenv("VIEW_TILE_ROW_CAP", "10000")))
+    except ValueError:
+        return 10000
+
+
+def _keep_tile_rows(tile: dict, cols: list, rows: list) -> None:
+    """Put a tile's table on the tile; says so when rows were left out."""
+    cap = _tile_row_cap()
+    tile["columns"] = cols
+    tile["rows"] = rows[:cap] if cap else rows
+    tile["row_count"] = len(tile["rows"])
+    if cap and len(rows) > cap:
+        tile["cap_applied"] = True
 
 # The View being refreshed, for the tile runners (set by run_view).
 _VIEW_CTX: contextvars.ContextVar = contextvars.ContextVar("VIEW_CTX", default=None)
@@ -66,10 +88,11 @@ def _viewer_claim():
 # Refresh engine (shared with /api/views/run; no LLM anywhere)
 # ---------------------------------------------------------------------------
 
-def _parse_tile_stdout(stdout_tail: str):
+def _parse_tile_stdout(stdout_tail: str, whole: bool = False):
     """Tile output contract (spec §4.2): the LAST stdout line that parses as
     JSON is the tile's data. Accepts {columns, rows}, a list of dicts, or a
-    {value[, label]} stat. Returns (columns, rows) or raises ValueError."""
+    {value[, label]} stat. Returns (columns, rows), every row, or raises
+    ValueError. ``whole``: the text is the run's whole output, not its tail."""
     for line in reversed((stdout_tail or "").strip().splitlines()):
         line = line.strip()
         if not line or line[0] not in "[{":
@@ -82,18 +105,21 @@ def _parse_tile_stdout(stdout_tail: str):
             cols = [str(c) for c in (data["columns"] or [])]
             rows = [[r.get(c) for c in cols] if isinstance(r, dict) else list(r)
                     for r in (data["rows"] or [])]
-            return cols, rows[:TILE_ROW_CAP]
+            return cols, rows
         if isinstance(data, list) and data and all(isinstance(r, dict) for r in data):
             cols = [str(k) for k in data[0].keys()]
-            return cols, [[r.get(c) for c in cols] for r in data[:TILE_ROW_CAP]]
+            return cols, [[r.get(c) for c in cols] for r in data]
         if isinstance(data, dict) and "value" in data:
             return [str(data.get("label") or "value")], [[data["value"]]]
     raise ValueError(
         "no tile data found — the automation's LAST stdout line must be JSON: "
         '{"columns": [...], "rows": [[...]]}, a list of objects, or '
-        '{"value": n, "label": "..."}. Note the run seam returns only the '
-        "final ~2000 chars of stdout, so keep the JSON line under ~1900 chars "
-        "(print fewer rows/columns — tiles are pulses, not exports)")
+        '{"value": n, "label": "..."}.'
+        + ("" if whole else
+           " Note: this main app returned only the final 2,000 characters of the "
+           "run's output (it is older than this service), so a longer JSON line "
+           "arrives cut and cannot be read; print fewer rows or columns until "
+           "the main app is updated."))
 
 
 async def _run_sql_tile(t: dict, tile: dict) -> None:
@@ -101,8 +127,12 @@ async def _run_sql_tile(t: dict, tile: dict) -> None:
     if err:
         tile["error"] = err
         return
+    # 'purpose' asks the seam for a tile's limits (VIEW_TILE_*) instead of the
+    # model probe's 50 rows, 25 columns and 200 characters a cell. A main app
+    # that does not know it answers with the probe's limits, as before.
     data, status = await _post(f"/api/discover/query/{conn_id}",
-                               {"sql": str(t.get("sql") or "").strip()})
+                               {"sql": str(t.get("sql") or "").strip(),
+                                "purpose": "view_tile"})
     if data.get("access") == "denied":
         # Connection ACL: the refreshing user may not use this tile's
         # connection — say so in the platform's words (not "no data").
@@ -129,7 +159,10 @@ async def _run_automation_tile(t: dict, tile: dict) -> None:
     branches per spec §4.3. Runs as the refreshing user (CURRENT_USER is the
     session envelope — set by the endpoint/turn before we get here)."""
     auto_ref = str(t.get("automation_id") or t.get("automation") or "")
-    payload = {"automation_id": auto_ref, "inputs": dict(t.get("inputs") or {})}
+    # full_output: the run's whole output comes back, not only its last 2,000
+    # characters, so the tile's JSON line can be as long as its table needs.
+    payload = {"automation_id": auto_ref, "inputs": dict(t.get("inputs") or {}),
+               "full_output": True}
     # A regular user refreshing a View that was shared with them: the run is
     # admitted on the standing of whoever saved the View (2026-11-25).
     claim = _viewer_claim()
@@ -213,14 +246,14 @@ async def _run_automation_tile(t: dict, tile: dict) -> None:
                          f"{data.get('run_id', '?')}): {detail}")
         return
 
+    whole = isinstance(data.get("stdout"), str)        # a main app that knows full_output
     try:
-        cols, rows = _parse_tile_stdout(str(data.get("stdout_tail") or ""))
+        cols, rows = _parse_tile_stdout(
+            data["stdout"] if whole else str(data.get("stdout_tail") or ""), whole=whole)
     except ValueError as e:
         tile["error"] = str(e)
         return
-    tile["columns"] = cols
-    tile["rows"] = rows
-    tile["row_count"] = len(rows)
+    _keep_tile_rows(tile, cols, rows)
     tile["run_id"] = data.get("run_id")
 
 
@@ -380,8 +413,9 @@ async def run_view(view: dict, only_index: int | None = None) -> dict:
     "user's groups — ask them to confirm first, pass group_id), 'tenant' "
     "(everyone — FILES AN ADMIN APPROVAL into My Work; not published until "
     "approved). Saving an existing name in the same scope replaces it and "
-    "bumps its version. ~50 rows per tile — pulse numbers and top-N lists, "
-    "not exports.",
+    "bumps its version. A table tile is paged on screen 15 rows at a time with "
+    "filter, sort and CSV, and keeps up to 10,000 rows; for more than that, "
+    "export a file instead.",
     {
         "type": "object",
         "properties": {

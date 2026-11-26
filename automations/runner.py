@@ -724,10 +724,15 @@ class AutomationRunner:
     def run(self, automation_id: str, inputs: Optional[Dict] = None,
             trigger: str = "manual", version: Optional[int] = None,
             requested_by: Optional[int] = None, dry_run: bool = False,
-            run_id: Optional[str] = None) -> Dict:
+            run_id: Optional[str] = None, full_output: bool = False) -> Dict:
         """Execute an automation synchronously. Returns the finished run dict
         (or the 'skipped' record). The API layer threads this for async runs,
-        pre-allocating run_id so the caller can poll before the row lands."""
+        pre-allocating run_id so the caller can poll before the row lands.
+
+        full_output: the result also carries the run's whole stdout and stderr
+        ('stdout', 'stderr') next to the 2,000-character tails every caller
+        gets. Asked for by a caller that reads the output itself (a View tile's
+        data line, The Agent reporting a run); nobody else's result changes."""
         auto = self.manager.get_automation(automation_id)
         if not auto:
             return {"status": "error", "error": "automation not found"}
@@ -787,6 +792,10 @@ class AutomationRunner:
             logger.exception(f"automation {automation_id} run {run_id} crashed in runner")
             self._db_finish_run(run_id, "failed", None, None, None, f"runner error: {e}")
             return {"run_id": run_id, "status": "failed", "error": f"runner error: {e}"}
+
+        whole = result.pop("_output", None)
+        if full_output and whole:
+            result["stdout"], result["stderr"] = whole
 
         self._db_finish_run(
             run_id,
@@ -1034,6 +1043,7 @@ class AutomationRunner:
             "status": status, "exit_code": exit_code, "error": error, "version": version,
             "verify_report": verify_report, "output_files": output_files,
             "stdout_tail": stdout[-2000:], "stderr_tail": stderr[-2000:],
+            "_output": (stdout, stderr),     # taken out again by run() / run_code_step()
             "workdir": workdir,
             # AIHUB-0040: transfer-claim evidence for honest chat reporting —
             # egress destinations recorded by the socket hook, and the explicit
@@ -1075,6 +1085,7 @@ class AutomationRunner:
             run_id=run_id, workdir=workdir, inputs=resolved_inputs, timeout=timeout,
             dry_run=False, samples_dir=None, force_env_inject=True,
             checkpoints_supported=False, token_extra=token_extra)
+        result.pop("_output", None)
         result["run_id"] = run_id
         return result
 

@@ -35,7 +35,9 @@ from code_tools import execute_python
 
 FORMATS = ("xlsx", "csv", "json", "pdf")
 PDF_OPS = ("info", "extract", "split", "rotate", "merge")
-MAX_ROWS = int(os.getenv("AGENT_EXPORT_MAX_ROWS", "100000"))
+# Rows one export writes. 150,000 since 2026-11-25 (it was 100,000); an export
+# that is cut says so in its result. AGENT_EXPORT_MAX_ROWS changes it.
+MAX_ROWS = int(os.getenv("AGENT_EXPORT_MAX_ROWS", "150000"))
 PDF_TABLE_MAX_ROWS = 2000
 SPLIT_ZIP_THRESHOLD = 20
 _TIMEOUT = int(os.getenv("AGENT_EXPORT_TIMEOUT", "300"))

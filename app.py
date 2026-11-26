@@ -18065,6 +18065,17 @@ def discover_query_api(connection_id):
                              cfg.DISCOVER_QUERY_ROW_CAP))
     except (TypeError, ValueError):
         row_cap = cfg.DISCOVER_QUERY_ROW_CAP
+    max_cols, max_cell, gate_cap = cfg.DISCOVER_QUERY_MAX_COLS, cfg.DISCOVER_QUERY_MAX_CELL, row_cap
+    # A View tile of The Agent ('purpose': 'view_tile'): a table a person pages
+    # through on screen, not a probe a model reads. It has its own limits
+    # (VIEW_TILE_*, 0 = none). Everything above about the probe is unchanged.
+    tile_mode = str(body.get('purpose') or '') == 'view_tile'
+    if tile_mode:
+        row_cap = max(0, int(cfg.VIEW_TILE_ROW_CAP))
+        max_cols = max(0, int(cfg.VIEW_TILE_MAX_COLS))
+        max_cell = max(0, int(cfg.VIEW_TILE_MAX_CELL))
+        # one row more than is shown: "there are more rows" is then known, not guessed
+        gate_cap = (row_cap + 1) if row_cap else None
     try:
         from sql_gate import gate_sql
         target_conn_str, _cid, db_type = get_database_connection_string(connection_id)
@@ -18072,7 +18083,7 @@ def discover_query_api(connection_id):
             return jsonify({'success': False,
                             'error': 'Connection not found or no connection string'}), 404
 
-        gate = gate_sql(sql, database_type=db_type, row_cap=row_cap)
+        gate = gate_sql(sql, database_type=db_type, row_cap=gate_cap)
         if not gate.ok:
             # Rejection is an ANSWER, not a server error — the agent should read
             # the reason and revise, so keep it a 200 with success=False.
@@ -18083,21 +18094,25 @@ def discover_query_api(connection_id):
             return jsonify({'success': False, 'sql_error': True,
                             'error': err or 'query failed'})
 
-        cols = [str(c) for c in df.columns][:cfg.DISCOVER_QUERY_MAX_COLS]
+        all_cols = [str(c) for c in df.columns]
+        cols = all_cols[:max_cols] if max_cols else all_cols
         rows = []
-        for rec in df.head(row_cap).to_dict('records'):
+        for rec in (df.head(row_cap) if row_cap else df).to_dict('records'):
             out = {}
             for c in cols:
                 v = rec.get(c)
                 s = '' if v is None else str(v)
-                out[c] = (s if len(s) <= cfg.DISCOVER_QUERY_MAX_CELL
-                          else s[:cfg.DISCOVER_QUERY_MAX_CELL] + '…')
+                out[c] = (s if not max_cell or len(s) <= max_cell
+                          else s[:max_cell] + '…')
             rows.append(out)
+        # a tile: rows were left out only when the query really returned more
+        more_rows = bool(tile_mode and row_cap and len(df) > row_cap)
         return jsonify({
             'success': True, 'columns': cols, 'rows': rows,
-            'row_count': int(len(df)),
+            'row_count': int(len(rows)) if tile_mode else int(len(df)),
             'truncated_columns': max(0, len(df.columns) - len(cols)),
-            'cap_applied': bool(gate.cap_applied), 'row_cap': row_cap,
+            'cap_applied': more_rows if tile_mode else bool(gate.cap_applied),
+            'row_cap': row_cap, 'more_rows': more_rows,
             'sql': gate.sql,
         })
     except Exception as e:

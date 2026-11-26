@@ -973,9 +973,11 @@ def _await_inline_result(runner, run_id, holder, thread,
         clock.sleep(poll_s)
 
 
-def _run_inline(automation_id, inputs, trigger, version, requested_by, dry_run):
+def _run_inline(automation_id, inputs, trigger, version, requested_by, dry_run,
+                full_output=False):
     """Start a run in a worker thread and wait inline per _await_inline_result.
-    Shared by the user route and the internal manage endpoint."""
+    Shared by the user route and the internal manage endpoint. full_output: the
+    result also carries the run's whole stdout and stderr (see runner.run)."""
     runner = _get_runner()
     run_id = str(uuid.uuid4())
     holder = {}
@@ -984,7 +986,8 @@ def _run_inline(automation_id, inputs, trigger, version, requested_by, dry_run):
         try:
             holder["result"] = runner.run(
                 automation_id, inputs=inputs, trigger=trigger, version=version,
-                requested_by=requested_by, dry_run=dry_run, run_id=run_id)
+                requested_by=requested_by, dry_run=dry_run, run_id=run_id,
+                full_output=bool(full_output))
         except Exception as e:  # never leave the waiter spinning on a crash
             holder["result"] = {"status": "error", "error": str(e)}
 
@@ -2756,9 +2759,14 @@ def internal_manage():
                 return jsonify({"error": "automation not found"}), 404
             # AIHUB-0058: shared inline path — returns early with the pending
             # checkpoint question instead of blocking until the client times out.
+            # full_output: a caller that reads the run's output itself (a View
+            # tile, The Agent reporting a run) gets it whole. Passed only when
+            # asked for, so every other run is started exactly as before.
+            whole_output = {"full_output": True} if payload.get("full_output") else {}
             result, code = _run_inline(aid, payload.get("inputs") or {},
                                        "manual", payload.get("version"),
-                                       user_id, dry_run=(action == "dry_run"))
+                                       user_id, dry_run=(action == "dry_run"),
+                                       **whole_output)
             return jsonify(result), code
 
         if action == "runs":
